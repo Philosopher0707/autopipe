@@ -121,46 +121,39 @@ export function Skeleton({ className }: React.HTMLAttributes<HTMLDivElement>) {
 }
 
 // Dropdown Menu Components
+const DropdownMenuContext = React.createContext<{
+  open: boolean
+  onOpenChange: (open: boolean) => void
+} | null>(null)
+
 export function DropdownMenu({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="relative">
-      {React.Children.map(children, (child) => {
-        if (React.isValidElement(child)) {
-          return React.cloneElement(child as React.ReactElement<{ open?: boolean; onOpenChange?: (open: boolean) => void }>, {
-            open,
-            onOpenChange: setOpen,
-          })
-        }
-        return child
-      })}
-      {open && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setOpen(false)}
-        />
-      )}
-    </div>
+    <DropdownMenuContext.Provider value={{ open, onOpenChange: setOpen }}>
+      <div className="relative inline-block">
+        {children}
+      </div>
+    </DropdownMenuContext.Provider>
   )
 }
 
-export function DropdownMenuTrigger({ children, open, asChild }: {
+export function DropdownMenuTrigger({ children, asChild }: {
   children: ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
   asChild?: boolean
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const ctx = React.useContext(DropdownMenuContext)!
 
   const handleClick = () => {
-    setIsOpen(!isOpen)
+    ctx.onOpenChange(!ctx.open)
   }
 
   if (asChild && React.isValidElement(children)) {
     return React.cloneElement(children as React.ReactElement<{ onClick?: () => void }>, {
       onClick: () => {
-        setIsOpen(!isOpen)
+        ctx.onOpenChange(!ctx.open)
         ;(children as React.ReactElement<{ onClick?: () => void }>).props?.onClick?.()
       },
     })
@@ -171,7 +164,7 @@ export function DropdownMenuTrigger({ children, open, asChild }: {
       type="button"
       onClick={handleClick}
       className="inline-flex"
-      aria-expanded={isOpen}
+      aria-expanded={ctx.open}
     >
       {children}
     </button>
@@ -184,35 +177,51 @@ export function DropdownMenuContent({ children, align = 'end' }: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const ctx = React.useContext(DropdownMenuContext)
+
+  if (!ctx?.open) return null
 
   return (
-    <div
-      className={cn(
-        'absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
-        'animate-in fade-in-0 zoom-in-95',
-        align === 'end' ? 'right-0' : align === 'start' ? 'left-0' : 'left-1/2 -translate-x-1/2'
-      )}
-    >
-      {children}
-    </div>
+    <>
+      <div
+        className="fixed inset-0 z-40"
+        onClick={() => ctx.onOpenChange(false)}
+      />
+      <div
+        className={cn(
+          'absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
+          'animate-in fade-in-0 zoom-in-95',
+          align === 'end' ? 'right-0' : align === 'start' ? 'left-0' : 'left-1/2 -translate-x-1/2'
+        )}
+      >
+        {children}
+      </div>
+    </>
   )
 }
 
-export function DropdownMenuItem({ children, onClick }: {
+export function DropdownMenuItem({ children, onClick, className }: {
   children: ReactNode
   onClick?: () => void
   className?: string
 }) {
+  const ctx = React.useContext(DropdownMenuContext)!
+
+  const handleClick = () => {
+    onClick?.()
+    ctx.onOpenChange(false)
+  }
+
   return (
     <button
       className={cn(
         'relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none',
         'transition-colors hover:bg-accent hover:text-accent-foreground',
         'focus:bg-accent focus:text-accent-foreground',
-        'w-full text-left'
+        'w-full text-left',
+        className
       )}
-      onClick={onClick}
+      onClick={handleClick}
     >
       {children}
     </button>

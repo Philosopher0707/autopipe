@@ -157,11 +157,11 @@ export function Dashboard() {
 
   const runs = runsData || []
 
-  const { data: activities } = useQuery({
+  const { data: activities } = useQuery<ActivityLog[]>({
     queryKey: ['dashboard', 'activity'],
     queryFn: async () => {
       const response = await dashboardApi.getActivity(20)
-      return response.items
+      return response.items ?? []
     },
     refetchInterval: 30000,
     initialData: [],

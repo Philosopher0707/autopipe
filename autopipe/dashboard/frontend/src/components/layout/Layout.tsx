@@ -25,9 +25,18 @@ interface SidebarItemProps {
 }
 
 function SidebarItem({ to, icon, label, badge }: SidebarItemProps) {
+  // Tooltip text for badge context
+  const badgeContext: Record<string, string> = {
+    'Pipelines': 'Active pipelines',
+    'Experiments': 'Running experiments',
+    'Model Registry': 'Models registered',
+    'Drift Monitor': 'Features drifted',
+  }
+
   return (
     <NavLink
       to={to}
+      title={badge ? badgeContext[label] || `${badge} items` : undefined}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
@@ -40,7 +49,10 @@ function SidebarItem({ to, icon, label, badge }: SidebarItemProps) {
       {icon}
       <span className="flex-1">{label}</span>
       {badge && badge > 0 && (
-        <span className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full">
+        <span 
+          className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full" 
+          title={badgeContext[label]}
+        >
           {badge}
         </span>
       )}
@@ -89,7 +101,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           
           <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={3} />
           <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={8} />
-          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={1} />
+          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={3} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             System
@@ -138,14 +150,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
-          <div className="flex items-center gap-4 ml-auto">
-            <ThemeToggle />
+          <div className="flex items-center gap-3 sm:gap-4 ml-auto flex-nowrap">
+            <div className="hidden sm:block">
+              <ThemeToggle />
+            </div>
             <NavLink
               to="/pipelines/new"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 sm:px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors whitespace-nowrap"
             >
               <Play className="w-4 h-4" />
-              New Pipeline
+              <span className="hidden sm:inline">New Pipeline</span>
             </NavLink>
           </div>
         </header>
