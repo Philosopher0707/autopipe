@@ -2,12 +2,13 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, dashboard, drift, experiments, models, pipelines, runs, websocket
+from app.api.v1.endpoints import auth, charts, dashboard, drift, experiments, models, pipelines, runs, websocket
 
 api_router = APIRouter()
 
 # Include all endpoint routers
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(charts.router, prefix="/charts", tags=["charts"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(pipelines.router, prefix="/pipelines", tags=["pipelines"])
 api_router.include_router(runs.router, prefix="/runs", tags=["runs"])

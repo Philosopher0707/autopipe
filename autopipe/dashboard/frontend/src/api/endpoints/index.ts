@@ -1,5 +1,6 @@
 export * from './dashboard'
 export * from './auth'
+export * from './charts'
 export * from './pipelines'
 export * from './runs'
 export * from './models'

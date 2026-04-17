@@ -283,3 +283,18 @@ class ActivityLog(Base):
     details: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ChartArtifact(Base):
+    """Chart data artifact generated during pipeline runs."""
+    __tablename__ = "chart_artifacts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
+    step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True)
+    experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True)
+    chart_type: Mapped[str] = mapped_column(String(50), nullable=False)  # line, bar, scatter, area, pie, heatmap
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    data: Mapped[Dict] = mapped_column(JSON, nullable=False)
+    config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -9,41 +9,26 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent, Skeleton } from '@/components/ui'
-import { dashboardApi } from '@/api/endpoints'
+import { chartsApi } from '@/api/endpoints'
 import { useQuery } from '@tanstack/react-query'
 
 type TimeRange = '7d' | '30d' | '90d'
 
-function formatChartData(points: { timestamp: string; value: number }[]) {
-  return points.map((p) => {
-    const date = new Date(p.timestamp)
-    return {
-      name: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      success: Math.round(p.value * 100),
-      failed: Math.round((1 - p.value) * 100),
-    }
-  })
-}
-
 export function PipelinePerformanceChart() {
   const [timeRange, setTimeRange] = useState<TimeRange>('7d')
-  const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90
+  const limit = timeRange === '7d' ? 30 : timeRange === '30d' ? 60 : 100
 
   const { data, isLoading } = useQuery({
-    queryKey: ['dashboard', 'metrics', 'pipeline_success', timeRange],
-    queryFn: async () => {
-      const end = new Date()
-      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
-      const resp = await dashboardApi.getMetrics({
-        metric_name: 'pipeline_success',
-        start: start.toISOString(),
-        end: end.toISOString(),
-      })
-      return resp.data ?? []
-    },
+    queryKey: ['charts', 'run-metrics-over-time', 'accuracy', timeRange],
+    queryFn: () => chartsApi.getRunMetricsOverTime({ metric: 'accuracy', limit }),
   })
 
-  const chartData = data ? formatChartData(data) : []
+  const chartData = data
+    ? data.points.map((p) => ({
+        name: `Run ${p.run_number}`,
+        success: Math.round(p.value * 100),
+      }))
+    : []
 
   return (
     <Card>
@@ -105,29 +90,21 @@ export function PipelinePerformanceChart() {
 export function ModelAccuracyChart() {
   const [filter, setFilter] = useState<'all' | 'production' | 'staging'>('all')
   const [timeRange, setTimeRange] = useState<TimeRange>('7d')
-  const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90
+  const limit = timeRange === '7d' ? 30 : timeRange === '30d' ? 60 : 100
 
   const { data, isLoading } = useQuery({
-    queryKey: ['dashboard', 'metrics', 'model_accuracy', filter, timeRange],
-    queryFn: async () => {
-      const end = new Date()
-      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000)
-      const resp = await dashboardApi.getMetrics({
-        metric_name: 'model_accuracy',
-        start: start.toISOString(),
-        end: end.toISOString(),
-      })
-      return resp.data ?? []
-    },
+    queryKey: ['charts', 'run-metrics-over-time', 'model_accuracy', filter, timeRange],
+    queryFn: () =>
+      chartsApi.getRunMetricsOverTime({
+        metric: filter === 'all' ? 'accuracy' : `${filter}_accuracy`,
+        limit,
+      }),
   })
 
-  // Map to version-like labels
   const chartData = data
-    ? data.map((p, i) => ({
+    ? data.points.map((p, i) => ({
         version: `v${i + 1}`,
-        accuracy: p.value,
-        f1: p.value * 0.98, // approximate F1
-        timestamp: p.timestamp,
+        value: p.value,
       }))
     : []
 
@@ -174,7 +151,7 @@ export function ModelAccuracyChart() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="version" stroke="#6b7280" fontSize={12} />
                 <YAxis
-                  domain={[0.8, 1]}
+                  domain={[0, 1]}
                   stroke="#6b7280"
                   fontSize={12}
                   tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
@@ -189,19 +166,11 @@ export function ModelAccuracyChart() {
                 />
                 <Line
                   type="monotone"
-                  dataKey="accuracy"
+                  dataKey="value"
                   stroke="#3b82f6"
                   strokeWidth={2}
                   dot={{ fill: '#3b82f6', r: 4 }}
                   name="Accuracy"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="f1"
-                  stroke="#8b5cf6"
-                  strokeWidth={2}
-                  dot={{ fill: '#8b5cf6', r: 4 }}
-                  name="F1 Score"
                 />
               </LineChart>
             </ResponsiveContainer>

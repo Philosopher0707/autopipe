@@ -583,3 +583,110 @@ class ArtifactResponse(ArtifactInDB):
 class ArtifactList(PaginatedResponse):
     """Artifact list response."""
     items: List[ArtifactResponse]
+
+
+# ==================== Chart Data Schemas ====================
+
+class ChartMetricPoint(BaseModel):
+    """Single data point for a metric-over-time chart."""
+    run_number: int
+    value: float
+    completed_at: Optional[str] = None
+
+
+class RunMetricsOverTimeResponse(BaseModel):
+    """Response for GET /charts/run-metrics-over-time."""
+    metric: str
+    points: List[ChartMetricPoint]
+
+
+class StepDurationPoint(BaseModel):
+    """Single step duration entry."""
+    name: str
+    duration_seconds: Optional[float] = None
+    status: str
+    order_index: int
+
+
+class StepDurationsResponse(BaseModel):
+    """Response for GET /charts/step-durations."""
+    run_id: str
+    steps: List[StepDurationPoint]
+
+
+class ExperimentMetricTraceResponse(BaseModel):
+    """Response for GET /charts/experiment-metric-trace."""
+    experiment_id: str
+    metrics: List[str]
+    points: List[Dict[str, Any]]
+
+
+class ModelVersionMetricsResponse(BaseModel):
+    """Response for GET /charts/model-version-metrics."""
+    model_id: str
+    model_name: str
+    metrics: List[str]
+    points: List[Dict[str, Any]]
+
+
+class DriftFeatureScorePoint(BaseModel):
+    """Single feature drift score entry."""
+    name: str
+    drift_score: float
+    threshold: float
+    is_drifted: bool
+    test_type: str
+
+
+class DriftFeatureScoresResponse(BaseModel):
+    """Response for GET /charts/drift-feature-scores."""
+    report_id: str
+    drift_detected: bool
+    features: List[DriftFeatureScorePoint]
+
+
+class DriftTrendPoint(BaseModel):
+    """Single point in drift trend."""
+    created_at: str
+    drift_score: float
+    drift_detected: bool
+    features_drifted: int
+
+
+class DriftTrendResponse(BaseModel):
+    """Response for GET /charts/drift-trend."""
+    model_id: Optional[str] = None
+    points: List[DriftTrendPoint]
+
+
+# ==================== Chart Artifact Schemas ====================
+
+class ChartArtifactCreate(BaseModel):
+    """Chart artifact creation schema."""
+    run_id: Optional[str] = None
+    step_id: Optional[str] = None
+    experiment_id: Optional[str] = None
+    chart_type: str = Field(..., pattern="^(line|bar|scatter|area|pie|heatmap)$")
+    title: str = Field(..., min_length=1, max_length=255)
+    data: Dict[str, Any]
+    config: Optional[Dict[str, Any]] = None
+
+
+class ChartArtifactResponse(BaseModel):
+    """Chart artifact API response."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    run_id: Optional[str] = None
+    step_id: Optional[str] = None
+    experiment_id: Optional[str] = None
+    chart_type: str
+    title: str
+    data: Dict[str, Any]
+    config: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class ChartArtifactList(PaginatedResponse):
+    """Chart artifact list response."""
+    items: List[ChartArtifactResponse]

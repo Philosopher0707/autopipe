@@ -2,8 +2,11 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell,
+} from 'recharts'
 import { Card, CardContent, CardHeader, Badge, Button, Skeleton } from '@/components/ui'
-import { driftApi } from '@/api/endpoints'
+import { driftApi, chartsApi } from '@/api/endpoints'
 import { cn, formatDate } from '@/utils/helpers'
 import type { DriftFeature, DriftReport as DriftReportType } from '@/types'
 
@@ -15,6 +18,12 @@ export function DriftReport() {
   const { data: report, isLoading } = useQuery<DriftReportType>({
     queryKey: ['drift', 'report', reportId],
     queryFn: () => driftApi.getReport(reportId!),
+    enabled: !!reportId,
+  })
+
+  const { data: featureScores } = useQuery({
+    queryKey: ['charts', 'drift-feature-scores', reportId],
+    queryFn: () => chartsApi.getDriftFeatureScores(reportId!),
     enabled: !!reportId,
   })
 
@@ -73,6 +82,35 @@ export function DriftReport() {
           </CardContent>
         </Card>
       </div>
+
+      {featureScores && featureScores.features.length > 0 && (
+        <Card>
+          <CardHeader>
+            <span className="font-semibold">Feature Drift Scores</span>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={featureScores.features} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" fontSize={12} />
+                  <YAxis dataKey="name" type="category" width={150} fontSize={11} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(v: number) => [`${(v * 100).toFixed(1)}%`]}
+                  />
+                  <ReferenceLine x={featureScores.features[0]?.threshold} stroke="#ef4444" strokeDasharray="3 3" label={{ value: 'Threshold', position: 'top', fill: '#ef4444', fontSize: 11 }} />
+                  <Bar dataKey="drift_score" name="Drift Score">
+                    {featureScores.features.map((f, i) => (
+                      <Cell key={i} fill={f.is_drifted ? '#ef4444' : '#10b981'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

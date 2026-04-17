@@ -5,9 +5,12 @@ import {
   ArrowLeft, Download, Loader2, TrendingUp,
 } from 'lucide-react'
 import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
+import {
   Card, CardContent, CardHeader, CardTitle, Badge, Button, Skeleton,
 } from '@/components/ui'
-import { modelsApi, type ModelComparisonResponse } from '@/api/endpoints'
+import { modelsApi, chartsApi, type ModelComparisonResponse } from '@/api/endpoints'
 import { formatRelativeTime } from '@/utils/helpers'
 import type { ModelVersion } from '@/types'
 
@@ -81,6 +84,12 @@ export function ModelDetail() {
     || versions[0]
   
   const isLoadingModel = isLoading || (versionsLoading && !model?.versions)
+
+  const { data: versionMetricsData } = useQuery({
+    queryKey: ['charts', 'model-version-metrics', modelId],
+    queryFn: () => chartsApi.getModelVersionMetrics({ model_id: modelId! }),
+    enabled: !!modelId,
+  })
   
   const createMutation = useMutation({
     mutationFn: () => modelsApi.create({
@@ -292,6 +301,40 @@ export function ModelDetail() {
                   <p className="text-xs text-muted-foreground uppercase">{key}</p>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {versionMetricsData && versionMetricsData.points.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Metrics Across Versions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={versionMetricsData.points}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="version" fontSize={12} label={{ value: 'Version', position: 'insideBottomRight', offset: -5 }} />
+                  <YAxis fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(v: number) => [v.toFixed(4)]}
+                  />
+                  {versionMetricsData.metrics.map((m, i) => (
+                    <Line
+                      key={m}
+                      type="monotone"
+                      dataKey={m}
+                      stroke={['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'][i % 5]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={m}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>

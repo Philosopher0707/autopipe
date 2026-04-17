@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.db.models import (
     User, UserRole, Pipeline, Run, RunStatus, Step, StepStatus,
     Experiment, Model, ModelVersion, ModelStage, DriftReport, DriftAlert,
-    AlertSeverity, DashboardMetric, ActivityLog,
+    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact,
 )
 from app.db.session import engine, AsyncSessionLocal
 
@@ -456,6 +456,106 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
     print(f"  ✓ Created activity logs")
 
 
+async def seed_chart_artifacts(db: AsyncSession) -> None:
+    """Create sample chart artifacts for seeded runs."""
+    from sqlalchemy import select
+    import random
+
+    result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(5))
+    runs = list(result.scalars().all())
+    if not runs:
+        print("  ⚠ No successful runs found, skipping chart artifacts")
+        return
+
+    templates = [
+        {
+            "chart_type": "line",
+            "title": "Training Loss",
+            "data": {
+                "x_key": "epoch",
+                "series": ["loss", "val_loss"],
+                "points": [
+                    {"epoch": e, "loss": round(0.5 * (0.9 ** e) + random.uniform(0, 0.02), 4),
+                     "val_loss": round(0.55 * (0.88 ** e) + random.uniform(0, 0.03), 4)}
+                    for e in range(1, 11)
+                ],
+            },
+            "config": {"x_label": "Epoch", "y_label": "Loss", "colors": {"loss": "#ef4444", "val_loss": "#3b82f6"}},
+        },
+        {
+            "chart_type": "line",
+            "title": "Accuracy Over Epochs",
+            "data": {
+                "x_key": "epoch",
+                "series": ["accuracy", "val_accuracy"],
+                "points": [
+                    {"epoch": e, "accuracy": round(min(0.99, 0.6 + 0.04 * e + random.uniform(0, 0.01)), 4),
+                     "val_accuracy": round(min(0.98, 0.58 + 0.038 * e + random.uniform(0, 0.015)), 4)}
+                    for e in range(1, 11)
+                ],
+            },
+            "config": {"x_label": "Epoch", "y_label": "Accuracy", "domain": [0.5, 1], "colors": {"accuracy": "#10b981", "val_accuracy": "#8b5cf6"}},
+        },
+        {
+            "chart_type": "bar",
+            "title": "Feature Importance",
+            "data": {
+                "x_key": "feature",
+                "series": ["importance"],
+                "points": [
+                    {"feature": f, "importance": round(random.uniform(0.01, 0.35), 4)}
+                    for f in ["age", "tenure", "monthly_charges", "total_charges", "contract_type", "payment_method", "internet_service", "tech_support"]
+                ],
+            },
+            "config": {"layout": "vertical", "colors": {"importance": "#3b82f6"}},
+        },
+        {
+            "chart_type": "scatter",
+            "title": "Predicted vs Actual",
+            "data": {
+                "x_key": "actual",
+                "series": ["predicted"],
+                "points": [
+                    {"actual": round(a, 2), "predicted": round(a + random.uniform(-0.1, 0.1), 2)}
+                    for a in [0.1 * i for i in range(1, 21)]
+                ],
+            },
+            "config": {"x_label": "Actual", "y_label": "Predicted", "colors": {"predicted": "#3b82f6"}},
+        },
+        {
+            "chart_type": "bar",
+            "title": "Class Distribution",
+            "data": {
+                "x_key": "class",
+                "series": ["count"],
+                "points": [
+                    {"class": "churned", "count": random.randint(150, 300)},
+                    {"class": "retained", "count": random.randint(700, 1200)},
+                ],
+            },
+            "config": {"colors": {"count": "#8b5cf6"}},
+        },
+    ]
+
+    created = 0
+    for run in runs:
+        for template in templates:
+            artifact = ChartArtifact(
+                id=str(uuid.uuid4()),
+                run_id=run.id,
+                experiment_id=run.experiment_id,
+                chart_type=template["chart_type"],
+                title=template["title"],
+                data=template["data"],
+                config=template.get("config"),
+            )
+            db.add(artifact)
+            created += 1
+
+    await db.commit()
+    print(f"  ✓ Created {created} chart artifacts")
+
+
 async def main() -> None:
     """Run all seeders."""
     print("\n🌱 Seeding database with initial data...")
@@ -490,6 +590,9 @@ async def main() -> None:
         
         # Seed activity logs
         await seed_activity_logs(db, users)
+
+        # Seed chart artifacts
+        await seed_chart_artifacts(db)
     
     print("=" * 50)
     print("✅ Database seeded successfully!")

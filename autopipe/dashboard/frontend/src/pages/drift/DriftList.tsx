@@ -2,8 +2,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, TrendingDown, ArrowRight, Check } from 'lucide-react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
+} from 'recharts'
 import { Card, CardContent, Badge, Button, Skeleton } from '@/components/ui'
-import { driftApi } from '@/api/endpoints'
+import { driftApi, chartsApi } from '@/api/endpoints'
 import { cn, formatRelativeTime } from '@/utils/helpers'
 
 export function DriftList() {
@@ -19,6 +22,11 @@ export function DriftList() {
   const { data: alerts, isLoading: alertsLoading } = useQuery({
     queryKey: ['drift', 'alerts'],
     queryFn: () => driftApi.listAlerts(),
+  })
+
+  const { data: driftTrend } = useQuery({
+    queryKey: ['charts', 'drift-trend'],
+    queryFn: () => chartsApi.getDriftTrend({ days: 30 }),
   })
 
   const acknowledgeMutation = useMutation({
@@ -60,6 +68,30 @@ export function DriftList() {
           </CardContent>
         </Card>
       </div>
+
+      {driftTrend && driftTrend.points.length > 0 && (
+        <Card>
+          <CardContent className="p-6">
+            <h3 className="font-semibold mb-4">Drift Score Trend</h3>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={driftTrend.points}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="created_at" fontSize={10} tickFormatter={(v: string) => new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} />
+                  <YAxis fontSize={12} domain={[0, 'auto']} tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(v: number) => [`${(v * 100).toFixed(1)}%`]}
+                    labelFormatter={(l: string) => new Date(l).toLocaleDateString()}
+                  />
+                  <ReferenceLine y={0.1} stroke="#ef4444" strokeDasharray="3 3" label={{ value: 'Threshold', fill: '#ef4444', fontSize: 11 }} />
+                  <Line type="monotone" dataKey="drift_score" stroke="#3b82f6" dot={false} strokeWidth={2} name="Drift Score" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="border-b">
         <div className="flex gap-1">

@@ -1,0 +1,130 @@
+import { apiClient } from '../client'
+
+export interface RunMetricsOverTimeResponse {
+  metric: string
+  points: Array<{ run_number: number; value: number; completed_at: string | null }>
+}
+
+export interface StepDurationsResponse {
+  run_id: string
+  steps: Array<{
+    name: string
+    duration_seconds: number | null
+    status: string
+    order_index: number
+  }>
+}
+
+export interface ExperimentMetricTraceResponse {
+  experiment_id: string
+  metrics: string[]
+  points: Array<Record<string, number>>
+}
+
+export interface ModelVersionMetricsResponse {
+  model_id: string
+  model_name: string
+  metrics: string[]
+  points: Array<Record<string, number | string>>
+}
+
+export interface DriftFeatureScoresResponse {
+  report_id: string
+  drift_detected: boolean
+  features: Array<{
+    name: string
+    drift_score: number
+    threshold: number
+    is_drifted: boolean
+    test_type: string
+  }>
+}
+
+export interface DriftTrendResponse {
+  model_id: string | null
+  points: Array<{
+    created_at: string
+    drift_score: number
+    drift_detected: boolean
+    features_drifted: number
+  }>
+}
+
+export interface ChartArtifact {
+  id: string
+  run_id: string | null
+  step_id: string | null
+  experiment_id: string | null
+  chart_type: 'line' | 'bar' | 'scatter' | 'area' | 'pie' | 'heatmap'
+  title: string
+  data: Record<string, unknown>
+  config: Record<string, unknown> | null
+  created_at: string
+}
+
+export const chartsApi = {
+  getRunMetricsOverTime: async (params: {
+    metric: string
+    pipeline_id?: string
+    experiment_id?: string
+    limit?: number
+  }): Promise<RunMetricsOverTimeResponse> => {
+    return apiClient.get('/charts/run-metrics-over-time', { params })
+  },
+
+  getStepDurations: async (runId: string): Promise<StepDurationsResponse> => {
+    return apiClient.get('/charts/step-durations', { params: { run_id: runId } })
+  },
+
+  getExperimentMetricTrace: async (params: {
+    experiment_id: string
+    metrics?: string
+  }): Promise<ExperimentMetricTraceResponse> => {
+    return apiClient.get('/charts/experiment-metric-trace', { params })
+  },
+
+  getModelVersionMetrics: async (params: {
+    model_id: string
+    metrics?: string
+  }): Promise<ModelVersionMetricsResponse> => {
+    return apiClient.get('/charts/model-version-metrics', { params })
+  },
+
+  getDriftFeatureScores: async (reportId: string): Promise<DriftFeatureScoresResponse> => {
+    return apiClient.get('/charts/drift-feature-scores', { params: { report_id: reportId } })
+  },
+
+  getDriftTrend: async (params?: {
+    model_id?: string
+    days?: number
+  }): Promise<DriftTrendResponse> => {
+    return apiClient.get('/charts/drift-trend', { params })
+  },
+
+  listArtifacts: async (params: {
+    run_id?: string
+    step_id?: string
+    experiment_id?: string
+    chart_type?: string
+    page?: number
+    page_size?: number
+  }): Promise<{ items: ChartArtifact[]; total: number; pages: number }> => {
+    return apiClient.get('/charts/artifacts', { params })
+  },
+
+  getArtifact: async (id: string): Promise<ChartArtifact> => {
+    return apiClient.get(`/charts/artifacts/${id}`)
+  },
+
+  createArtifact: async (body: {
+    run_id?: string
+    step_id?: string
+    experiment_id?: string
+    chart_type: string
+    title: string
+    data: Record<string, unknown>
+    config?: Record<string, unknown>
+  }): Promise<ChartArtifact> => {
+    return apiClient.post('/charts/artifacts', body)
+  },
+}

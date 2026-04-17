@@ -1,13 +1,14 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, Badge, Button, Skeleton } from '@/components/ui'
-import { experimentsApi } from '@/api/endpoints'
+import { chartsApi, experimentsApi } from '@/api/endpoints'
+import { ChartArtifactList } from '@/components/charts/ChartRenderer'
 import { cn, formatDate, formatDuration } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 
 type ExperimentFormState = {
@@ -70,14 +71,20 @@ export function ExperimentDetail() {
     || Object.keys(runs.find((run) => run.metrics && Object.keys(run.metrics).length > 0)?.metrics || {})[0]
     || 'score'
 
-  const chartData = useMemo(() => (
-    runs
-      .filter((run) => typeof run.metrics?.[metricName] === 'number')
-      .map((run) => ({
-        run: `Run ${run.run_number ?? run.id.slice(0, 8)}`,
-        value: Number(run.metrics?.[metricName] ?? 0),
-      }))
-  ), [metricName, runs])
+  const { data: traceData } = useQuery({
+    queryKey: ['charts', 'experiment-metric-trace', experimentId],
+    queryFn: () => chartsApi.getExperimentMetricTrace({ experiment_id: experimentId! }),
+    enabled: !!experimentId,
+  })
+
+  const chartData = traceData?.points ?? []
+  const chartMetrics = traceData?.metrics ?? (metricName ? [metricName] : [])
+
+  const { data: chartArtifactsData } = useQuery({
+    queryKey: ['charts', 'artifacts', 'experiment', experimentId],
+    queryFn: () => chartsApi.listArtifacts({ experiment_id: experimentId!, page_size: 50 }),
+    enabled: !!experimentId,
+  })
 
   const bestRun = runs.find((run) => run.id === experiment?.best_run_id)
     || [...runs]
@@ -283,16 +290,29 @@ export function ExperimentDetail() {
           <CardContent className="p-6">
             {chartData.length > 0 ? (
               <>
-                <h3 className="font-semibold mb-4">Run Performance ({metricName})</h3>
+                <h3 className="font-semibold mb-4">Run Performance ({chartMetrics.join(', ')})</h3>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData}>
+                    <LineChart data={chartData}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="run" fontSize={12} />
+                      <XAxis dataKey="run_number" fontSize={12} label={{ value: 'Run #', position: 'insideBottomRight', offset: -5 }} />
                       <YAxis fontSize={12} />
-                      <Tooltip formatter={(value: number) => [value.toFixed(4), metricName]} />
-                      <Bar dataKey="value" fill="#2563eb" name={metricName} />
-                    </BarChart>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                        formatter={(v: number) => [v.toFixed(4)]}
+                      />
+                      {chartMetrics.map((m, i) => (
+                        <Line
+                          key={m}
+                          type="monotone"
+                          dataKey={m}
+                          stroke={['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'][i % 5]}
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          name={m}
+                        />
+                      ))}
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
               </>
@@ -363,6 +383,13 @@ export function ExperimentDetail() {
         <p className="text-sm text-muted-foreground">
           {failedRuns} failed {failedRuns === 1 ? 'run was' : 'runs were'} recorded for this experiment.
         </p>
+      )}
+
+      {chartArtifactsData && chartArtifactsData.items.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Generated Charts</h2>
+          <ChartArtifactList artifacts={chartArtifactsData.items} />
+        </div>
       )}
     </div>
   )

@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardTitle, Badge, Button } from '@/components/ui'
-import { runsApi } from '@/api/endpoints'
+import { chartsApi, runsApi } from '@/api/endpoints'
+import { ChartArtifactList } from '@/components/charts/ChartRenderer'
 import { Clock, Terminal, BarChart3, ArrowLeft } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 import type { PipelineRun, Step } from '@/types'
 
@@ -35,6 +39,18 @@ export function RunDetail() {
 
   const steps = stepsData?.items || []
   const apiLogs = logsData?.logs || []
+
+  const { data: stepDurations } = useQuery({
+    queryKey: ['charts', 'step-durations', runId],
+    queryFn: () => chartsApi.getStepDurations(runId!),
+    enabled: !!runId,
+  })
+
+  const { data: chartArtifactsData } = useQuery({
+    queryKey: ['charts', 'artifacts', 'run', runId],
+    queryFn: () => chartsApi.listArtifacts({ run_id: runId!, page_size: 50 }),
+    enabled: !!runId,
+  })
 
   useEffect(() => {
     setLogs(
@@ -173,6 +189,28 @@ export function RunDetail() {
         </CardContent>
       </Card>
 
+      {stepDurations && stepDurations.steps.length > 0 && (
+        <Card>
+          <CardContent className="p-6">
+            <CardTitle className="text-lg mb-4">Step Durations</CardTitle>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stepDurations.steps} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" fontSize={12} />
+                  <YAxis dataKey="name" type="category" width={120} fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(v: number) => [`${v.toFixed(1)}s`, 'Duration']}
+                  />
+                  <Bar dataKey="duration_seconds" fill="#3b82f6" name="Duration (s)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
@@ -237,6 +275,13 @@ export function RunDetail() {
           )}
         </CardContent>
       </Card>
+
+      {chartArtifactsData && chartArtifactsData.items.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Generated Charts</h2>
+          <ChartArtifactList artifacts={chartArtifactsData.items} />
+        </div>
+      )}
     </div>
   )
 }
