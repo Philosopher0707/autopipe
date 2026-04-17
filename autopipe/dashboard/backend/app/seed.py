@@ -149,20 +149,21 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
     return pipelines
 
 
-async def seed_runs(db: AsyncSession, pipelines: list[Pipeline]) -> None:
-    """Create sample pipeline runs."""
+async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: list[Experiment] | None = None) -> None:
+    """Create sample pipeline runs, optionally linked to experiments."""
     import random
     from datetime import datetime, timedelta
-    
+
     statuses = [RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.RUNNING]
     runs_created = 0
-    
-    for pipeline in pipelines[:3]:
+
+    for p_idx, pipeline in enumerate(pipelines[:3]):
+        experiment_id = experiments[p_idx].id if experiments and p_idx < len(experiments) else None
         # Create 5 runs per pipeline
         for i in range(5):
             started = datetime.utcnow() - timedelta(days=random.randint(0, 7), hours=random.randint(0, 12))
             status = statuses[i]
-            
+
             if status == RunStatus.SUCCESS:
                 duration = random.uniform(60, 600)
                 completed = started + timedelta(seconds=duration)
@@ -172,10 +173,12 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline]) -> None:
             else:
                 completed = None
                 duration = None
-            
+
             run = Run(
                 id=str(uuid.uuid4()),
                 pipeline_id=pipeline.id,
+                experiment_id=experiment_id,
+                run_number=i + 1,
                 status=status,
                 started_at=started,
                 completed_at=completed,
@@ -291,8 +294,8 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
     print(f"  ✓ Created {len(models_data)} models with versions")
 
 
-async def seed_experiments(db: AsyncSession, users: list[User]) -> None:
-    """Create sample experiments."""
+async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experiment]:
+    """Create sample experiments and return them for linking to runs."""
     experiments_data = [
         {
             "name": "churn_hyperparam_search",
@@ -330,7 +333,8 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> None:
             "best_metric": 0.641,
         },
     ]
-    
+
+    experiments = []
     for data in experiments_data:
         experiment = Experiment(
             id=str(uuid.uuid4()),
@@ -343,9 +347,11 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> None:
             metric_name="accuracy",
         )
         db.add(experiment)
-    
+        experiments.append(experiment)
+
     await db.commit()
     print(f"  ✓ Created {len(experiments_data)} experiments")
+    return experiments
 
 
 async def seed_drift_reports(db: AsyncSession) -> None:
@@ -572,15 +578,15 @@ async def main() -> None:
         
         # Seed pipelines
         pipelines = await seed_pipelines(db, users)
-        
-        # Seed runs
-        await seed_runs(db, pipelines)
-        
+
+        # Seed experiments before runs so runs can link to them
+        experiments = await seed_experiments(db, users)
+
+        # Seed runs (linked to experiments)
+        await seed_runs(db, pipelines, experiments)
+
         # Seed models
         await seed_models(db, users)
-        
-        # Seed experiments
-        await seed_experiments(db, users)
         
         # Seed drift data
         await seed_drift_reports(db)
