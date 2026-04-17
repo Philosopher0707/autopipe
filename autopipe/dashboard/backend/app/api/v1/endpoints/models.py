@@ -1,0 +1,376 @@
+"""Model Registry endpoints."""
+
+from typing import Optional, List
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from sqlalchemy import select, func, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.models import Model, ModelVersion, ModelStage
+from app.db.session import get_db
+from app.schemas import (
+    ModelCreate, ModelUpdate, ModelResponse, ModelList,
+    ModelVersionCreate, ModelVersionUpdate, ModelVersionResponse, ModelVersionList,
+    ModelPromoteRequest, ModelComparisonRequest, ModelComparisonResponse,
+)
+
+router = APIRouter()
+
+
+@router.get("", response_model=ModelList)
+async def list_models(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Search by name"),
+    framework: Optional[str] = Query(None, description="Filter by framework"),
+    stage: Optional[str] = Query(None, description="Filter by stage: pending, staging, production, archived"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all registered models."""
+    
+    count_query = select(func.count(Model.id))
+    query = select(Model).options(selectinload(Model.versions))
+    
+    if search:
+        count_query = count_query.where(Model.name.ilike(f"%{search}%"))
+        query = query.where(Model.name.ilike(f"%{search}%"))
+    
+    if framework:
+        count_query = count_query.where(Model.framework == framework)
+        query = query.where(Model.framework == framework)
+    
+    total = await db.scalar(count_query)
+    
+    offset = (page - 1) * page_size
+    query = query.offset(offset).limit(page_size).order_by(desc(Model.updated_at))
+    
+    result = await db.execute(query)
+    models = result.scalars().unique().all()
+    
+    # Build response
+    items = []
+    for m in models:
+        model_dict = m.__dict__.copy()
+        model_dict['version_count'] = len(m.versions) if m.versions else 0
+        items.append(ModelResponse.model_validate(model_dict))
+    
+    return ModelList(
+        total=total or 0,
+        page=page,
+        page_size=page_size,
+        pages=(total or 0) // page_size + (1 if (total or 0) % page_size else 0),
+        items=items,
+    )
+
+
+@router.post("", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
+async def create_model(
+    model: ModelCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Register a new model."""
+    db_model = Model(
+        name=model.name,
+        description=model.description,
+        framework=model.framework,
+        task_type=model.task_type,
+        signature=model.signature,
+        tags=model.tags,
+    )
+    db.add(db_model)
+    await db.commit()
+    await db.refresh(db_model)
+    return db_model
+
+
+@router.get("/{model_id}", response_model=ModelResponse)
+async def get_model(
+    model_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get model by ID."""
+    result = await db.execute(
+        select(Model).where(Model.id == model_id).options(selectinload(Model.versions))
+    )
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    model_dict = model.__dict__.copy()
+    model_dict['version_count'] = len(model.versions) if model.versions else 0
+    return ModelResponse.model_validate(model_dict)
+
+
+@router.patch("/{model_id}", response_model=ModelResponse)
+async def update_model(
+    model_id: str,
+    update_data: ModelUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update model metadata."""
+    result = await db.execute(select(Model).where(Model.id == model_id))
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    if update_data.description is not None:
+        model.description = update_data.description
+    if update_data.tags is not None:
+        model.tags = update_data.tags
+    
+    await db.commit()
+    await db.refresh(model)
+    return model
+
+
+@router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model(
+    model_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete model and all versions."""
+    result = await db.execute(select(Model).where(Model.id == model_id))
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    await db.delete(model)
+    await db.commit()
+    return None
+
+
+# ==================== Model Versions ====================
+
+@router.get("/{model_id}/versions", response_model=ModelVersionList)
+async def list_model_versions(
+    model_id: str,
+    stage: Optional[str] = Query(None, description="Filter by stage"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all versions of a model."""
+    # Verify model exists
+    result = await db.execute(select(Model).where(Model.id == model_id))
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    query = select(ModelVersion).where(ModelVersion.model_id == model_id)
+    
+    if stage:
+        query = query.where(ModelVersion.stage == stage)
+    
+    query = query.order_by(desc(ModelVersion.version))
+    result = await db.execute(query)
+    versions = result.scalars().all()
+    
+    # Add model_name to each
+    items = []
+    for v in versions:
+        ver_dict = v.__dict__.copy()
+        ver_dict['model_name'] = model.name
+        items.append(ModelVersionResponse.model_validate(ver_dict))
+    
+    return ModelVersionList(items=items, total=len(items))
+
+
+@router.post("/{model_id}/versions", response_model=ModelVersionResponse, status_code=status.HTTP_201_CREATED)
+async def create_model_version(
+    model_id: str,
+    version: ModelVersionCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new model version."""
+    # Verify model exists
+    result = await db.execute(select(Model).where(Model.id == model_id))
+    model = result.scalar_one_or_none()
+    
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    # Get next version number
+    result = await db.execute(
+        select(func.max(ModelVersion.version)).where(ModelVersion.model_id == model_id)
+    )
+    next_version = (result.scalar() or 0) + 1
+    
+    db_version = ModelVersion(
+        model_id=model_id,
+        version=next_version,
+        description=version.description,
+        metrics=version.metrics,
+        params=version.params,
+        artifact_path=version.artifact_path,
+        run_id=version.run_id,
+        tags=version.tags,
+        stage=ModelStage.PENDING,
+    )
+    db.add(db_version)
+    await db.commit()
+    await db.refresh(db_version)
+    
+    # Update model's latest version
+    model.latest_version = next_version
+    await db.commit()
+    
+    ver_dict = db_version.__dict__.copy()
+    ver_dict['model_name'] = model.name
+    return ModelVersionResponse.model_validate(ver_dict)
+
+
+@router.get("/{model_id}/versions/{version_number}", response_model=ModelVersionResponse)
+async def get_model_version(
+    model_id: str,
+    version_number: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get specific model version."""
+    result = await db.execute(
+        select(ModelVersion)
+        .where(ModelVersion.model_id == model_id)
+        .where(ModelVersion.version == version_number)
+    )
+    version = result.scalar_one_or_none()
+    
+    if not version:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    
+    # Get model name
+    model_result = await db.execute(select(Model.name).where(Model.id == model_id))
+    model_name = model_result.scalar()
+    
+    ver_dict = version.__dict__.copy()
+    ver_dict['model_name'] = model_name
+    return ModelVersionResponse.model_validate(ver_dict)
+
+
+@router.post("/{model_id}/versions/{version_number}/promote", response_model=ModelVersionResponse)
+async def promote_model_version(
+    model_id: str,
+    version_number: int,
+    promote_data: ModelPromoteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Promote a model version to a different stage."""
+    result = await db.execute(
+        select(ModelVersion)
+        .where(ModelVersion.model_id == model_id)
+        .where(ModelVersion.version == version_number)
+    )
+    version = result.scalar_one_or_none()
+    
+    if not version:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    
+    # Update stage
+    stage_map = {
+        "pending": ModelStage.PENDING,
+        "staging": ModelStage.STAGING,
+        "production": ModelStage.PRODUCTION,
+        "archived": ModelStage.ARCHIVED,
+    }
+    
+    if promote_data.stage not in stage_map:
+        raise HTTPException(status_code=400, detail="Invalid stage")
+    
+    version.stage = stage_map[promote_data.stage]
+    version.transitioned_at = datetime.utcnow()
+    
+    # Update model's current stage if promoted to production
+    model_result = await db.execute(select(Model).where(Model.id == model_id))
+    model = model_result.scalar_one_or_none()
+    
+    if model and version.stage == ModelStage.PRODUCTION:
+        model.current_stage = ModelStage.PRODUCTION
+    
+    await db.commit()
+    await db.refresh(version)
+    
+    ver_dict = version.__dict__.copy()
+    ver_dict['model_name'] = model.name if model else None
+    return ModelVersionResponse.model_validate(ver_dict)
+
+
+@router.post("/{model_id}/compare")
+async def compare_model_versions(
+    model_id: str,
+    version_a: int = Query(..., description="First version to compare"),
+    version_b: int = Query(..., description="Second version to compare"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compare two model versions."""
+    # Get both versions
+    result = await db.execute(
+        select(ModelVersion)
+        .where(ModelVersion.model_id == model_id)
+        .where(ModelVersion.version.in_([version_a, version_b]))
+    )
+    versions = result.scalars().all()
+    
+    if len(versions) != 2:
+        raise HTTPException(status_code=404, detail="One or both versions not found")
+    
+    v_a = next((v for v in versions if v.version == version_a), None)
+    v_b = next((v for v in versions if v.version == version_b), None)
+    
+    # Get model
+    model_result = await db.execute(select(Model).where(Model.id == model_id))
+    model = model_result.scalar_one_or_none()
+    
+    # Calculate differences
+    metrics_a = v_a.metrics or {}
+    metrics_b = v_b.metrics or {}
+    
+    all_keys = set(metrics_a.keys()) | set(metrics_b.keys())
+    differences = {}
+    
+    for key in all_keys:
+        val_a = metrics_a.get(key, None)
+        val_b = metrics_b.get(key, None)
+        if isinstance(val_a, (int, float)) and isinstance(val_b, (int, float)):
+            diff = val_b - val_a
+            pct_diff = (diff / val_a * 100) if val_a != 0 else 0
+            differences[key] = {
+                f"v{version_a}": val_a,
+                f"v{version_b}": val_b,
+                "difference": diff,
+                "percentage": round(pct_diff, 2),
+            }
+    
+    return {
+        "model_name": model.name if model else None,
+        "version_a": version_a,
+        "version_b": version_b,
+        "comparisons": differences,
+    }
+
+
+@router.get("/{model_id}/download/{version_number}")
+async def download_model(
+    model_id: str,
+    version_number: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get download URL for model artifact."""
+    result = await db.execute(
+        select(ModelVersion)
+        .where(ModelVersion.model_id == model_id)
+        .where(ModelVersion.version == version_number)
+    )
+    version = result.scalar_one_or_none()
+    
+    if not version:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    
+    # In real implementation, this would generate a signed URL
+    return {
+        "model_id": model_id,
+        "version": version_number,
+        "artifact_path": version.artifact_path,
+        # "download_url": generate_presigned_url(version.artifact_path),
+    }

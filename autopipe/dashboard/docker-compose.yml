@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autopipe-dashboard-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/autopipe
+      - REDIS_URL=redis://redis:6379/0
+      - BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - artifacts:/app/artifacts
+      - uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: autopipe-dashboard-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/html:/usr/share/nginx/html:ro
+
+  db:
+    image: postgres:15-alpine
+    container_name: autopipe-dashboard-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: autopipe
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: autopipe-dashboard-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Optional: Celery worker for background tasks
+  # celery:
+  #   build: .
+  #   command: celery -A app.core.celery worker --loglevel=info
+  #   depends_on:
+  #     - db
+  #     - redis
+  #   environment:
+  #     - DATABASE_URL=postgresql://postgres:postgres@db:5432/autopipe
+  #     - REDIS_URL=redis://redis:6379/0
+
+volumes:
+  postgres_data:
+  redis_data:
+  artifacts:
+  uploads:

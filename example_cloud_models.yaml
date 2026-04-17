@@ -1,0 +1,28 @@
+name: ollama_cloud_demo
+description: Pipeline using Ollama Cloud models
+
+env:
+  LOG_LEVEL: INFO
+
+steps:
+  - name: load_data
+    type: data_loader
+    params:
+      dataset: iris
+
+  - name: analyze_with_cloud_llm
+    type: llm
+    depends_on: [load_data]
+    params:
+      provider: ollama
+      # This will use OLLAMA_DEFAULT_MODEL from env
+      prompt_template: |
+        Analyze this Iris dataset with {rows} rows and {columns} columns.
+        The features are: {feature_columns}.
+        Provide insights on the species distribution.
+
+  - name: visualize_results
+    type: visualization
+    depends_on: [analyze_with_cloud_llm]
+    params:
+      chart_type: metrics

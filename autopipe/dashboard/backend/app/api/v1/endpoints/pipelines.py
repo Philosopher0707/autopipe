@@ -1,0 +1,374 @@
+"""Pipeline management endpoints."""
+
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.models import Pipeline, Run, RunStatus, Step, ActivityLog
+from app.db.session import get_db
+from app.schemas import (
+    PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate,
+    RunCreate, RunResponse, PaginationParams
+)
+
+router = APIRouter()
+
+
+@router.get("", response_model=PipelineList)
+async def list_pipelines(
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(20, ge=1, le=100, description="Number of items to return"),
+    status: Optional[str] = Query(None, description="Filter by status: active, inactive, all"),
+    search: Optional[str] = Query(None, description="Search by name or description"),
+    tag: Optional[str] = Query(None, description="Filter by tag"),
+    sort_by: str = Query("created_at", description="Sort field: name, created_at, updated_at"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List pipelines with filtering and pagination."""
+    
+    # Build base query
+    query = select(Pipeline)
+    
+    # Apply filters
+    if status:
+        is_active = status == 'active'
+        query = query.filter(Pipeline.is_active == is_active)
+    
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            (Pipeline.name.ilike(search_filter)) | 
+            (Pipeline.description.ilike(search_filter))
+        )
+    
+    if tag:
+        # Check if tag is in the JSON tags array
+        query = query.filter(Pipeline.tags.contains([tag]))
+    
+    # Count total with filters
+    count_query = select(func.count()).select_from(query.subquery())
+    total_count = await db.scalar(count_query)
+    
+    # Apply sorting
+    sort_field = getattr(Pipeline, sort_by, Pipeline.created_at)
+    if sort_order == "desc":
+        sort_field = sort_field.desc()
+    query = query.order_by(sort_field)
+    
+    # Apply pagination
+    query = query.offset(skip).limit(limit)
+    
+    result = await db.execute(query.options(selectinload(Pipeline.runs)))
+    pipelines = result.scalars().all()
+    
+    # Convert to response format
+    items = []
+    for pipeline in pipelines:
+        run_count = await db.scalar(
+            select(func.count(Run.id)).where(Run.pipeline_id == pipeline.id)
+        )
+        item = PipelineResponse(
+            id=pipeline.id,
+            name=pipeline.name,
+            description=pipeline.description,
+            config=pipeline.config,
+            tags=pipeline.tags or [],
+            config_hash=pipeline.config_hash,
+            created_at=pipeline.created_at,
+            updated_at=pipeline.updated_at,
+            created_by=pipeline.created_by,
+            run_count=run_count or 0,
+            is_active=True if pipeline.created_at else True,
+        )
+        items.append(item)
+    
+    return PipelineList(
+        total=total_count or 0,
+        page=skip // limit + 1 if limit > 0 else 1,
+        page_size=limit,
+        pages=(total_count or 0) // limit + (1 if (total_count or 0) % limit > 0 else 0),
+        items=items,
+    )
+
+
+@router.get("/{pipeline_id}", response_model=PipelineResponse)
+async def get_pipeline(
+    pipeline_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get pipeline details."""
+    result = await db.execute(
+        select(Pipeline)
+        .where(Pipeline.id == pipeline_id)
+        .options(selectinload(Pipeline.runs))
+    )
+    pipeline = result.scalar_one_or_none()
+    
+    if not pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline {pipeline_id} not found",
+        )
+    
+    run_count = await db.scalar(
+        select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id)
+    )
+    
+    return PipelineResponse(
+        id=pipeline.id,
+        name=pipeline.name,
+        description=pipeline.description,
+        config=pipeline.config,
+        tags=pipeline.tags or [],
+        config_hash=pipeline.config_hash,
+        created_at=pipeline.created_at,
+        updated_at=pipeline.updated_at,
+        created_by=pipeline.created_by,
+        run_count=run_count or 0,
+    )
+
+
+@router.post("", response_model=PipelineResponse, status_code=status.HTTP_201_CREATED)
+async def create_pipeline(
+    pipeline: PipelineCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new pipeline."""
+    db_pipeline = Pipeline(
+        name=pipeline.name,
+        description=pipeline.description,
+        config=pipeline.config,
+        tags=pipeline.tags,
+        config_hash=pipeline.config_hash if hasattr(pipeline, 'config_hash') else None,
+    )
+    
+    db.add(db_pipeline)
+    await db.commit()
+    await db.refresh(db_pipeline)
+    
+    # Log activity
+    activity = ActivityLog(
+        action="pipeline_created",
+        resource_type="pipeline",
+        resource_id=db_pipeline.id,
+        details={
+            "title": f"Pipeline '{pipeline.name}' created",
+            "description": pipeline.description or "",
+        },
+    )
+    db.add(activity)
+    await db.commit()
+    
+    return PipelineResponse(
+        id=db_pipeline.id,
+        name=db_pipeline.name,
+        description=db_pipeline.description,
+        config=db_pipeline.config,
+        tags=db_pipeline.tags or [],
+        config_hash=db_pipeline.config_hash,
+        created_at=db_pipeline.created_at,
+        updated_at=db_pipeline.updated_at,
+        created_by=db_pipeline.created_by,
+        run_count=0,
+    )
+
+
+@router.put("/{pipeline_id}", response_model=PipelineResponse)
+async def update_pipeline(
+    pipeline_id: str,
+    pipeline_update: PipelineUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a pipeline."""
+    result = await db.execute(
+        select(Pipeline).where(Pipeline.id == pipeline_id)
+    )
+    pipeline = result.scalar_one_or_none()
+    
+    if not pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline {pipeline_id} not found",
+        )
+    
+    # Update fields
+    if pipeline_update.description is not None:
+        pipeline.description = pipeline_update.description
+    if pipeline_update.config is not None:
+        pipeline.config = pipeline_update.config
+    if pipeline_update.tags is not None:
+        pipeline.tags = pipeline_update.tags
+    
+    pipeline.updated_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(pipeline)
+    
+    return PipelineResponse(
+        id=pipeline.id,
+        name=pipeline.name,
+        description=pipeline.description,
+        config=pipeline.config,
+        tags=pipeline.tags or [],
+        config_hash=pipeline.config_hash,
+        created_at=pipeline.created_at,
+        updated_at=pipeline.updated_at,
+        created_by=pipeline.created_by,
+        run_count=0,  # Get actual count
+    )
+
+
+@router.delete("/{pipeline_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_pipeline(
+    pipeline_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a pipeline."""
+    result = await db.execute(
+        select(Pipeline).where(Pipeline.id == pipeline_id)
+    )
+    pipeline = result.scalar_one_or_none()
+    
+    if not pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline {pipeline_id} not found",
+        )
+    
+    await db.delete(pipeline)
+    await db.commit()
+    
+    return None
+
+
+@router.post("/{pipeline_id}/runs", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
+async def trigger_run(
+    pipeline_id: str,
+    config_override: Optional[Dict[str, Any]] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger a new pipeline run."""
+    
+    # Check pipeline exists
+    result = await db.execute(
+        select(Pipeline).where(Pipeline.id == pipeline_id)
+    )
+    pipeline = result.scalar_one_or_none()
+    
+    if not pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline {pipeline_id} not found",
+        )
+    
+    # Get next run number
+    result = await db.execute(
+        select(func.max(Run.run_number)).where(Run.pipeline_id == pipeline_id)
+    )
+    max_run = result.scalar() or 0
+    
+    # Create run
+    run = Run(
+        pipeline_id=pipeline_id,
+        status=RunStatus.PENDING,
+        run_number=max_run + 1,
+        config=config_override or pipeline.config,
+    )
+    
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    
+    # Log activity
+    activity = ActivityLog(
+        action="run_triggered",
+        resource_type="run",
+        resource_id=run.id,
+        details={
+            "title": f"Run triggered for pipeline '{pipeline.name}'",
+            "description": f"Run #{run.run_number}",
+        },
+    )
+    db.add(activity)
+    await db.commit()
+    
+    return RunResponse(
+        id=run.id,
+        pipeline_id=run.pipeline_id,
+        status=run.status,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        duration_seconds=run.duration_seconds,
+        metrics=run.metrics,
+        error_message=run.error_message,
+        created_by=run.created_by,
+        pipeline_name=pipeline.name,
+    )
+
+
+@router.get("/{pipeline_id}/runs")
+async def list_pipeline_runs(
+    pipeline_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """List runs for a pipeline."""
+    
+    # Check pipeline exists
+    result = await db.execute(
+        select(Pipeline).where(Pipeline.id == pipeline_id)
+    )
+    pipeline = result.scalar_one_or_none()
+    
+    if not pipeline:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline {pipeline_id} not found",
+        )
+    
+    # Build query
+    query = select(Run).where(Run.pipeline_id == pipeline_id)
+    
+    if status:
+        query = query.filter(Run.status == status)
+    
+    query = query.order_by(Run.created_at.desc())
+    
+    # Count total
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query)
+    
+    # Get runs
+    query = query.offset(skip).limit(limit)
+    result = await db.execute(query)
+    runs = result.scalars().all()
+    
+    items = []
+    for run in runs:
+        items.append(RunResponse(
+            id=run.id,
+            pipeline_id=run.pipeline_id,
+            status=run.status,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            duration_seconds=run.duration_seconds,
+            metrics=run.metrics,
+            error_message=run.error_message,
+            created_by=run.created_by,
+            pipeline_name=pipeline.name,
+        ))
+    
+    return {
+        "items": items,
+        "total": total or 0,
+        "page": skip // limit + 1 if limit > 0 else 1,
+        "page_size": limit,
+        "pages": (total or 0) // limit + (1 if (total or 0) % limit > 0 else 0),
+    }

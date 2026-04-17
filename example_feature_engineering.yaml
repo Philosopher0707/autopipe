@@ -1,0 +1,90 @@
+name: advanced_ml_pipeline
+description: Complete ML pipeline with feature engineering + LLM insights
+
+env:
+  LOG_LEVEL: INFO
+
+steps:
+  # Step 1: Load raw data
+  - name: load_raw_data
+    type: data_loader
+    params:
+      dataset: diabetes  # or iris, or your custom data
+
+  # Step 2: Feature Engineering - Transform data
+  - name: feature_engineering
+    type: feature_engineering  # ya "fe" alias use karo
+    depends_on: [load_raw_data]
+    params:
+      transformations:
+        # 1. Scale numeric features
+        scale:
+          method: standard  # standard, minmax, robust, maxabs
+          columns: ["age", "bmi", "bp", "s1", "s2", "s3", "s4", "s5", "s6"]
+        
+        # 2. Create polynomial features (degree 2)
+        polynomial:
+          degree: 2
+          columns: ["bmi", "bp"]
+        
+        # 3. Binning continuous variables
+        binning:
+          n_bins: 5
+          strategy: quantile
+          columns: ["age"]
+        
+        # 4. Math transformations
+        math:
+          operation: log  # log, sqrt, square, reciprocal
+          columns: ["s6"]
+          offset: 1  # for log(1+x)
+        
+        # 5. Feature interactions
+        interaction:
+          operation: multiply
+          pairs:
+            - ["bmi", "bp"]
+            - ["age", "bmi"]
+        
+        # 6. Variance-based feature selection
+        select:
+          method: variance_threshold
+          threshold: 0.01
+      
+      target_column: target
+      drop_original: false  # Keep original columns + new features
+
+  # Step 3: AI Analysis on transformed features
+  - name: ai_feature_analysis
+    type: llm
+    depends_on: [feature_engineering]
+    params:
+      provider: ollama
+      prompt_template: |
+        Feature Engineering Analysis:
+        
+        Original dataset had {original_columns} columns.
+        After feature engineering: {final_columns} columns.
+        New features generated: {new_features_generated}.
+        
+        Analyzed data:
+        {feature_engineering}
+        
+        Please analyze:
+        1. What patterns do you see in the transformed data?
+        2. Which engineered features might be most predictive?
+        3. Any suggestions for additional transformations?
+
+  # Step 4: Visualize results
+  - name: visualize_features
+    type: visualization
+    depends_on: [ai_feature_analysis]
+    params:
+      chart_type: metrics
+
+  # Step 5: Print summary
+  - name: print_feature_summary
+    type: print
+    depends_on: [feature_engineering]
+    params:
+      message: "✅ Feature engineering complete! Check outputs in ./figures/"

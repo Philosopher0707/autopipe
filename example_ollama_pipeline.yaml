@@ -1,0 +1,29 @@
+name: ollama_demo
+description: Pipeline using local Ollama LLM
+
+env:
+  LOG_LEVEL: INFO
+  OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
+
+steps:
+  - name: load_data
+    type: data_loader
+    params:
+      dataset: iris
+
+  - name: analyze_with_ollama
+    type: llm
+    depends_on: [load_data]
+    params:
+      provider: ollama
+      model: llama3.1
+      prompt_template: |
+        Analyze this dataset with {rows} rows and {columns} columns.
+        The dataset has features: {feature_columns}.
+        Provide a brief summary in one sentence.
+
+  - name: visualize
+    type: visualization
+    depends_on: [analyze_with_ollama]
+    params:
+      chart_type: metrics
