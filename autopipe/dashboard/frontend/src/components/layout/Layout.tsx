@@ -15,6 +15,7 @@ import {
 import { cn } from '@/utils/helpers'
 import { useUIStore, useAuthStore } from '@/stores'
 import { NavLink } from 'react-router-dom'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface SidebarItemProps {
   to: string
@@ -138,6 +139,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </button>
 
           <div className="flex items-center gap-4 ml-auto">
+            <ThemeToggle />
             <NavLink
               to="/pipelines/new"
               className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"

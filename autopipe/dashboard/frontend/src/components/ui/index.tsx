@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, type ReactNode } from 'react'
 import { cn } from '@/utils/helpers'
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -117,5 +117,104 @@ export function Skeleton({ className }: React.HTMLAttributes<HTMLDivElement>) {
     <div
       className={cn('animate-pulse rounded-md bg-muted', className)}
     />
+  )
+}
+
+// Dropdown Menu Components
+export function DropdownMenu({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      {React.Children.map(children, (child) => {
+        if (React.isValidElement(child)) {
+          return React.cloneElement(child as React.ReactElement<{ open?: boolean; onOpenChange?: (open: boolean) => void }>, {
+            open,
+            onOpenChange: setOpen,
+          })
+        }
+        return child
+      })}
+      {open && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+export function DropdownMenuTrigger({ children, open, asChild }: {
+  children: ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  asChild?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  const handleClick = () => {
+    setIsOpen(!isOpen)
+  }
+
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children as React.ReactElement<{ onClick?: () => void }>, {
+      onClick: () => {
+        setIsOpen(!isOpen)
+        ;(children as React.ReactElement<{ onClick?: () => void }>).props?.onClick?.()
+      },
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="inline-flex"
+      aria-expanded={isOpen}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function DropdownMenuContent({ children, align = 'end' }: {
+  children: ReactNode
+  align?: 'start' | 'center' | 'end'
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div
+      className={cn(
+        'absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
+        'animate-in fade-in-0 zoom-in-95',
+        align === 'end' ? 'right-0' : align === 'start' ? 'left-0' : 'left-1/2 -translate-x-1/2'
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function DropdownMenuItem({ children, onClick }: {
+  children: ReactNode
+  onClick?: () => void
+  className?: string
+}) {
+  return (
+    <button
+      className={cn(
+        'relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none',
+        'transition-colors hover:bg-accent hover:text-accent-foreground',
+        'focus:bg-accent focus:text-accent-foreground',
+        'w-full text-left'
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   )
 }

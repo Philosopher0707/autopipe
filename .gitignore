@@ -84,3 +84,9 @@ dmypy.json
 
 # CI/CD
 .github/workflows/*.yml.bak
+
+# Playwright MCP
+.playwright-mcp/
+
+# Vite deps cache
+.vite/
