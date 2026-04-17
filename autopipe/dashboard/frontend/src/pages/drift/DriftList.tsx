@@ -31,7 +31,7 @@ export function DriftList() {
 
   const { data: alerts } = useQuery({
     queryKey: ['drift', 'alerts'],
-    fn: () => driftApi.listAlerts(),
+    queryFn: () => driftApi.listAlerts(),
     initialData: mockAlerts as any,
   })
 

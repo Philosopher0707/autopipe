@@ -19,7 +19,7 @@ export const modelsApi = {
     page?: number
     page_size?: number
   }): Promise<PaginatedResponse<Model>> => {
-    return apiClient.get<PaginatedResponse<Model>>('/', {
+    return apiClient.get<PaginatedResponse<Model>>('/models', {
       params: {
         framework: params?.framework,
         task_type: params?.task_type,
@@ -31,37 +31,37 @@ export const modelsApi = {
   },
 
   getById: async (id: string): Promise<Model> => {
-    return apiClient.get<Model>(`/${id}`)
+    return apiClient.get<Model>(`/models/${id}`)
   },
 
   create: async (data: Partial<Model>): Promise<Model> => {
-    return apiClient.post<Model>('/', data)
+    return apiClient.post<Model>('/models', data)
   },
 
   update: async (id: string, data: Partial<Model>): Promise<Model> => {
-    return apiClient.put<Model>(`/${id}`, data)
+    return apiClient.put<Model>(`/models/${id}`, data)
   },
 
   delete: async (id: string): Promise<void> => {
-    return apiClient.delete(`/${id}`)
+    return apiClient.delete(`/models/${id}`)
   },
 
   listVersions: async (
     id: string,
     params?: { page?: number; page_size?: number }
   ): Promise<PaginatedResponse<ModelVersion>> => {
-    return apiClient.get<PaginatedResponse<ModelVersion>>(`/${id}/versions`, { params })
+    return apiClient.get<PaginatedResponse<ModelVersion>>(`/models/${id}/versions`, { params })
   },
 
   getVersion: async (id: string, version: number): Promise<ModelVersion> => {
-    return apiClient.get<ModelVersion>(`/${id}/versions/${version}`)
+    return apiClient.get<ModelVersion>(`/models/${id}/versions/${version}`)
   },
 
   createVersion: async (
     id: string,
     data: Partial<ModelVersion>
   ): Promise<ModelVersion> => {
-    return apiClient.post<ModelVersion>(`/${id}/versions`, data)
+    return apiClient.post<ModelVersion>(`/models/${id}/versions`, data)
   },
 
   updateVersionStage: async (
@@ -69,7 +69,7 @@ export const modelsApi = {
     version: number,
     data: { stage: string; description?: string }
   ): Promise<ModelVersion> => {
-    return apiClient.put<ModelVersion>(`/${id}/versions/${version}/stage`, data)
+    return apiClient.put<ModelVersion>(`/models/${id}/versions/${version}/stage`, data)
   },
 
   compare: async (data: {
@@ -77,6 +77,6 @@ export const modelsApi = {
     version_a: number
     version_b: number
   }): Promise<ModelComparisonResponse> => {
-    return apiClient.post<ModelComparisonResponse>('/compare', data)
+    return apiClient.post<ModelComparisonResponse>('/models/compare', data)
   },
 }

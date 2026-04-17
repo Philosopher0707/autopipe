@@ -91,7 +91,7 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     
     stats = DashboardStats(
         pipelines={
-            "total": total_pipelines or 0,
+            "total": pipeline_count or 0,
             "active": running_count or 0,
             "completed_today": completed_24h or 0,
             "failed_today": failed_24h or 0,
@@ -112,8 +112,9 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
         },
         experiments={
             "total": total_experiments or 0,
-            "running": running_experiments or 0,
+            "active": 0,
             "completed_today": experiments_24h or 0,
+            "total_trials": total_experiments or 0,
         },
     )
     

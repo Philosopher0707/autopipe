@@ -11,7 +11,7 @@ export const pipelinesApi = {
     sort_by?: string
     sort_order?: string
   }): Promise<PaginatedResponse<Pipeline>> => {
-    return apiClient.get<PaginatedResponse<Pipeline>>('/', {
+    return apiClient.get<PaginatedResponse<Pipeline>>('/pipelines', {
       params: {
         search: params?.search,
         status: params?.status,
@@ -25,29 +25,29 @@ export const pipelinesApi = {
   },
 
   getById: async (id: string): Promise<Pipeline> => {
-    return apiClient.get<Pipeline>(`/${id}`)
+    return apiClient.get<Pipeline>(`/pipelines/${id}`)
   },
 
   create: async (data: Partial<Pipeline>): Promise<Pipeline> => {
-    return apiClient.post<Pipeline>('/', data)
+    return apiClient.post<Pipeline>('/pipelines', data)
   },
 
   update: async (id: string, data: Partial<Pipeline>): Promise<Pipeline> => {
-    return apiClient.put<Pipeline>(`/${id}`, data)
+    return apiClient.put<Pipeline>(`/pipelines/${id}`, data)
   },
 
   delete: async (id: string): Promise<void> => {
-    return apiClient.delete(`/${id}`)
+    return apiClient.delete(`/pipelines/${id}`)
   },
 
   triggerRun: async (id: string, configOverride?: Record<string, unknown>): Promise<PipelineRun> => {
-    return apiClient.post<PipelineRun>(`/${id}/runs`, configOverride)
+    return apiClient.post<PipelineRun>(`/pipelines/${id}/runs`, configOverride)
   },
 
   listRuns: async (
     id: string,
     params?: { skip?: number; limit?: number; status?: string }
   ): Promise<PaginatedResponse<PipelineRun>> => {
-    return apiClient.get<PaginatedResponse<PipelineRun>>(`/${id}/runs`, { params })
+    return apiClient.get<PaginatedResponse<PipelineRun>>(`/pipelines/${id}/runs`, { params })
   },
 }

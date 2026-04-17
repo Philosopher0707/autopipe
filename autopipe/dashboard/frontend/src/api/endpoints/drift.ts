@@ -15,7 +15,7 @@ export const driftApi = {
   
   getReport: (id: string) => apiClient.get<DriftReport>(`/drift/${id}`),
   
-  trigger: (data: DriftTrigger) => apiClient.post<{ id: string }>('/drift', data),
+  trigger: (data: DriftTrigger) => apiClient.post<{ id: string }>('/drift/detect', data),
   
   getLatest: (modelId?: string) =>
     apiClient.get<DriftReport>('/drift/latest', { params: modelId ? { model_id: modelId } : undefined }),
