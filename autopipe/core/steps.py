@@ -539,7 +539,7 @@ class FeatureEngineeringStep(Step):
                 # Keep non-numeric columns and selected numeric
                 non_numeric = [c for c in df.columns if c not in numeric_df.columns]
                 return df[selected_features + non_numeric]
-            except:
+            except Exception:
                 # If fails (e.g., all features same), return original
                 return df
                 

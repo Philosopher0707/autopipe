@@ -66,6 +66,29 @@ HISTORY_FILE = pathlib.Path.home() / ".autopipe" / "repl_history"
 CONFIG_FILE = pathlib.Path.home() / ".autopipe" / "repl_config.py"
 WELCOME_WIDTH = 80
 
+# RESTRICTED BUILTINS - Remove dangerous functions for security
+# SECURITY FIX: Using restricted builtins instead of __builtins__
+_RESTRICTED_BUILTINS = {
+    # Safe types
+    'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
+    'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
+    'type': type, 'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
+    
+    # Safe built-in functions
+    'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr, 'dir': dir,
+    'divmod': divmod, 'enumerate': enumerate, 'filter': filter, 'format': format,
+    'hash': hash, 'hex': hex, 'id': id, 'isinstance': isinstance, 'issubclass': issubclass,
+    'iter': iter, 'map': map, 'max': max, 'min': min, 'next': iter, 'oct': oct,
+    'ord': ord, 'pow': pow, 'print': print, 'range': range, 'repr': repr,
+    'reversed': reversed, 'round': round, 'setattr': setattr, 'getattr': getattr,
+    'slice': slice, 'sorted': sorted, 'sum': sum, 'zip': zip,
+    
+    # Safe exceptions (allow raising common ones)
+    'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
+    'KeyError': KeyError, 'IndexError': IndexError, 'RuntimeError': RuntimeError,
+    'StopIteration': StopIteration, 'AssertionError': AssertionError,
+}
+
 
 class CommandError(Exception):
     """Error raised for invalid commands."""
@@ -569,7 +592,8 @@ class AutoPipeREPL:
                 namespace['Pipeline'] = Pipeline
                 namespace['Step'] = Step
 
-            value = eval(value_expr, {"__builtins__": __builtins__}, namespace)
+            # SECURITY FIX: Use restricted builtins to prevent code injection
+            value = eval(value_expr, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
             self.variables[name] = value
             ctx.print(f"[green]✓[/green] {name} = {self._format_value(value)}")
         except Exception as e:
@@ -732,7 +756,7 @@ class AutoPipeREPL:
                 i += 2
             elif args[i] == '--params' and i + 1 < len(args):
                 try:
-                    params = eval(args[i + 1])
+                    params = eval(args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS})
                 except Exception:
                     params = {"raw": args[i + 1]}
                 i += 2
@@ -877,14 +901,14 @@ class AutoPipeREPL:
             namespace['Step'] = Step
 
         try:
-            # Try eval first
+            # SECURITY FIX: Use restricted builtins to prevent code injection
             try:
-                result = eval(code, {"__builtins__": __builtins__}, namespace)
+                result = eval(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
                 ctx.print(self._format_value(result))
                 self.variables['_'] = result
             except SyntaxError:
-                # Fall back to exec
-                exec(code, {"__builtins__": __builtins__}, namespace)
+                # Fall back to exec with restricted builtins
+                exec(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
                 self.variables.update({k: v for k, v in namespace.items() if k not in self.variables or v != self.variables.get(k)})
         except Exception as e:
             ctx.print(f"[red]{type(e).__name__}: {e}[/red]")

@@ -99,7 +99,7 @@ class SHAPExplainerStep(Step):
             # Auto-detect
             try:
                 self.explainer = shap.TreeExplainer(model)
-            except:
+            except Exception:
                 background = self.background_data if self.background_data is not None else shap.sample(X, 100)
                 self.explainer = shap.KernelExplainer(model.predict, background)
         
