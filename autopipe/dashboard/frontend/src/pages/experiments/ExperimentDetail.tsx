@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Loader2, Rocket } from 'lucide-react'
 import { Card, CardContent, CardHeader, Badge, Button, Skeleton } from '@/components/ui'
-import { chartsApi, experimentsApi } from '@/api/endpoints'
+import { chartsApi, experimentsApi, pipelinesApi } from '@/api/endpoints'
 import { ChartArtifactList } from '@/components/charts/ChartRenderer'
 import { cn, formatDate, formatDuration } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
@@ -43,6 +43,12 @@ export function ExperimentDetail() {
   const [activeTab, setActiveTab] = useState<'overview' | 'runs'>('overview')
   const [form, setForm] = useState<ExperimentFormState>(DEFAULT_FORM)
   const [formError, setFormError] = useState<string | null>(null)
+  const [showTrials, setShowTrials] = useState(false)
+  const [trialPipeline, setTrialPipeline] = useState('')
+  const [trialStrategy, setTrialStrategy] = useState<'random' | 'grid'>('random')
+  const [trialCount, setTrialCount] = useState(5)
+  const [trialError, setTrialError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const { data: experiment, isLoading } = useQuery({
     queryKey: ['experiment', experimentId],
@@ -84,6 +90,26 @@ export function ExperimentDetail() {
     queryKey: ['charts', 'artifacts', 'experiment', experimentId],
     queryFn: () => chartsApi.listArtifacts({ experiment_id: experimentId!, page_size: 50 }),
     enabled: !!experimentId,
+  })
+
+  const { data: pipelinesData } = useQuery({
+    queryKey: ['pipelines'],
+    queryFn: () => pipelinesApi.list(),
+  })
+
+  const launchTrialsMutation = useMutation({
+    mutationFn: () => experimentsApi.launchTrials(experimentId!, {
+      pipeline_id: trialPipeline,
+      strategy: trialStrategy,
+      n_trials: trialCount,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['experiment', experimentId] })
+      queryClient.invalidateQueries({ queryKey: ['experiment', experimentId, 'runs'] })
+      queryClient.invalidateQueries({ queryKey: ['charts', 'experiment-metric-trace', experimentId] })
+      setShowTrials(false)
+    },
+    onError: (err: Error) => setTrialError(err.message),
   })
 
   const bestRun = runs.find((run) => run.id === experiment?.best_run_id)
@@ -235,6 +261,10 @@ export function ExperimentDetail() {
           </div>
           <p className="text-muted-foreground mt-1">{experiment.description}</p>
         </div>
+        <Button onClick={() => setShowTrials(true)} className="shrink-0">
+          <Rocket className="w-4 h-4 mr-2" />
+          Launch Trials
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -389,6 +419,87 @@ export function ExperimentDetail() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Generated Charts</h2>
           <ChartArtifactList artifacts={chartArtifactsData.items} />
+        </div>
+      )}
+
+      {showTrials && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTrials(false)}>
+          <div className="bg-background rounded-lg shadow-lg p-6 w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold">Launch Trials</h2>
+            <p className="text-sm text-muted-foreground">
+              Generate trial runs for this experiment using its search-space config.
+            </p>
+
+            <div>
+              <label className="text-sm font-medium">Pipeline</label>
+              <select
+                value={trialPipeline}
+                onChange={(e) => setTrialPipeline(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">Select a pipeline...</option>
+                {pipelinesData?.items?.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Strategy</label>
+              <div className="mt-1 flex gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={trialStrategy === 'random'}
+                    onChange={() => setTrialStrategy('random')}
+                  />
+                  Random
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    checked={trialStrategy === 'grid'}
+                    onChange={() => setTrialStrategy('grid')}
+                  />
+                  Grid
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Number of trials</label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={trialCount}
+                onChange={(e) => setTrialCount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              />
+            </div>
+
+            {experiment?.config?.search_space && typeof experiment.config.search_space === 'object' ? (
+              <div>
+                <label className="text-sm font-medium">Search space</label>
+                <pre className="mt-1 text-xs bg-muted p-3 rounded-lg overflow-auto max-h-40">
+                  {JSON.stringify(experiment.config.search_space as Record<string, unknown>, null, 2)}
+                </pre>
+              </div>
+            ) : null}
+
+            {trialError && <p className="text-sm text-destructive">{trialError}</p>}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setShowTrials(false)}>Cancel</Button>
+              <Button
+                onClick={() => launchTrialsMutation.mutate()}
+                disabled={!trialPipeline || launchTrialsMutation.isPending}
+              >
+                {launchTrialsMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Launch
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -9,6 +9,13 @@ export interface ExperimentRunsResponse {
   items: PipelineRun[]
 }
 
+export interface TrialLaunchResponse {
+  experiment_id: string
+  runs: PipelineRun[]
+  strategy: string
+  n_trials: number
+}
+
 export const experimentsApi = {
   list: async (params?: {
     search?: string
@@ -44,5 +51,13 @@ export const experimentsApi = {
 
   listRuns: async (id: string): Promise<ExperimentRunsResponse> => {
     return apiClient.get<ExperimentRunsResponse>(`/experiments/${id}/runs`)
+  },
+
+  launchTrials: async (experimentId: string, body: {
+    pipeline_id: string
+    strategy?: 'random' | 'grid'
+    n_trials?: number
+  }): Promise<TrialLaunchResponse> => {
+    return apiClient.post<TrialLaunchResponse>(`/experiments/${experimentId}/trials`, body)
   },
 }

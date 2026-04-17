@@ -1,5 +1,7 @@
 """Experiments endpoints."""
 
+import random
+import itertools
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
@@ -7,10 +9,11 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Experiment, Run, RunStatus
+from app.db.models import Experiment, Pipeline, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import (
     ExperimentCreate, ExperimentUpdate, ExperimentResponse, ExperimentList,
+    TrialLaunchRequest, TrialLaunchResponse, RunResponse,
 )
 
 router = APIRouter()
@@ -242,3 +245,137 @@ async def compare_experiment_runs(
         "metric": metric,
         "runs": compared_runs,
     }
+
+
+def _random_configs(search_space: dict, n_trials: int) -> list[dict]:
+    """Generate random parameter combinations from a search space."""
+    configs = []
+    for _ in range(n_trials):
+        config = {}
+        for param, spec in search_space.items():
+            if not isinstance(spec, dict):
+                continue
+            ptype = spec.get("type", "float")
+            if ptype == "int":
+                config[param] = random.randint(spec["low"], spec["high"])
+            elif ptype == "float":
+                config[param] = round(random.uniform(spec["low"], spec["high"]), 4)
+            elif ptype == "categorical":
+                config[param] = random.choice(spec["values"])
+        configs.append(config)
+    return configs
+
+
+def _grid_configs(search_space: dict, max_trials: int) -> list[dict]:
+    """Generate grid parameter combinations from a search space."""
+    param_values = {}
+    for param, spec in search_space.items():
+        if not isinstance(spec, dict):
+            continue
+        ptype = spec.get("type", "float")
+        if ptype == "int":
+            step = max(1, (spec["high"] - spec["low"]) // min(5, max_trials))
+            values = list(range(spec["low"], spec["high"] + 1, step))
+            if values[-1] < spec["high"]:
+                values.append(spec["high"])
+            param_values[param] = values
+        elif ptype == "float":
+            n_points = min(5, max_trials) + 1
+            step = (spec["high"] - spec["low"]) / (n_points - 1)
+            param_values[param] = [round(spec["low"] + i * step, 4) for i in range(n_points)]
+        elif ptype == "categorical":
+            param_values[param] = spec["values"]
+    combos = list(itertools.product(*param_values.values()))
+    combos = combos[:max_trials]
+    return [dict(zip(param_values.keys(), combo)) for combo in combos]
+
+
+def _generate_trial_configs(search_space: dict | None, strategy: str, n_trials: int) -> list[dict]:
+    """Generate trial configs from a search space using the given strategy."""
+    if not search_space:
+        return [{} for _ in range(n_trials)]
+    if strategy == "grid":
+        return _grid_configs(search_space, n_trials)
+    return _random_configs(search_space, n_trials)
+
+
+def _serialize_run(run: Run, pipeline_name: str | None = None) -> RunResponse:
+    """Serialize a Run with optional pipeline name."""
+    return RunResponse(
+        id=run.id,
+        pipeline_id=run.pipeline_id,
+        experiment_id=run.experiment_id,
+        status=run.status.value if hasattr(run.status, "value") else run.status,
+        run_number=run.run_number,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        duration_seconds=run.duration_seconds,
+        config=run.config,
+        metrics=run.metrics,
+        error_message=run.error_message,
+        created_by=run.created_by,
+        created_at=run.created_at,
+        pipeline_name=pipeline_name,
+    )
+
+
+@router.post("/{experiment_id}/trials", response_model=TrialLaunchResponse)
+async def launch_trials(
+    experiment_id: str,
+    body: TrialLaunchRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Launch trial runs for an experiment using its search-space config."""
+    # Fetch experiment
+    result = await db.execute(
+        select(Experiment).where(Experiment.id == experiment_id).options(selectinload(Experiment.runs))
+    )
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    # Validate pipeline exists
+    pipeline_result = await db.execute(select(Pipeline).where(Pipeline.id == body.pipeline_id))
+    pipeline = pipeline_result.scalar_one_or_none()
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+
+    # Extract search space from experiment config
+    config = experiment.config or {}
+    search_space = config.get("search_space", config)
+
+    # Generate trial configs
+    trial_configs = _generate_trial_configs(search_space, body.strategy, body.n_trials)
+
+    # Get next run number for this experiment
+    max_run_result = await db.execute(
+        select(func.max(Run.run_number)).where(Run.experiment_id == experiment_id)
+    )
+    max_run_number = max_run_result.scalar() or 0
+
+    # Create runs
+    created_runs = []
+    for i, trial_config in enumerate(trial_configs):
+        run_config = dict(config)
+        run_config.update(trial_config)
+
+        run = Run(
+            pipeline_id=body.pipeline_id,
+            experiment_id=experiment_id,
+            status=RunStatus.PENDING,
+            run_number=max_run_number + i + 1,
+            config=run_config,
+        )
+        db.add(run)
+        created_runs.append(run)
+
+    await db.commit()
+    for run in created_runs:
+        await db.refresh(run)
+
+    return TrialLaunchResponse(
+        experiment_id=experiment_id,
+        runs=[_serialize_run(r, pipeline.name) for r in created_runs],
+        strategy=body.strategy,
+        n_trials=len(created_runs),
+    )

@@ -209,6 +209,13 @@ class ExperimentUpdate(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class TrialLaunchRequest(BaseModel):
+    """Request to launch trial runs for an experiment."""
+    pipeline_id: str
+    strategy: str = Field(default="random", pattern="^(random|grid)$")
+    n_trials: int = Field(default=5, ge=1, le=100)
+
+
 class ExperimentInDB(ExperimentBase):
     """Experiment database schema."""
     model_config = ConfigDict(from_attributes=True)
@@ -232,6 +239,14 @@ class ExperimentResponse(ExperimentInDB):
 class ExperimentList(PaginatedResponse):
     """Experiment list response."""
     items: List[ExperimentResponse]
+
+
+class TrialLaunchResponse(BaseModel):
+    """Response for launching trial runs."""
+    experiment_id: str
+    runs: List[RunResponse]
+    strategy: str
+    n_trials: int
 
 
 # ==================== Model Registry Schemas ====================
