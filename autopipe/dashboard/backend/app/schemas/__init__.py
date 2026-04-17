@@ -214,6 +214,7 @@ class TrialLaunchRequest(BaseModel):
     pipeline_id: str
     strategy: str = Field(default="random", pattern="^(random|grid)$")
     n_trials: int = Field(default=5, ge=1, le=100)
+    simulate: bool = Field(default=True, description="Auto-advance runs through lifecycle with metrics")
 
 
 class ExperimentInDB(ExperimentBase):

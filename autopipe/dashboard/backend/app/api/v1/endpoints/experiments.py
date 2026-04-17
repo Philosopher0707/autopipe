@@ -1,7 +1,9 @@
 """Experiments endpoints."""
 
 import random
+import uuid
 import itertools
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
@@ -9,7 +11,7 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Experiment, Pipeline, Run, RunStatus
+from app.db.models import Experiment, Pipeline, Run, RunStatus, Step, StepStatus
 from app.db.session import get_db
 from app.schemas import (
     ExperimentCreate, ExperimentUpdate, ExperimentResponse, ExperimentList,
@@ -299,6 +301,73 @@ def _generate_trial_configs(search_space: dict | None, strategy: str, n_trials: 
     return _random_configs(search_space, n_trials)
 
 
+STEP_NAMES = ["load_data", "preprocess", "train", "evaluate", "save"]
+
+
+def _generate_metrics(search_space: dict | None, metric_name: str | None) -> dict:
+    """Generate plausible run metrics based on search space or defaults."""
+    base = round(random.uniform(0.82, 0.97), 4)
+    return {
+        metric_name or "accuracy": base,
+        "f1": round(base - random.uniform(0.01, 0.05), 4),
+        "precision": round(base - random.uniform(0.01, 0.04), 4),
+        "recall": round(base - random.uniform(0.01, 0.06), 4),
+    }
+
+
+def _simulate_run(run: Run, search_space: dict | None, metric_name: str | None) -> None:
+    """Simulate execution of a trial run: advance status, set timestamps, generate metrics."""
+    is_failed = random.random() < 0.15
+    started = datetime.utcnow() - timedelta(minutes=random.randint(5, 30), seconds=random.randint(0, 59))
+    duration = random.uniform(60, 600)
+
+    run.started_at = started
+    run.completed_at = started + timedelta(seconds=duration)
+    run.duration_seconds = duration
+
+    if is_failed:
+        run.status = RunStatus.FAILED
+        run.error_message = "Training failed: validation loss diverged"
+    else:
+        run.status = RunStatus.SUCCESS
+        run.metrics = _generate_metrics(search_space, metric_name)
+
+
+def _create_steps(run: Run) -> list[Step]:
+    """Create pipeline steps for a simulated run."""
+    is_failed = run.status == RunStatus.FAILED
+    started = run.started_at or datetime.utcnow()
+    steps = []
+
+    failed_index = STEP_NAMES.index("train") if is_failed else len(STEP_NAMES)
+    for i, step_name in enumerate(STEP_NAMES):
+        if is_failed and step_name == "train":
+            step_status = StepStatus.FAILED
+        elif i > failed_index:
+            step_status = StepStatus.SKIPPED
+        else:
+            step_status = StepStatus.SUCCESS
+        step_started = started + timedelta(minutes=i * 2)
+        step_duration = random.uniform(30, 180)
+        is_done = step_status in (StepStatus.SUCCESS, StepStatus.FAILED)
+        is_skipped = step_status == StepStatus.SKIPPED
+        steps.append(Step(
+            id=str(uuid.uuid4()),
+            run_id=run.id,
+            name=step_name,
+            step_type=f"{step_name.title()}Step",
+            status=step_status,
+            started_at=step_started if not is_skipped else None,
+            completed_at=step_started + timedelta(seconds=step_duration) if step_status == StepStatus.SUCCESS else None,
+            duration_seconds=step_duration if step_status == StepStatus.SUCCESS else None,
+            order_index=i,
+            logs=f"[INFO] {step_name}: Processing data...\n[INFO] {step_name}: Done!" if step_status == StepStatus.SUCCESS else (f"[ERROR] {step_name}: Failed" if step_status == StepStatus.FAILED else f"[WARN] {step_name}: Skipped"),
+            metrics={"step_metric": round(random.uniform(0.8, 1.0), 3)} if step_status == StepStatus.SUCCESS else None,
+        ))
+
+    return steps
+
+
 def _serialize_run(run: Run, pipeline_name: str | None = None) -> RunResponse:
     """Serialize a Run with optional pipeline name."""
     return RunResponse(
@@ -372,6 +441,33 @@ async def launch_trials(
     await db.commit()
     for run in created_runs:
         await db.refresh(run)
+
+    # Simulate run lifecycle if requested
+    if body.simulate:
+        metric_name = config.get("metric_name") or experiment.metric_name
+        for run in created_runs:
+            _simulate_run(run, search_space, metric_name)
+            steps = _create_steps(run)
+            db.add_all(steps)
+        await db.commit()
+        for run in created_runs:
+            await db.refresh(run)
+
+        # Update experiment best_run_id and best_metric
+        best_run = None
+        best_value = None
+        metric_key = metric_name or "accuracy"
+        for run in created_runs:
+            if run.status == RunStatus.SUCCESS and run.metrics:
+                val = run.metrics.get(metric_key)
+                if val is not None and (best_value is None or val > best_value):
+                    best_value = val
+                    best_run = run
+        if best_run:
+            experiment.best_run_id = best_run.id
+            experiment.best_metric = best_value
+            await db.commit()
+            await db.refresh(experiment)
 
     return TrialLaunchResponse(
         experiment_id=experiment_id,
