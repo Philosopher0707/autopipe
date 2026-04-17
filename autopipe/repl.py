@@ -78,7 +78,7 @@ _RESTRICTED_BUILTINS = {
     'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr, 'dir': dir,
     'divmod': divmod, 'enumerate': enumerate, 'filter': filter, 'format': format,
     'hash': hash, 'hex': hex, 'id': id, 'isinstance': isinstance, 'issubclass': issubclass,
-    'iter': iter, 'map': map, 'max': max, 'min': min, 'next': iter, 'oct': oct,
+    'iter': iter, 'map': map, 'max': max, 'min': min, 'next': next, 'oct': oct,
     'ord': ord, 'pow': pow, 'print': print, 'range': range, 'repr': repr,
     'reversed': reversed, 'round': round, 'setattr': setattr, 'getattr': getattr,
     'slice': slice, 'sorted': sorted, 'sum': sum, 'zip': zip,
