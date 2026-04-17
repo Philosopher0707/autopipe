@@ -22,6 +22,18 @@ class PaginatedResponse(BaseModel):
     pages: int
 
 
+class SidebarCounts(BaseModel):
+    """Sidebar badge counts — clean direct counts, no complex joins."""
+    pipelines_total: int = 0
+    pipelines_active: int = 0  # pipelines with any non-terminal run (running/pending)
+    experiments_total: int = 0  # total experiments (shown when active is 0)
+    experiments_active: int = 0  # experiments with running/pending runs
+    models_total: int = 0
+    models_in_production: int = 0
+    drift_alerts_unacknowledged: int = 0
+    drift_features_drifted: int = 0
+
+
 # ==================== Pipeline Schemas ====================
 
 class PipelineBase(BaseModel):
@@ -258,7 +270,7 @@ class ModelInDB(ModelBase):
 
 class ModelResponse(ModelInDB):
     """Model API response."""
-    pass
+    versions: List["ModelVersionResponse"] = Field(default_factory=list)
 
 
 class ModelList(PaginatedResponse):

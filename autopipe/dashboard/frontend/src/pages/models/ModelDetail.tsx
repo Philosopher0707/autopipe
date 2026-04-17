@@ -65,12 +65,23 @@ export function ModelDetail() {
     enabled: !!modelId,
   })
 
+  // Versions from model response (eager loaded) OR fallback to separate query
   const { data: versionsData, isLoading: versionsLoading } = useQuery({
     queryKey: ['model', modelId, 'versions'],
     queryFn: () => modelsApi.listVersions(modelId!),
-    enabled: !!modelId,
+    // Skip if model already has versions pre-loaded
+    enabled: !!modelId && !model?.versions?.length,
   })
-
+  
+  // Use versions from model response when available, otherwise from query
+  const versions = model?.versions ?? versionsData?.items ?? []
+  
+  const bestVersion = versions.find((version) => version.stage === 'production')
+    || versions.find((version) => version.stage === 'staging')
+    || versions[0]
+  
+  const isLoadingModel = isLoading || (versionsLoading && !model?.versions)
+  
   const createMutation = useMutation({
     mutationFn: () => modelsApi.create({
       name: form.name.trim(),
@@ -100,11 +111,6 @@ export function ModelDetail() {
       }),
     onSuccess: (response) => setComparison(response),
   })
-
-  const versions = versionsData?.items ?? []
-  const bestVersion = versions.find((version) => version.stage === 'production')
-    || versions.find((version) => version.stage === 'staging')
-    || versions[0]
 
   const toggleVersion = (version: number) => {
     setComparison(null)
@@ -225,7 +231,7 @@ export function ModelDetail() {
     )
   }
 
-  if (isLoading || versionsLoading) {
+  if (isLoadingModel) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-12 w-64" />

@@ -10,10 +10,24 @@ export const dashboardApi = {
     return apiClient.get<DashboardStats>('/dashboard/overview')
   },
 
+  /** GET /api/v1/dashboard/counts — sidebar badge counts */
+  getCounts: async (): Promise<{
+    pipelines_total: number
+    pipelines_active: number
+    experiments_total: number
+    experiments_active: number
+    models_total: number
+    models_in_production: number
+    drift_alerts_unacknowledged: number
+    drift_features_drifted: number
+  }> => {
+    return apiClient.get('/dashboard/counts')
+  },
+
   /** GET /api/v1/dashboard/activity */
   getActivity: async (limit = 20): Promise<{ items: ActivityLog[] }> => {
     return apiClient.get<{ items: ActivityLog[] }>('/dashboard/activity', {
-      params: { limit },
+      params: { page_size: limit },
     })
   },
 

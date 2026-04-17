@@ -66,9 +66,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen, toggleSidebar } = useUIStore()
   const { logout, user } = useAuthStore()
 
-  const { data: stats } = useQuery({
-    queryKey: ['dashboard', 'overview'],
-    queryFn: () => dashboardApi.getOverview(),
+  const { data: counts } = useQuery({
+    queryKey: ['dashboard', 'counts'],
+    queryFn: () => dashboardApi.getCounts(),
     refetchInterval: 60000,
   })
 
@@ -101,15 +101,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           
           <SidebarItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
-          <SidebarItem to="/pipelines" icon={<GitBranch className="w-5 h-5" />} label="Pipelines" badge={stats?.pipelines?.running || 0} />
+          <SidebarItem to="/pipelines" icon={<GitBranch className="w-5 h-5" />} label="Pipelines" badge={counts?.pipelines_active ?? 0} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             ML Lifecycle
           </div>
           
-          <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={stats?.experiments?.active || 0} />
-          <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={stats?.models?.in_production || 0} />
-          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={stats?.drift?.features_drifted || 0} />
+          <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={counts?.experiments_total ?? 0} />
+          <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={counts?.models_total ?? 0} />
+          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={counts?.drift_alerts_unacknowledged ?? 0} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             System

@@ -20,7 +20,7 @@ from app.db.models import (
     RunStatus,
 )
 from app.db.session import get_db
-from app.schemas import ActivityFeed, ActivityItem, DashboardStats, HealthStatus, SystemHealth
+from app.schemas import ActivityFeed, ActivityItem, DashboardStats, HealthStatus, SidebarCounts, SystemHealth
 
 router = APIRouter()
 
@@ -158,6 +158,84 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     )
     
     return stats
+
+
+@router.get("/counts", response_model=SidebarCounts)
+async def get_sidebar_counts(db: AsyncSession = Depends(get_db)):
+    """Get sidebar badge counts with clean direct queries — no complex joins."""
+    from sqlalchemy import select, func, exists
+    from sqlalchemy.orm import selectinload
+
+    # Pipelines: total and those with active (non-terminal) runs
+    pipelines_total = await db.scalar(select(func.count(Pipeline.id)))
+
+    active_run_statuses = [RunStatus.RUNNING, RunStatus.PENDING]
+    active_pipeline_sub = (
+        select(Run.pipeline_id)
+        .where(Run.status.in_(active_run_statuses))
+        .distinct()
+    )
+    pipelines_active = await db.scalar(
+        select(func.count()).select_from(Pipeline)
+        .where(Pipeline.id.in_(active_pipeline_sub))
+    )
+
+    # Experiments: total and those with active runs
+    experiments_total = await db.scalar(select(func.count(Experiment.id)))
+
+    active_exp_sub = (
+        select(Run.experiment_id)
+        .where(Run.status.in_(active_run_statuses))
+        .distinct()
+    )
+    experiments_active = await db.scalar(
+        select(func.count()).select_from(Experiment)
+        .where(Experiment.id.in_(active_exp_sub))
+    )
+
+    # Models
+    models_total = await db.scalar(select(func.count(Model.id)))
+    models_in_production = await db.scalar(
+        select(func.count(Model.id))
+        .where(Model.current_stage == ModelStage.PRODUCTION)
+    )
+
+    # Drift alerts: unacknowledged count
+    drift_alerts_unacknowledged = await db.scalar(
+        select(func.count(DriftAlert.id))
+        .where(DriftAlert.acknowledged == False)
+    )
+
+    # Drift reports: features currently drifted from latest report
+    latest_report_result = await db.execute(
+        select(DriftReport).order_by(DriftReport.created_at.desc()).limit(1)
+    )
+    latest_report = latest_report_result.scalar_one_or_none()
+    drift_features_drifted = 0
+    if latest_report and latest_report.feature_drifts:
+        for feature_name, stats in latest_report.feature_drifts.items():
+            if isinstance(stats, dict):
+                if stats.get("is_drifted"):
+                    drift_features_drifted += 1
+                elif "p_value" in stats:
+                    threshold = float(stats.get("threshold", 0.05))
+                    if float(stats["p_value"]) < threshold:
+                        drift_features_drifted += 1
+                elif "drift_score" in stats:
+                    threshold = float(stats.get("threshold", 0.1))
+                    if float(stats["drift_score"]) > threshold:
+                        drift_features_drifted += 1
+
+    return SidebarCounts(
+        pipelines_total=pipelines_total or 0,
+        pipelines_active=pipelines_active or 0,
+        experiments_total=experiments_total or 0,
+        experiments_active=experiments_active or 0,
+        models_total=models_total or 0,
+        models_in_production=models_in_production or 0,
+        drift_alerts_unacknowledged=drift_alerts_unacknowledged or 0,
+        drift_features_drifted=drift_features_drifted,
+    )
 
 
 @router.get("/activity", response_model=ActivityFeed)

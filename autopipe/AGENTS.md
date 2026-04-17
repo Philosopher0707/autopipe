@@ -1,0 +1,27 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+This directory contains the `autopipe` Python package: core orchestration in `core/`, reusable steps in `steps/`, and support code in `caching/`, `config/`, `credentials/`, `monitoring/`, `observability/`, `registry/`, `schemas/`, `tracking/`, `tuning/`, and `visualization/`. Repo-level tests live in `../tests/unit/` and `../tests/integration/`; smoke coverage also exists in `../test_simple.py`. Example configs are in the repo root (`../example_*.yaml`, `../example_pipeline.py`) and `../examples/`. The dashboard lives in `dashboard/backend/` (FastAPI) and `dashboard/frontend/` (React + Vite). Do not hand-edit `dashboard/backend/static/`; rebuild the frontend instead.
+
+## Build, Test, and Development Commands
+From the repository root:
+
+- `pip install -e ".[dev]"` installs the package plus pytest, Ruff, Black, mypy, and security tooling.
+- `pytest tests/unit --cov=autopipe --cov-report=term-missing` runs the main Python test suite with coverage.
+- `pytest tests/integration -m integration` runs slower end-to-end checks.
+- `ruff check autopipe tests && black --check autopipe tests && mypy autopipe` matches the CI quality gates.
+- `cd autopipe/dashboard/backend && pip install -r requirements.txt && uvicorn app.main:app --reload` starts the dashboard API.
+- `cd autopipe/dashboard/frontend && pnpm install && pnpm dev` runs the dashboard UI locally.
+- `cd autopipe/dashboard/frontend && pnpm build && pnpm typecheck` verifies production build health.
+
+## Coding Style & Naming Conventions
+Use 4-space indentation in Python, explicit type hints, and `snake_case` for modules, functions, and variables; classes use `PascalCase`. Black enforces a 100-character line length, Ruff handles import order and lint rules, and mypy runs in strict mode. In the frontend, keep React components and page files in `PascalCase.tsx`, colocate API clients under `src/api/`, and use descriptive store names like `authStore.ts`.
+
+## Testing Guidelines
+Name tests `test_*.py` and mirror the package structure under `../tests/unit/` where practical. Use the configured pytest markers: `unit`, `integration`, `slow`, and `requires_llm`. Coverage fails below 80%, so new behavior should ship with tests or a clear justification. For dashboard changes, follow `dashboard/INTEGRATION_TESTS.md` and include manual verification notes if no automated UI test was added.
+
+## Commit & Pull Request Guidelines
+Recent history follows short, imperative Conventional Commit prefixes such as `feat`, `fix`, `fix(frontend)`, and `security`. Keep the subject line specific to the changed surface. PRs should describe the behavior change, list validation commands run, link any related issue, and include screenshots for dashboard or UI work.
+
+## Security & Configuration Tips
+Keep secrets in `.env`, never in source. Start from `.env.example` when adding configuration, and mark tests that require real provider credentials with `requires_llm` so they stay opt-in.

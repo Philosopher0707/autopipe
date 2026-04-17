@@ -32,12 +32,12 @@ export interface ActivityLog {
   id?: string
   action: string
   timestamp?: string
+  created_at?: string
   title?: string
   description?: string
   resource_type?: string
   resource_id?: string
   user?: string
-  created_at: string
 }
 
 // Pipeline Types
@@ -96,6 +96,7 @@ export interface Model {
   created_at: string
   updated_at: string
   version_count?: number
+  versions?: ModelVersion[]  // Eager-loaded versions from model detail endpoint
 }
 
 export interface ModelVersion {

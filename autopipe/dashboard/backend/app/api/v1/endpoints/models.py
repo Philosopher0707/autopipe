@@ -104,7 +104,7 @@ async def get_model(
     model_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get model by ID."""
+    """Get model by ID with eager-loaded versions."""
     result = await db.execute(
         select(Model).where(Model.id == model_id).options(selectinload(Model.versions))
     )
@@ -113,8 +113,41 @@ async def get_model(
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     
-    model_dict = model.__dict__.copy()
-    model_dict['version_count'] = len(model.versions) if model.versions else 0
+    # Sort versions by version number descending
+    sorted_versions = sorted(model.versions, key=lambda v: v.version, reverse=True)
+    
+    # Build response with versions
+    model_dict = {
+        "id": model.id,
+        "name": model.name,
+        "description": model.description,
+        "framework": model.framework,
+        "task_type": model.task_type,
+        "current_stage": model.current_stage,
+        "signature": model.signature,
+        "tags": model.tags,
+        "created_at": model.created_at,
+        "updated_at": model.updated_at,
+        "version_count": len(model.versions) if model.versions else 0,
+        "versions": [
+            ModelVersionResponse(
+                id=v.id,
+                model_id=v.model_id,
+                version=v.version,
+                stage=v.stage,
+                description=v.description,
+                metrics=v.metrics,
+                params=v.params,
+                artifact_path=v.artifact_path,
+                run_id=v.run_id,
+                tags=v.tags,
+                created_at=v.created_at,
+                transitioned_at=v.transitioned_at,
+                model_name=model.name,
+            )
+            for v in sorted_versions
+        ],
+    }
     return ModelResponse.model_validate(model_dict)
 
 
