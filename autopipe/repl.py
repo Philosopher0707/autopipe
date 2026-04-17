@@ -68,19 +68,22 @@ WELCOME_WIDTH = 80
 
 # RESTRICTED BUILTINS - Remove dangerous functions for security
 # SECURITY FIX: Using restricted builtins instead of __builtins__
+# IMPORTANT: Removed dangerous functions that enable sandbox escapes:
+#   - getattr, setattr, type: enable __class__ introspection chains
+#   - getattr(obj, '__class__') → __init__ → __globals__ → __builtins__ escape
 _RESTRICTED_BUILTINS = {
     # Safe types
     'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
     'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
-    'type': type, 'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
+    'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
     
-    # Safe built-in functions
-    'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr, 'dir': dir,
+    # Safe built-in functions (NO getattr, setattr, type - prevents sandbox escape)
+    'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr,
     'divmod': divmod, 'enumerate': enumerate, 'filter': filter, 'format': format,
     'hash': hash, 'hex': hex, 'id': id, 'isinstance': isinstance, 'issubclass': issubclass,
     'iter': iter, 'map': map, 'max': max, 'min': min, 'next': next, 'oct': oct,
     'ord': ord, 'pow': pow, 'print': print, 'range': range, 'repr': repr,
-    'reversed': reversed, 'round': round, 'setattr': setattr, 'getattr': getattr,
+    'reversed': reversed, 'round': round,
     'slice': slice, 'sorted': sorted, 'sum': sum, 'zip': zip,
     
     # Safe exceptions (allow raising common ones)
