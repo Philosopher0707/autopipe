@@ -1,6 +1,6 @@
 """Experiments endpoints."""
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy import select, func, desc
