@@ -1,6 +1,6 @@
 """Model Registry endpoints."""
 
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
@@ -12,8 +12,8 @@ from app.db.models import Model, ModelVersion, ModelStage
 from app.db.session import get_db
 from app.schemas import (
     ModelCreate, ModelUpdate, ModelResponse, ModelList,
-    ModelVersionCreate, ModelVersionUpdate, ModelVersionResponse, ModelVersionList,
-    ModelPromoteRequest, ModelComparisonRequest, ModelComparisonResponse,
+    ModelVersionCreate, ModelVersionResponse, ModelVersionList,
+    ModelPromoteRequest,
 )
 
 router = APIRouter()
@@ -25,6 +25,8 @@ async def list_models(
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, description="Search by name"),
     framework: Optional[str] = Query(None, description="Filter by framework"),
+    task_type: Optional[str] = Query(None, description="Filter by task type"),
+    tag: Optional[str] = Query(None, description="Filter by tag"),
     stage: Optional[str] = Query(None, description="Filter by stage: pending, staging, production, archived"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -40,6 +42,18 @@ async def list_models(
     if framework:
         count_query = count_query.where(Model.framework == framework)
         query = query.where(Model.framework == framework)
+
+    if task_type:
+        count_query = count_query.where(Model.task_type == task_type)
+        query = query.where(Model.task_type == task_type)
+
+    if tag:
+        count_query = count_query.where(Model.tags.contains([tag]))
+        query = query.where(Model.tags.contains([tag]))
+
+    if stage:
+        count_query = count_query.where(Model.current_stage == stage)
+        query = query.where(Model.current_stage == stage)
     
     total = await db.scalar(count_query)
     
@@ -285,8 +299,8 @@ async def promote_model_version(
     model_result = await db.execute(select(Model).where(Model.id == model_id))
     model = model_result.scalar_one_or_none()
     
-    if model and version.stage == ModelStage.PRODUCTION:
-        model.current_stage = ModelStage.PRODUCTION
+    if model:
+        model.current_stage = version.stage
     
     await db.commit()
     await db.refresh(version)
@@ -342,11 +356,29 @@ async def compare_model_versions(
                 "percentage": round(pct_diff, 2),
             }
     
+    primary_metric = "accuracy" if "accuracy" in differences else next(iter(differences), None)
+    is_better = False
+    if primary_metric is not None:
+        is_better = differences[primary_metric]["difference"] > 0
+
+    report_lines = [
+        f"Compared model versions v{version_a} and v{version_b}.",
+    ]
+    for metric, metric_diff in differences.items():
+        report_lines.append(
+            f"{metric}: {metric_diff[f'v{version_a}']} -> {metric_diff[f'v{version_b}']} "
+            f"({metric_diff['percentage']}%)"
+        )
+
     return {
-        "model_name": model.name if model else None,
+        "model_name": model.name if model else "",
         "version_a": version_a,
         "version_b": version_b,
-        "comparisons": differences,
+        "metric_differences": {
+            metric: metric_diff["difference"] for metric, metric_diff in differences.items()
+        },
+        "is_better": is_better,
+        "report": "\n".join(report_lines),
     }
 
 

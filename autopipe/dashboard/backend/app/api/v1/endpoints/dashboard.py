@@ -1,15 +1,23 @@
 """Dashboard overview endpoints."""
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select, and_, cast, Integer
+from sqlalchemy import Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.db.models import (
-    ActivityLog, DashboardMetric, DriftAlert, Experiment, Model, ModelVersion, Pipeline, Run, RunStatus, ModelStage
+    ActivityLog,
+    DashboardMetric,
+    DriftAlert,
+    DriftReport,
+    Experiment,
+    Model,
+    ModelStage,
+    Pipeline,
+    Run,
+    RunStatus,
 )
 from app.db.session import get_db
 from app.schemas import ActivityFeed, ActivityItem, DashboardStats, HealthStatus, SystemHealth
@@ -23,17 +31,22 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     
     yesterday = datetime.utcnow() - timedelta(days=1)
     
-    # Single combined query for all counts - avoids N+1 problem
     pipeline_count = await db.scalar(select(func.count(Pipeline.id)))
     
-    # Batch query for all run-related counts in one round-trip
     run_counts_query = select(
-        func.count(Run.id).label('total'),
-        func.sum(func.cast(Run.status == RunStatus.RUNNING, Integer)).label('running'),
-        func.sum(func.cast(Run.status == RunStatus.SUCCESS, Integer)).label('completed'),
-        func.sum(func.cast(Run.status == RunStatus.FAILED, Integer)).label('failed'),
-        func.avg(func.nullif(Run.duration_seconds, 0)).label('avg_duration'),
-    ).where(Run.started_at >= yesterday)
+        func.count(Run.id)
+        .filter(Run.status == RunStatus.RUNNING)
+        .label("running"),
+        func.count(Run.id)
+        .filter(Run.status == RunStatus.SUCCESS, Run.completed_at >= yesterday)
+        .label("completed"),
+        func.count(Run.id)
+        .filter(Run.status == RunStatus.FAILED, Run.completed_at >= yesterday)
+        .label("failed"),
+        func.avg(Run.duration_seconds)
+        .filter(Run.completed_at >= yesterday, Run.duration_seconds.is_not(None))
+        .label("avg_duration"),
+    )
     
     run_counts = await db.execute(run_counts_query)
     row = run_counts.first()
@@ -46,53 +59,79 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     total_24h = completed_24h + failed_24h
     success_rate = (completed_24h / total_24h * 100) if total_24h > 0 else 100.0
     
-    # Batch query for model counts - single query instead of 3
     model_counts = await db.execute(
         select(
-            func.count(Model.id).label('total'),
-            func.count(ModelVersion.id)
-                .filter(ModelVersion.stage == ModelStage.PRODUCTION)
-                .label('prod'),
-            func.count(ModelVersion.id)
-                .filter(ModelVersion.stage == ModelStage.STAGING)
-                .label('staging'),
-        ).select_from(Model).outerjoin(ModelVersion)
+            func.count(Model.id).label("total"),
+            func.count(Model.id)
+            .filter(Model.current_stage == ModelStage.PRODUCTION)
+            .label("prod"),
+            func.count(Model.id)
+            .filter(Model.current_stage == ModelStage.STAGING)
+            .label("staging"),
+        )
     )
     model_row = model_counts.first()
     total_models = model_row.total or 0 if model_row else 0
     models_in_prod = model_row.prod or 0 if model_row else 0
     models_in_staging = model_row.staging or 0 if model_row else 0
     
-    # Batch query for experiment counts - single query
     experiment_counts = await db.execute(
         select(
-            func.count(Experiment.id).label('total'),
-            func.count(Experiment.id)
-                .filter(Experiment.updated_at >= yesterday)
-                .label('recent'),
+            func.count(func.distinct(Experiment.id)).label("total"),
+            func.count(func.distinct(Experiment.id))
+            .filter(Run.status.in_([RunStatus.RUNNING, RunStatus.PENDING]))
+            .label("active"),
+            func.count(func.distinct(Experiment.id))
+            .filter(Experiment.updated_at >= yesterday)
+            .label("recent"),
+            func.count(Run.id).label("total_runs"),
         )
+        .select_from(Experiment)
+        .outerjoin(Run, Run.experiment_id == Experiment.id)
     )
     exp_row = experiment_counts.first()
     total_experiments = exp_row.total or 0 if exp_row else 0
+    active_experiments = exp_row.active or 0 if exp_row else 0
     experiments_24h = exp_row.recent or 0 if exp_row else 0
+    total_experiment_runs = exp_row.total_runs or 0 if exp_row else 0
     
-    # Single query for drift stats
     drift_counts = await db.execute(
         select(
-            func.max(DriftAlert.created_at).label('last_check'),
+            func.max(DriftAlert.created_at).label("last_check"),
             func.count(DriftAlert.id)
-                .filter(DriftAlert.acknowledged == False)
-                .label('unack'),
+            .filter(DriftAlert.acknowledged.is_(False))
+            .label("unack"),
         )
     )
     drift_row = drift_counts.first()
     latest_drift_check = drift_row.last_check if drift_row else None
     unacknowledged_alerts = drift_row.unack or 0 if drift_row else 0
+
+    latest_report_result = await db.execute(
+        select(DriftReport).order_by(DriftReport.created_at.desc()).limit(1)
+    )
+    latest_report = latest_report_result.scalar_one_or_none()
+    latest_drift_score = latest_report.drift_score if latest_report else 0.0
+
+    latest_features_drifted = 0
+    if latest_report and latest_report.feature_drifts:
+        for stats in latest_report.feature_drifts.values():
+            if isinstance(stats, dict):
+                if stats.get("is_drifted"):
+                    latest_features_drifted += 1
+                elif "p_value" in stats:
+                    threshold = float(stats.get("threshold", 0.05))
+                    latest_features_drifted += int(float(stats.get("p_value", 1.0)) < threshold)
+                elif "drift_score" in stats:
+                    threshold = float(stats.get("threshold", 0.1))
+                    latest_features_drifted += int(float(stats.get("drift_score", 0.0)) > threshold)
+            elif isinstance(stats, (int, float)):
+                latest_features_drifted += int(float(stats) > 0.1)
     
     stats = DashboardStats(
         pipelines={
             "total": pipeline_count or 0,
-            "active": running_count or 0,
+            "running": running_count or 0,
             "completed_today": completed_24h or 0,
             "failed_today": failed_24h or 0,
             "avg_duration": f"{int((avg_duration or 0) / 60)}m {int((avg_duration or 0) % 60)}s",
@@ -102,19 +141,19 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
             "total": total_models or 0,
             "in_production": models_in_prod or 0,
             "in_staging": models_in_staging or 0,
-            "recent_versions": 0,  # Would need additional query
+            "recent_versions": 0,
         },
         drift={
             "alerts_today": unacknowledged_alerts or 0,
-            "features_drifted": 0,  # Would need feature drift query
-            "drift_score_avg": 0.0,  # Would need calculation
-            "last_check": latest_drift_check.isoformat() if latest_drift_check else datetime.utcnow().isoformat(),
+            "features_drifted": latest_features_drifted or unacknowledged_alerts or 0,
+            "drift_ratio": latest_drift_score,
+            "last_check": latest_drift_check.isoformat() if latest_drift_check else None,
         },
         experiments={
             "total": total_experiments or 0,
-            "active": 0,
+            "active": active_experiments or 0,
             "completed_today": experiments_24h or 0,
-            "total_trials": total_experiments or 0,
+            "total_trials": total_experiment_runs or 0,
         },
     )
     

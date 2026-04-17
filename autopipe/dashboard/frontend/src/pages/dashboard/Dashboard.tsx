@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   GitBranch,
   Box,
@@ -108,9 +109,12 @@ function StatCard({
 
 function ActivityIcon({ action }: { action: string }) {
   const config: Record<string, { icon: React.ElementType; color: string }> = {
-    pipeline_completed: { icon: Activity, color: 'bg-green-100 text-green-600' },
+    run_completed: { icon: Activity, color: 'bg-green-100 text-green-600' },
+    run_failed: { icon: AlertTriangle, color: 'bg-red-100 text-red-600' },
+    run_started: { icon: Clock, color: 'bg-blue-100 text-blue-600' },
+    run_triggered: { icon: GitBranch, color: 'bg-indigo-100 text-indigo-600' },
     model_promoted: { icon: TrendingUp, color: 'bg-blue-100 text-blue-600' },
-    drift_detected: { icon: AlertTriangle, color: 'bg-red-100 text-red-600' },
+    drift_alert: { icon: AlertTriangle, color: 'bg-red-100 text-red-600' },
     experiment_started: { icon: FlaskConical, color: 'bg-purple-100 text-purple-600' },
     system_update: { icon: Activity, color: 'bg-gray-100 text-gray-600' },
   }
@@ -126,6 +130,7 @@ function ActivityIcon({ action }: { action: string }) {
 
 export function Dashboard() {
   const [mounted, setMounted] = useState(false)
+  const navigate = useNavigate()
 
   // Handle hydration mismatch for client-only rendering
   useEffect(() => {
@@ -138,10 +143,10 @@ export function Dashboard() {
     refetchInterval: 30000,
     // Fallback to mock data if API fails - use null-safe values for hydration
     initialData: {
-      pipelines: { total: 42, running: 5, completed_today: 15 },
-      models: { total: 8, in_production: 8, in_staging: 4 },
-      drift: { features_drifted: 3, drift_ratio: 0.28, last_check: null },
-      experiments: { active: 3, completed_today: 8, total_trials: 156 },
+      pipelines: { total: 42, running: 5, completed_today: 15, failed_today: 2, avg_duration: '12m 30s', success_rate: 88 },
+      models: { total: 8, in_production: 8, in_staging: 4, recent_versions: 2 },
+      drift: { alerts_today: 2, features_drifted: 3, drift_ratio: 0.28, last_check: null },
+      experiments: { total: 10, active: 3, completed_today: 8, total_trials: 156 },
     },
   })
 
@@ -161,7 +166,11 @@ export function Dashboard() {
     queryKey: ['dashboard', 'activity'],
     queryFn: async () => {
       const response = await dashboardApi.getActivity(20)
-      return response.items ?? []
+      const items = response.items ?? []
+      return items.map(a => ({
+        ...a,
+        created_at: a.created_at || a.timestamp || new Date().toISOString(),
+      }))
     },
     refetchInterval: 30000,
     initialData: [],
@@ -411,8 +420,8 @@ export function Dashboard() {
                             />
                           </div>
                           <div>
-                            <p className="font-medium text-foreground">{run.pipeline_id}</p>
-                            <p className="text-xs text-muted-foreground">Run #{run.run_number}</p>
+                            <p className="font-medium text-foreground">{run.pipeline_name || run.pipeline_id}</p>
+                            <p className="text-xs text-muted-foreground">Run #{run.run_number || run.id.slice(0, 8)}</p>
                           </div>
                         </div>
                       </td>
@@ -468,24 +477,15 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activities?.map((activity: ActivityLog) => (
-                <div key={activity.id} className="flex gap-3">
+              {activities?.map((activity: ActivityLog, idx: number) => (
+                <div key={activity.id || idx} className="flex gap-3">
                   <ActivityIcon action={activity.action} />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">
-                      {activity.action.replace(/_/g, ' ')}
+                      {activity.title || activity.action.replace(/_/g, ' ')}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {activity.action === 'pipeline_completed' &&
-                        `Pipeline ${activity.details?.pipeline_name} completed successfully`}
-                      {activity.action === 'model_promoted' &&
-                        `Model ${activity.resource_id} moved to ${activity.details?.to_stage}`}
-                      {activity.action === 'drift_detected' &&
-                        `Feature '${activity.details?.feature}' PSI = ${activity.details?.psi}`}
-                      {activity.action === 'experiment_started' &&
-                        `${activity.details?.name} with ${activity.details?.trials} combinations`}
-                      {activity.action === 'system_update' &&
-                        `AutoPipe dashboard ${activity.details?.version} deployed`}
+                      {activity.description || ''}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                       <Clock className="w-3 h-3" />
@@ -500,25 +500,24 @@ export function Dashboard() {
       </div>
 
       {/* Drift Alert Banner */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between">
+      {(stats?.drift?.features_drifted ?? 0) > 0 && (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between dark:bg-amber-950/20 dark:border-amber-900">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
             <AlertTriangle className="w-5 h-5 text-amber-600" />
           </div>
           <div>
-            <p className="text-sm font-medium text-amber-900">Data drift detected in production</p>
-            <p className="text-xs text-amber-700">3 features have drifted above threshold</p>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Data drift detected in production</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">{stats?.drift?.features_drifted} features have drifted above threshold</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="px-4 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-50">
+          <button onClick={() => navigate('/drift')} className="px-4 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-50 dark:bg-transparent dark:text-amber-300 dark:border-amber-700">
             View Details
-          </button>
-          <button className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
-            Acknowledge
           </button>
         </div>
       </div>
+      )}
     </div>
   )
 }

@@ -1,21 +1,38 @@
 """Pipeline management endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Pipeline, Run, RunStatus, Step, ActivityLog
+from app.db.models import ActivityLog, Pipeline, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import (
-    PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate,
-    RunCreate, RunResponse, PaginationParams
+    PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
 )
 
 router = APIRouter()
+
+
+def _serialize_run(run: Run, pipeline_name: Optional[str] = None) -> RunResponse:
+    """Serialize a pipeline run with the fields used by the frontend."""
+    return RunResponse(
+        id=run.id,
+        pipeline_id=run.pipeline_id,
+        status=run.status,
+        run_number=run.run_number,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        duration_seconds=run.duration_seconds,
+        metrics=run.metrics,
+        error_message=run.error_message,
+        created_by=run.created_by,
+        created_at=run.created_at,
+        pipeline_name=pipeline_name,
+    )
 
 
 @router.get("", response_model=PipelineList)
@@ -35,9 +52,8 @@ async def list_pipelines(
     query = select(Pipeline)
     
     # Apply filters
-    if status:
-        is_active = status == 'active'
-        query = query.filter(Pipeline.is_active == is_active)
+    if status and status != "all":
+        query = query.filter(Pipeline.is_active == (status == "active"))
     
     if search:
         search_filter = f"%{search}%"
@@ -69,9 +85,6 @@ async def list_pipelines(
     # Convert to response format
     items = []
     for pipeline in pipelines:
-        run_count = await db.scalar(
-            select(func.count(Run.id)).where(Run.pipeline_id == pipeline.id)
-        )
         item = PipelineResponse(
             id=pipeline.id,
             name=pipeline.name,
@@ -82,8 +95,8 @@ async def list_pipelines(
             created_at=pipeline.created_at,
             updated_at=pipeline.updated_at,
             created_by=pipeline.created_by,
-            run_count=run_count or 0,
-            is_active=True if pipeline.created_at else True,
+            run_count=len(pipeline.runs) if pipeline.runs else 0,
+            is_active=pipeline.is_active,
         )
         items.append(item)
     
@@ -115,10 +128,6 @@ async def get_pipeline(
             detail=f"Pipeline {pipeline_id} not found",
         )
     
-    run_count = await db.scalar(
-        select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id)
-    )
-    
     return PipelineResponse(
         id=pipeline.id,
         name=pipeline.name,
@@ -129,7 +138,8 @@ async def get_pipeline(
         created_at=pipeline.created_at,
         updated_at=pipeline.updated_at,
         created_by=pipeline.created_by,
-        run_count=run_count or 0,
+        run_count=len(pipeline.runs) if pipeline.runs else 0,
+        is_active=pipeline.is_active,
     )
 
 
@@ -175,6 +185,7 @@ async def create_pipeline(
         updated_at=db_pipeline.updated_at,
         created_by=db_pipeline.created_by,
         run_count=0,
+        is_active=db_pipeline.is_active,
     )
 
 
@@ -208,7 +219,10 @@ async def update_pipeline(
     
     await db.commit()
     await db.refresh(pipeline)
-    
+    run_count = await db.scalar(
+        select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id)
+    )
+
     return PipelineResponse(
         id=pipeline.id,
         name=pipeline.name,
@@ -219,7 +233,8 @@ async def update_pipeline(
         created_at=pipeline.created_at,
         updated_at=pipeline.updated_at,
         created_by=pipeline.created_by,
-        run_count=0,  # Get actual count
+        run_count=run_count or 0,
+        is_active=pipeline.is_active,
     )
 
 
@@ -297,18 +312,7 @@ async def trigger_run(
     db.add(activity)
     await db.commit()
     
-    return RunResponse(
-        id=run.id,
-        pipeline_id=run.pipeline_id,
-        status=run.status,
-        started_at=run.started_at,
-        completed_at=run.completed_at,
-        duration_seconds=run.duration_seconds,
-        metrics=run.metrics,
-        error_message=run.error_message,
-        created_by=run.created_by,
-        pipeline_name=pipeline.name,
-    )
+    return _serialize_run(run, pipeline.name)
 
 
 @router.get("/{pipeline_id}/runs")
@@ -352,18 +356,7 @@ async def list_pipeline_runs(
     
     items = []
     for run in runs:
-        items.append(RunResponse(
-            id=run.id,
-            pipeline_id=run.pipeline_id,
-            status=run.status,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            duration_seconds=run.duration_seconds,
-            metrics=run.metrics,
-            error_message=run.error_message,
-            created_by=run.created_by,
-            pipeline_name=pipeline.name,
-        ))
+        items.append(_serialize_run(run, pipeline.name))
     
     return {
         "items": items,

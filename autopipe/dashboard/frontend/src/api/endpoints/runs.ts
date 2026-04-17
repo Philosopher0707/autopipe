@@ -38,6 +38,7 @@ export const runsApi = {
         pipeline_id: params?.pipeline_id,
         status: params?.status,
         experiment_id: params?.experiment_id,
+        search: params?.search,
         page: params?.page ?? 1,
         page_size: params?.page_size ?? 20,
       },

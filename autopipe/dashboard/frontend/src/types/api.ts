@@ -4,18 +4,24 @@ export interface DashboardStats {
     total: number
     running: number
     completed_today: number
+    failed_today: number
+    avg_duration: string
+    success_rate: number
   }
   models: {
     total: number
     in_production: number
     in_staging: number
+    recent_versions: number
   }
   drift: {
+    alerts_today: number
     features_drifted: number
     drift_ratio: number
     last_check: string | null
   }
   experiments: {
+    total: number
     active: number
     completed_today: number
     total_trials: number
@@ -23,12 +29,14 @@ export interface DashboardStats {
 }
 
 export interface ActivityLog {
-  id: string
+  id?: string
   action: string
-  resource_type: string
+  timestamp?: string
+  title?: string
+  description?: string
+  resource_type?: string
   resource_id?: string
-  details?: Record<string, unknown>
-  user_id?: string
+  user?: string
   created_at: string
 }
 
@@ -95,11 +103,15 @@ export interface ModelVersion {
   model_id: string
   version: number
   stage: ModelStage
+  description?: string
   metrics?: Record<string, number>
   params?: Record<string, unknown>
   artifact_path: string
   run_id?: string
+  tags?: string[]
   created_at: string
+  transitioned_at?: string | null
+  model_name?: string
 }
 
 // Experiment Types
@@ -107,35 +119,38 @@ export interface Experiment {
   id: string
   name: string
   description?: string
-  status: 'running' | 'completed' | 'failed'
+  config?: Record<string, unknown>
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  tags?: string[]
   created_at: string
   updated_at: string
   best_run_id?: string
   best_metric?: number
   metric_name?: string
-  best_trial_id?: string
-}
-
-export interface Trial {
-  id: string
-  experiment_id: string
-  trial_number: number
-  params: Record<string, unknown>
-  value?: number
-  status: 'running' | 'completed' | 'failed' | 'pruned'
-  started_at?: string
-  completed_at?: string
+  run_count?: number
 }
 
 // Drift Detection Types
+export interface DriftFeature {
+  drift_score: number
+  p_value?: number | null
+  threshold: number
+  is_drifted: boolean
+  test_type: string
+}
+
 export interface DriftReport {
   id: string
   model_id?: string
+  run_id?: string | null
   drift_score: number
   drift_detected: boolean
-  feature_drifts?: Record<string, number>
+  feature_drifts?: Record<string, DriftFeature>
+  reference_data_summary?: Record<string, unknown>
+  current_data_summary?: Record<string, unknown>
   created_at: string
   features_drifted?: number
+  alert_generated?: boolean
 }
 
 export interface DriftAlert {
@@ -145,6 +160,7 @@ export interface DriftAlert {
   drift_score: number
   threshold: number
   drift_type: string
+  drift_metric: string
   acknowledged: boolean
   created_at: string
 }
@@ -165,7 +181,8 @@ export interface PaginatedResponse<T> {
   items: T[]
   total: number
   page: number
-  per_page: number
+  page_size?: number
+  per_page?: number
   pages?: number
 }
 

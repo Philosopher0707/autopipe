@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
-import { Card, CardContent, CardTitle, Skeleton, Badge } from '@/components/ui'
+import { Card, CardContent, Skeleton, Badge } from '@/components/ui'
 import { experimentsApi } from '@/api/endpoints'
 import {
-  Plus, Search, FlaskConical, Activity, Clock, CheckCircle, ArrowRight
+  Plus, Search, FlaskConical, Activity, Clock, ArrowRight
 } from 'lucide-react'
 import { formatRelativeTime, getStatusBgColor } from '@/utils/helpers'
 import type { Experiment } from '@/types'
@@ -83,9 +83,7 @@ export function ExperimentList() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">{exp.name}</h3>
-                      <p className="text-xs text-muted-foreground">
-                        {exp.status}
-                      </p>
+                      <Badge className={getStatusBgColor(exp.status)}>{exp.status}</Badge>
                     </div>
                   </div>
                 </div>

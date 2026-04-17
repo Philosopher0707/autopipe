@@ -47,8 +47,9 @@ class PipelineUpdate(BaseModel):
 class PipelineInDB(PipelineBase):
     """Pipeline database schema."""
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
+    is_active: bool = True
     config_hash: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -90,9 +91,10 @@ class RunUpdate(BaseModel):
 class RunInDB(RunBase):
     """Run database schema."""
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     status: str
+    run_number: Optional[int] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
@@ -100,6 +102,7 @@ class RunInDB(RunBase):
     logs_path: Optional[str] = None
     error_message: Optional[str] = None
     created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
     pipeline_name: Optional[str] = None  # Populated from relationship
 
 
@@ -206,6 +209,7 @@ class ExperimentInDB(ExperimentBase):
     best_metric: Optional[float] = None
     metric_name: Optional[str] = None
     run_count: int = 0
+    status: str = "pending"
 
 
 class ExperimentResponse(ExperimentInDB):
@@ -264,21 +268,14 @@ class ModelList(PaginatedResponse):
 
 # ==================== Model Version Schemas ====================
 
-class ModelVersionBase(BaseModel):
-    """Base model version schema."""
-    model_id: str
-    version: int
+class ModelVersionCreate(BaseModel):
+    """Model version creation schema."""
     description: Optional[str] = None
     metrics: Optional[Dict[str, Any]] = None
     params: Optional[Dict[str, Any]] = None
     artifact_path: str
     run_id: Optional[str] = None
     tags: Optional[List[str]] = None
-
-
-class ModelVersionCreate(ModelVersionBase):
-    """Model version creation schema."""
-    pass
 
 
 class ModelVersionUpdate(BaseModel):
@@ -288,12 +285,20 @@ class ModelVersionUpdate(BaseModel):
     tags: Optional[List[str]] = None
 
 
-class ModelVersionInDB(ModelVersionBase):
+class ModelVersionInDB(BaseModel):
     """Model version database schema."""
     model_config = ConfigDict(from_attributes=True)
     
     id: str
+    model_id: str
+    version: int
     stage: str
+    description: Optional[str] = None
+    metrics: Optional[Dict[str, Any]] = None
+    params: Optional[Dict[str, Any]] = None
+    artifact_path: str
+    run_id: Optional[str] = None
+    tags: Optional[List[str]] = None
     created_at: datetime
     transitioned_at: Optional[datetime] = None
     model_name: Optional[str] = None  # Populated from relationship
@@ -307,6 +312,7 @@ class ModelVersionResponse(ModelVersionInDB):
 class ModelVersionList(BaseModel):
     """Model version list response."""
     items: List[ModelVersionResponse]
+    total: int
 
 
 class ModelComparisonRequest(BaseModel):
@@ -361,7 +367,7 @@ class DriftReportInDB(DriftReportBase):
 
 class DriftReportResponse(DriftReportInDB):
     """Drift report API response."""
-    pass
+    features_drifted: Optional[int] = None
 
 
 class DriftReportList(PaginatedResponse):
@@ -406,6 +412,9 @@ class DriftAlertResponse(BaseModel):
     feature_name: str
     severity: str
     drift_score: float
+    threshold: float
+    drift_type: str
+    drift_metric: str
     acknowledged: bool
     created_at: datetime
 
@@ -417,12 +426,46 @@ class DriftAlertList(PaginatedResponse):
 
 # ==================== Dashboard Overview Schemas ====================
 
+class PipelineStats(BaseModel):
+    """Pipeline-related dashboard statistics."""
+    total: int = 0
+    running: int = 0
+    completed_today: int = 0
+    failed_today: int = 0
+    avg_duration: str = "0m 0s"
+    success_rate: float = 0.0
+
+
+class ModelStats(BaseModel):
+    """Model-related dashboard statistics."""
+    total: int = 0
+    in_production: int = 0
+    in_staging: int = 0
+    recent_versions: int = 0
+
+
+class DriftStats(BaseModel):
+    """Drift-related dashboard statistics."""
+    alerts_today: int = 0
+    features_drifted: int = 0
+    drift_ratio: float = 0.0
+    last_check: Optional[str] = None
+
+
+class ExperimentStats(BaseModel):
+    """Experiment-related dashboard statistics."""
+    total: int = 0
+    active: int = 0
+    completed_today: int = 0
+    total_trials: int = 0
+
+
 class DashboardStats(BaseModel):
     """Dashboard statistics overview."""
-    pipelines: Dict[str, Any] = Field(default_factory=dict)
-    models: Dict[str, Any] = Field(default_factory=dict)
-    drift: Dict[str, Any] = Field(default_factory=dict)
-    experiments: Dict[str, Any] = Field(default_factory=dict)
+    pipelines: PipelineStats = Field(default_factory=PipelineStats)
+    models: ModelStats = Field(default_factory=ModelStats)
+    drift: DriftStats = Field(default_factory=DriftStats)
+    experiments: ExperimentStats = Field(default_factory=ExperimentStats)
 
 
 class ActivityItem(BaseModel):

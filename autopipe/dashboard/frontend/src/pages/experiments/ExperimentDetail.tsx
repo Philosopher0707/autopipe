@@ -1,109 +1,269 @@
-import React, { useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, FlaskConical, TrendingUp, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, Badge, Button, Skeleton } from '@/components/ui'
 import { experimentsApi } from '@/api/endpoints'
-import { cn, formatDate, formatRelativeTime } from '@/utils/helpers'
+import { cn, formatDate, formatDuration } from '@/utils/helpers'
+import type { PipelineRun } from '@/types'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 
-const mockTrials = [
-  { id: '1', experiment_id: '1', trial_number: 1, params: { lr: 0.01, max_depth: 6, n_estimators: 100 }, value: 0.9210, status: 'completed' },
-  { id: '2', experiment_id: '1', trial_number: 2, params: { lr: 0.005, max_depth: 8, n_estimators: 200 }, value: 0.9345, status: 'completed' },
-  { id: '3', experiment_id: '1', trial_number: 3, params: { lr: 0.001, max_depth: 10, n_estimators: 300 }, value: 0.9387, status: 'completed' },
-  { id: '4', experiment_id: '1', trial_number: 4, params: { lr: 0.003, max_depth: 7, n_estimators: 150 }, value: 0.9298, status: 'completed' },
-  { id: '5', experiment_id: '1', trial_number: 5, params: { lr: 0.02, max_depth: 5, n_estimators: 50 }, value: 0.9050, status: 'failed' },
-  { id: '6', experiment_id: '1', trial_number: 6, params: { lr: 0.008, max_depth: 9, n_estimators: 250 }, value: 0.9421, status: 'running' },
-]
-
-const mockExperiment = {
-  id: '1', name: 'hyperparam_search_xgb', description: 'Bayesian optimization for XGBoost',
-  status: 'running', created_at: '2026-04-14T08:00:00Z', best_metric: 0.9421,
-  metric_name: 'accuracy', best_trial_id: '6',
+type ExperimentFormState = {
+  name: string
+  description: string
+  tags: string
+  configText: string
 }
 
-const chartData = mockTrials.filter(t => t.value).map(t => ({
-  trial: `Trial ${t.trial_number}`,
-  value: t.value ? (t.value * 100).toFixed(1) : 0,
-}))
+const DEFAULT_FORM: ExperimentFormState = {
+  name: '',
+  description: '',
+  tags: '',
+  configText: '{\n  "strategy": "bayesian"\n}',
+}
+
+function parseTags(tags: string): string[] | undefined {
+  const items = tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+  return items.length > 0 ? items : undefined
+}
+
+function parseJsonConfig(configText: string): Record<string, unknown> | undefined {
+  const trimmed = configText.trim()
+  if (!trimmed) return undefined
+  return JSON.parse(trimmed) as Record<string, unknown>
+}
 
 export function ExperimentDetail() {
   const { experimentId } = useParams<{ experimentId: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'overview' | 'trials' | 'visualize'>('overview')
+  const isNew = !experimentId
+  const [activeTab, setActiveTab] = useState<'overview' | 'runs'>('overview')
+  const [form, setForm] = useState<ExperimentFormState>(DEFAULT_FORM)
+  const [formError, setFormError] = useState<string | null>(null)
 
-  const { data: experiment } = useQuery({
+  const { data: experiment, isLoading } = useQuery({
     queryKey: ['experiment', experimentId],
     queryFn: () => experimentsApi.getById(experimentId!),
-    initialData: mockExperiment as any,
+    enabled: !!experimentId,
   })
 
-  const { data: trialsData } = useQuery({
-    queryKey: ['experiment', experimentId, 'trials'],
-    fn: () => experimentsApi.listTrials(experimentId!),
-    initialData: { items: mockTrials } as any,
+  const { data: runsData, isLoading: runsLoading } = useQuery({
+    queryKey: ['experiment', experimentId, 'runs'],
+    queryFn: () => experimentsApi.listRuns(experimentId!),
+    enabled: !!experimentId,
   })
 
-  const trials = trialsData?.items || mockTrials
-  const bestTrial = trials.find(t => t.id === experiment?.best_trial_id)
+  const createMutation = useMutation({
+    mutationFn: () => experimentsApi.create({
+      name: form.name.trim(),
+      description: form.description.trim() || undefined,
+      tags: parseTags(form.tags),
+      config: parseJsonConfig(form.configText),
+    }),
+    onSuccess: (createdExperiment) => navigate(`/experiments/${createdExperiment.id}`),
+  })
+
+  const runs = runsData?.items ?? []
+  const metricName = experiment?.metric_name
+    || Object.keys(runs.find((run) => run.metrics && Object.keys(run.metrics).length > 0)?.metrics || {})[0]
+    || 'score'
+
+  const chartData = useMemo(() => (
+    runs
+      .filter((run) => typeof run.metrics?.[metricName] === 'number')
+      .map((run) => ({
+        run: `Run ${run.run_number ?? run.id.slice(0, 8)}`,
+        value: Number(run.metrics?.[metricName] ?? 0),
+      }))
+  ), [metricName, runs])
+
+  const bestRun = runs.find((run) => run.id === experiment?.best_run_id)
+    || [...runs]
+      .filter((run) => typeof run.metrics?.[metricName] === 'number')
+      .sort((left, right) => Number(right.metrics?.[metricName] ?? 0) - Number(left.metrics?.[metricName] ?? 0))[0]
+
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFormError(null)
+
+    if (!form.name.trim()) {
+      setFormError('Experiment name is required.')
+      return
+    }
+
+    try {
+      await createMutation.mutateAsync()
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        setFormError('Configuration must be valid JSON.')
+        return
+      }
+      setFormError('Unable to create experiment.')
+    }
+  }
+
+  if (isNew) {
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/experiments')}>
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">New Experiment</h1>
+            <p className="text-muted-foreground">Create an experiment record before attaching runs.</p>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold">Experiment Setup</h2>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleCreate}>
+              <div>
+                <label className="text-sm font-medium">Name</label>
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="xgboost-hyperparameter-search"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  className="mt-1 min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="What hypothesis or search strategy does this experiment cover?"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Tags</label>
+                <input
+                  value={form.tags}
+                  onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="bayesian, xgboost, tuning"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Config JSON</label>
+                <textarea
+                  value={form.configText}
+                  onChange={(event) => setForm((current) => ({ ...current, configText: event.target.value }))}
+                  className="mt-1 min-h-56 w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm"
+                  spellCheck={false}
+                />
+              </div>
+
+              {formError && <p className="text-sm text-destructive">{formError}</p>}
+
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => navigate('/experiments')}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Create Experiment
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (isLoading || runsLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-12 w-64" />
+        <Skeleton className="h-32" />
+        <Skeleton className="h-96" />
+      </div>
+    )
+  }
+
+  if (!experiment) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground">Experiment not found</p>
+        <Button variant="ghost" onClick={() => navigate('/experiments')} className="mt-4">
+          Back to Experiments
+        </Button>
+      </div>
+    )
+  }
+
+  const completedRuns = runs.filter((run) => run.status === 'success').length
+  const failedRuns = runs.filter((run) => run.status === 'failed').length
+  const runningRuns = runs.filter((run) => run.status === 'running' || run.status === 'pending').length
 
   return (
     <div className="space-y-6">
       <div className="flex items-start gap-4">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
-          <ArrowLeft className="w-4 h-4 mr-1" /> Back
+          <ArrowLeft className="w-4 h-4 mr-1" />
+          Back
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{experiment?.name}</h1>
-            <Badge className={experiment?.status === 'running' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
-              {experiment?.status}
+            <h1 className="text-2xl font-bold">{experiment.name}</h1>
+            <Badge className={cn(
+              experiment.status === 'running' ? 'bg-blue-100 text-blue-700' :
+              experiment.status === 'completed' ? 'bg-green-100 text-green-700' :
+              experiment.status === 'failed' ? 'bg-red-100 text-red-700' :
+              'bg-amber-100 text-amber-700')}
+            >
+              {experiment.status}
             </Badge>
           </div>
-          <p className="text-muted-foreground mt-1">{experiment?.description}</p>
+          <p className="text-muted-foreground mt-1">{experiment.description}</p>
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-primary">{trials.length}</p>
-            <p className="text-xs text-muted-foreground">Total Trials</p>
+            <p className="text-2xl font-bold text-primary">{runs.length}</p>
+            <p className="text-xs text-muted-foreground">Total Runs</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">
-              {trials.filter(t => t.status === 'completed').length}
-            </p>
+            <p className="text-2xl font-bold text-green-600">{completedRuns}</p>
             <p className="text-xs text-muted-foreground">Completed</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold text-purple-600">
-              {bestTrial ? `${(bestTrial.value * 100).toFixed(1)}%` : '--'}
+              {bestRun && typeof bestRun.metrics?.[metricName] === 'number'
+                ? Number(bestRun.metrics?.[metricName]).toFixed(4)
+                : experiment.best_metric?.toFixed(4) ?? '--'}
             </p>
-            <p className="text-xs text-muted-foreground">Best {experiment?.metric_name}</p>
+            <p className="text-xs text-muted-foreground">Best {metricName}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-amber-600">
-              {trials.filter(t => t.status === 'running').length}
-            </p>
-            <p className="text-xs text-muted-foreground">Running</p>
+            <p className="text-2xl font-bold text-amber-600">{runningRuns}</p>
+            <p className="text-xs text-muted-foreground">Active</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs */}
       <div className="border-b">
         <div className="flex gap-1">
-          {(['overview', 'trials', 'visualize'] as const).map((tab) => (
+          {(['overview', 'runs'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -121,67 +281,88 @@ export function ExperimentDetail() {
       {activeTab === 'overview' && (
         <Card>
           <CardContent className="p-6">
-            <h3 className="font-semibold mb-4">Trial Performance</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="trial" fontSize={12} />
-                  <YAxis domain={[85, 100]} fontSize={12} tickFormatter={(v) => `${v}%`} />
-                  <Tooltip formatter={(v: number) => [`${v}%`, 'Accuracy']} />
-                  <Bar dataKey="value" fill="#8b5cf6" name="Accuracy" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {chartData.length > 0 ? (
+              <>
+                <h3 className="font-semibold mb-4">Run Performance ({metricName})</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="run" fontSize={12} />
+                      <YAxis fontSize={12} />
+                      <Tooltip formatter={(value: number) => [value.toFixed(4), metricName]} />
+                      <Bar dataKey="value" fill="#2563eb" name={metricName} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            ) : (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                No numeric run metrics are available for charting yet.
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {activeTab === 'trials' && (
+      {activeTab === 'runs' && (
         <Card>
           <CardContent className="p-0">
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Trial</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Run</th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Status</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Accuracy</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">LR</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Max Depth</th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Estimators</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">{metricName}</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Started</th>
+                  <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">Duration</th>
                 </tr>
               </thead>
               <tbody>
-                {trials.map((trial) => (
-                  <tr key={trial.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="py-3 px-4 font-mono text-sm">#{trial.trial_number}</td>
-                    <td className="py-3 px-4">
-                      <Badge className={
-                        trial.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        trial.status === 'running' ? 'bg-blue-100 text-blue-700' :
-                        'bg-red-100 text-red-700'
-                      }>{trial.status}</Badge>
+                {runs.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                      No runs attached to this experiment.
                     </td>
-                    <td className="py-3 px-4 font-mono text-sm">
-                      {trial.value ? `${(trial.value * 100).toFixed(1)}%` : '--'}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-sm">{trial.params?.lr}</td>
-                    <td className="py-3 px-4 font-mono text-sm">{trial.params?.max_depth}</td>
-                    <td className="py-3 px-4 font-mono text-sm">{trial.params?.n_estimators}</td>
                   </tr>
-                ))}
+                ) : (
+                  runs.map((run: PipelineRun) => (
+                    <tr key={run.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="py-3 px-4 font-mono text-sm">#{run.run_number ?? run.id.slice(0, 8)}</td>
+                      <td className="py-3 px-4">
+                        <Badge className={cn(
+                          run.status === 'success' ? 'bg-green-100 text-green-700' :
+                          run.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                          run.status === 'failed' ? 'bg-red-100 text-red-700' :
+                          'bg-amber-100 text-amber-700')}
+                        >
+                          {run.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-sm">
+                        {typeof run.metrics?.[metricName] === 'number'
+                          ? Number(run.metrics?.[metricName]).toFixed(4)
+                          : '--'}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground">
+                        {run.started_at ? formatDate(run.started_at) : '--'}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground">
+                        {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </CardContent>
         </Card>
       )}
 
-      {activeTab === 'visualize' && (
-        <Card>
-          <CardContent className="p-6 text-center">
-            <p className="text-muted-foreground">Advanced visualizations (parallel coordinates, importance plots) coming soon.</p>
-          </CardContent>
-        </Card>
+      {failedRuns > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {failedRuns} failed {failedRuns === 1 ? 'run was' : 'runs were'} recorded for this experiment.
+        </p>
       )}
     </div>
   )

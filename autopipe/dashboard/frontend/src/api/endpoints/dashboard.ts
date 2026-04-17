@@ -2,7 +2,6 @@ import { apiClient } from '../client'
 import type {
   DashboardStats,
   ActivityLog,
-  PaginatedResponse,
 } from '@/types'
 
 export const dashboardApi = {
@@ -12,8 +11,8 @@ export const dashboardApi = {
   },
 
   /** GET /api/v1/dashboard/activity */
-  getActivity: async (limit = 20): Promise<PaginatedResponse<ActivityLog>> => {
-    return apiClient.get<PaginatedResponse<ActivityLog>>('/dashboard/activity', {
+  getActivity: async (limit = 20): Promise<{ items: ActivityLog[] }> => {
+    return apiClient.get<{ items: ActivityLog[] }>('/dashboard/activity', {
       params: { limit },
     })
   },

@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useAuthStore } from '@/stores'
 import {
-  Settings as SettingsIcon, Moon, Sun, Bell, Shield, Database, Key, Save
+  Settings as SettingsIcon, Moon, Sun, Bell, Key, Save
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui'
 

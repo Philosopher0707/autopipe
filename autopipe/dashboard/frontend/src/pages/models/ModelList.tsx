@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Card, CardContent, CardTitle, Skeleton, Badge } from '@/components/ui'
+import { Card, CardContent, Skeleton, Badge } from '@/components/ui'
 import { modelsApi } from '@/api/endpoints'
 import {
-  Search, Plus, Box, ArrowRight, Clock, Layers
+  Search, Plus, Box, ArrowRight, Clock
 } from 'lucide-react'
 import { formatRelativeTime } from '@/utils/helpers'
 import type { Model } from '@/types'
@@ -19,16 +19,6 @@ export function ModelList() {
   })
 
   const models: Model[] = data?.items || []
-
-  const getStageColor = (stage: string) => {
-    const colors: Record<string, string> = {
-      production: 'bg-green-100 text-green-800',
-      staging: 'bg-blue-100 text-blue-800',
-      pending: 'bg-amber-100 text-amber-800',
-      archived: 'bg-gray-100 text-gray-800',
-    }
-    return colors[stage] || colors.pending
-  }
 
   return (
     <div className="space-y-6">

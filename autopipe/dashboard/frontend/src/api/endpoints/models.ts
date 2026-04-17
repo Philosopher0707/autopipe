@@ -15,6 +15,7 @@ export const modelsApi = {
     framework?: string
     task_type?: string
     tag?: string
+    stage?: string
     search?: string
     page?: number
     page_size?: number
@@ -24,6 +25,8 @@ export const modelsApi = {
         framework: params?.framework,
         task_type: params?.task_type,
         tag: params?.tag,
+        stage: params?.stage,
+        search: params?.search,
         page: params?.page ?? 1,
         page_size: params?.page_size ?? 20,
       },
@@ -39,7 +42,7 @@ export const modelsApi = {
   },
 
   update: async (id: string, data: Partial<Model>): Promise<Model> => {
-    return apiClient.put<Model>(`/models/${id}`, data)
+    return apiClient.patch<Model>(`/models/${id}`, data)
   },
 
   delete: async (id: string): Promise<void> => {
@@ -69,7 +72,7 @@ export const modelsApi = {
     version: number,
     data: { stage: string; description?: string }
   ): Promise<ModelVersion> => {
-    return apiClient.put<ModelVersion>(`/models/${id}/versions/${version}/stage`, data)
+    return apiClient.post<ModelVersion>(`/models/${id}/versions/${version}/promote`, data)
   },
 
   compare: async (data: {
@@ -77,6 +80,11 @@ export const modelsApi = {
     version_a: number
     version_b: number
   }): Promise<ModelComparisonResponse> => {
-    return apiClient.post<ModelComparisonResponse>('/models/compare', data)
+    return apiClient.post<ModelComparisonResponse>(`/models/${data.model_id}/compare`, undefined, {
+      params: {
+        version_a: data.version_a,
+        version_b: data.version_b,
+      },
+    })
   },
 }

@@ -1,14 +1,14 @@
 """Run management endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Run, Step, RunStatus, StepStatus, Pipeline, ActivityLog
+from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
 from app.db.session import get_db
 from app.schemas import RunResponse, RunUpdate, RunList
 
@@ -22,6 +22,7 @@ async def list_runs(
     pipeline_id: Optional[str] = Query(None, description="Filter by pipeline"),
     status: Optional[str] = Query(None, description="Filter by status"),
     experiment_id: Optional[str] = Query(None, description="Filter by experiment"),
+    search: Optional[str] = Query(None, description="Search by run ID or pipeline name"),
     db: AsyncSession = Depends(get_db),
 ):
     """List runs with pagination and filtering."""
@@ -36,6 +37,11 @@ async def list_runs(
         query = query.where(Run.status == status)
     if experiment_id:
         query = query.where(Run.experiment_id == experiment_id)
+    if search:
+        search_filter = f"%{search}%"
+        query = query.where(
+            Run.id.ilike(search_filter) | Pipeline.name.ilike(search_filter)
+        )
     
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
@@ -45,7 +51,7 @@ async def list_runs(
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(Run.created_at.desc())
     
-    result = await db.execute(query.options(selectinload(Run.steps)))
+    result = await db.execute(query)
     runs = result.scalars().unique().all()
     
     # Get pipeline names
@@ -61,12 +67,14 @@ async def list_runs(
             "id": r.id,
             "pipeline_id": r.pipeline_id,
             "status": r.status.value if hasattr(r.status, 'value') else r.status,
+            "run_number": r.run_number,
             "started_at": r.started_at,
             "completed_at": r.completed_at,
             "duration_seconds": r.duration_seconds,
             "metrics": r.metrics,
             "error_message": r.error_message,
             "created_by": r.created_by,
+            "created_at": r.created_at,
             "pipeline_name": pipeline_names.get(r.pipeline_id, "Unknown"),
         }
         items.append(run_dict)
@@ -107,12 +115,14 @@ async def get_run(
         id=run.id,
         pipeline_id=run.pipeline_id,
         status=run.status,
+        run_number=run.run_number,
         started_at=run.started_at,
         completed_at=run.completed_at,
         duration_seconds=run.duration_seconds,
         metrics=run.metrics,
         error_message=run.error_message,
         created_by=run.created_by,
+        created_at=run.created_at,
         pipeline_name=pipeline.name if pipeline else "Unknown",
     )
 
@@ -133,11 +143,11 @@ async def update_run(
             detail=f"Run {run_id} not found",
         )
     
-    old_status = run.status
+    old_status = run.status.value if hasattr(run.status, "value") else str(run.status)
     
     # Update fields
     if update.status:
-        run.status = update.status
+        run.status = RunStatus(update.status)
         if update.status == RunStatus.RUNNING and not run.started_at:
             run.started_at = datetime.utcnow()
         if update.status in [RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED]:
@@ -156,8 +166,16 @@ async def update_run(
     
     # Log activity
     if update.status and update.status != old_status:
+        activity_action = {
+            RunStatus.PENDING.value: "run_pending",
+            RunStatus.RUNNING.value: "run_started",
+            RunStatus.SUCCESS.value: "run_completed",
+            RunStatus.FAILED.value: "run_failed",
+            RunStatus.CANCELLED.value: "run_cancelled",
+        }.get(update.status, f"run_{update.status}")
+
         activity = ActivityLog(
-            action=f"run_{update.status}",
+            action=activity_action,
             resource_type="run",
             resource_id=run_id,
             details={
@@ -172,17 +190,19 @@ async def update_run(
     # Get pipeline name
     pipe_result = await db.execute(select(Pipeline).where(Pipeline.id == run.pipeline_id))
     pipeline = pipe_result.scalar_one_or_none()
-    
+
     return RunResponse(
         id=run.id,
         pipeline_id=run.pipeline_id,
         status=run.status,
+        run_number=run.run_number,
         started_at=run.started_at,
         completed_at=run.completed_at,
         duration_seconds=run.duration_seconds,
         metrics=run.metrics,
         error_message=run.error_message,
         created_by=run.created_by,
+        created_at=run.created_at,
         pipeline_name=pipeline.name if pipeline else "Unknown",
     )
 

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardTitle, Skeleton } from '@/components/ui'
 import { runsApi } from '@/api/endpoints'
 import {
-  Search, Filter, Clock, MoreHorizontal
+  Search, Clock, MoreHorizontal
 } from 'lucide-react'
 import { formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
@@ -16,7 +16,10 @@ export function RunList() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['runs', { search, status: statusFilter }],
-    queryFn: () => runsApi.list({ search: search || undefined }),
+    queryFn: () => runsApi.list({
+      search: search || undefined,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+    }),
   })
 
   const runs: PipelineRun[] = data?.items || []

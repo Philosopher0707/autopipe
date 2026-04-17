@@ -14,6 +14,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { useUIStore, useAuthStore } from '@/stores'
+import { useQuery } from '@tanstack/react-query'
+import { dashboardApi } from '@/api/endpoints'
 import { NavLink } from 'react-router-dom'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -62,7 +64,13 @@ function SidebarItem({ to, icon, label, badge }: SidebarItemProps) {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen, toggleSidebar } = useUIStore()
-  const { logout } = useAuthStore()
+  const { logout, user } = useAuthStore()
+
+  const { data: stats } = useQuery({
+    queryKey: ['dashboard', 'overview'],
+    queryFn: () => dashboardApi.getOverview(),
+    refetchInterval: 60000,
+  })
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -93,15 +101,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           
           <SidebarItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
-          <SidebarItem to="/pipelines" icon={<GitBranch className="w-5 h-5" />} label="Pipelines" badge={5} />
+          <SidebarItem to="/pipelines" icon={<GitBranch className="w-5 h-5" />} label="Pipelines" badge={stats?.pipelines?.running || 0} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             ML Lifecycle
           </div>
           
-          <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={3} />
-          <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={8} />
-          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={3} />
+          <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={stats?.experiments?.active || 0} />
+          <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={stats?.models?.in_production || 0} />
+          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={stats?.drift?.features_drifted || 0} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             System
@@ -118,8 +126,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Users className="w-5 h-5 text-muted-foreground" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">Data Scientist</p>
-              <p className="text-xs text-muted-foreground truncate">Admin</p>
+              <p className="text-sm font-medium text-foreground truncate">{user?.full_name || user?.username || 'User'}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.role || ''}</p>
             </div>
             <button
               onClick={logout}

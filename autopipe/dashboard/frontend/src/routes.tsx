@@ -1,211 +1,218 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { Layout } from '@/components/layout/Layout'
-import { Dashboard } from '@/pages/dashboard/Dashboard'
-import { Login } from '@/pages/auth/Login'
-import { PipelineList } from '@/pages/pipelines/PipelineList'
-import { PipelineDetail } from '@/pages/pipelines/PipelineDetail'
-import { RunList } from '@/pages/runs/RunList'
-import { RunDetail } from '@/pages/runs/RunDetail'
-import { ModelList } from '@/pages/models/ModelList'
-import { ModelDetail } from '@/pages/models/ModelDetail'
-import { ExperimentList } from '@/pages/experiments/ExperimentList'
-import { ExperimentDetail } from '@/pages/experiments/ExperimentDetail'
-import { DriftList } from '@/pages/drift/DriftList'
-import { DriftReport } from '@/pages/drift/DriftReport'
-import { SettingsPage } from '@/pages/settings/Settings'
-import { TeamPage } from '@/pages/settings/Team'
 import { useAuthStore } from '@/stores'
 
-// Protected route wrapper - requires authentication
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+const Layout = lazy(() => import('@/components/layout/Layout').then((module) => ({ default: module.Layout })))
+const Dashboard = lazy(() => import('@/pages/dashboard/Dashboard').then((module) => ({ default: module.Dashboard })))
+const Login = lazy(() => import('@/pages/auth/Login').then((module) => ({ default: module.Login })))
+const PipelineList = lazy(() => import('@/pages/pipelines/PipelineList').then((module) => ({ default: module.PipelineList })))
+const PipelineDetail = lazy(() => import('@/pages/pipelines/PipelineDetail').then((module) => ({ default: module.PipelineDetail })))
+const RunList = lazy(() => import('@/pages/runs/RunList').then((module) => ({ default: module.RunList })))
+const RunDetail = lazy(() => import('@/pages/runs/RunDetail').then((module) => ({ default: module.RunDetail })))
+const ModelList = lazy(() => import('@/pages/models/ModelList').then((module) => ({ default: module.ModelList })))
+const ModelDetail = lazy(() => import('@/pages/models/ModelDetail').then((module) => ({ default: module.ModelDetail })))
+const ExperimentList = lazy(() => import('@/pages/experiments/ExperimentList').then((module) => ({ default: module.ExperimentList })))
+const ExperimentDetail = lazy(() => import('@/pages/experiments/ExperimentDetail').then((module) => ({ default: module.ExperimentDetail })))
+const DriftList = lazy(() => import('@/pages/drift/DriftList').then((module) => ({ default: module.DriftList })))
+const DriftReport = lazy(() => import('@/pages/drift/DriftReport').then((module) => ({ default: module.DriftReport })))
+const SettingsPage = lazy(() => import('@/pages/settings/Settings').then((module) => ({ default: module.SettingsPage })))
+const TeamPage = lazy(() => import('@/pages/settings/Team').then((module) => ({ default: module.TeamPage })))
+
+function PageFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+      Loading...
+    </div>
+  )
+}
+
+function Suspended({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<PageFallback />}>
+      {children}
+    </Suspense>
+  )
+}
+
+function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuthStore()
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
-  
+
   return <>{children}</>
 }
 
-// Auth route wrapper - redirects to dashboard if already logged in
-function AuthRoute({ children }: { children: React.ReactNode }) {
+function AuthRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuthStore()
-  
+
   if (isAuthenticated) {
     return <Navigate to="/" replace />
   }
-  
+
   return <>{children}</>
+}
+
+function ProtectedLayout({ children }: { children: ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <Suspended>
+        <Layout>{children}</Layout>
+      </Suspended>
+    </ProtectedRoute>
+  )
 }
 
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Auth routes */}
       <Route
         path="/login"
         element={
           <AuthRoute>
-            <Login />
+            <Suspended>
+              <Login />
+            </Suspended>
           </AuthRoute>
         }
       />
 
-      {/* Protected routes with Layout */}
       <Route
         path="/"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <Dashboard />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <Dashboard />
+          </ProtectedLayout>
         }
       />
 
-      {/* Pipelines */}
       <Route
         path="/pipelines"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <PipelineList />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/pipelines/:pipelineId"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <PipelineDetail />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <PipelineList />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/pipelines/new"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <PipelineDetail />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <PipelineDetail />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/pipelines/:pipelineId"
+        element={
+          <ProtectedLayout>
+            <PipelineDetail />
+          </ProtectedLayout>
         }
       />
 
-      {/* Runs */}
       <Route
         path="/runs"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <RunList />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <RunList />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/runs/:runId"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <RunDetail />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <RunDetail />
+          </ProtectedLayout>
         }
       />
 
-      {/* Models */}
       <Route
         path="/models"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <ModelList />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <ModelList />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/models/new"
+        element={
+          <ProtectedLayout>
+            <ModelDetail />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/models/:modelId"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <ModelDetail />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <ModelDetail />
+          </ProtectedLayout>
         }
       />
 
-      {/* Experiments */}
       <Route
         path="/experiments"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <ExperimentList />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <ExperimentList />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/experiments/new"
+        element={
+          <ProtectedLayout>
+            <ExperimentDetail />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/experiments/:experimentId"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <ExperimentDetail />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <ExperimentDetail />
+          </ProtectedLayout>
         }
       />
 
-      {/* Drift */}
       <Route
         path="/drift"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <DriftList />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <DriftList />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/drift/:reportId"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <DriftReport />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <DriftReport />
+          </ProtectedLayout>
         }
       />
 
-      {/* Settings */}
       <Route
         path="/settings"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <SettingsPage />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <SettingsPage />
+          </ProtectedLayout>
         }
       />
       <Route
         path="/team"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <TeamPage />
-            </Layout>
-          </ProtectedRoute>
+          <ProtectedLayout>
+            <TeamPage />
+          </ProtectedLayout>
         }
       />
 
-      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

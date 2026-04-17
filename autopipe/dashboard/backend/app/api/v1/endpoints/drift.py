@@ -1,21 +1,87 @@
 """Drift Detection endpoints."""
 
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DriftReport, DriftAlert, AlertSeverity
 from app.db.session import get_db
 from app.schemas import (
-    DriftReportCreate, DriftReportResponse, DriftReportList,
+    DriftReportResponse, DriftReportList,
     DriftAlertResponse, DriftAlertList,
     DriftDetectRequest, DriftDetectResponse, FeatureDrift,
 )
 
 router = APIRouter()
+
+
+def _normalize_feature_drifts(
+    feature_drifts: Optional[Dict[str, Any]],
+    default_threshold: float = 0.05,
+) -> Dict[str, Dict[str, Any]]:
+    """Normalize drift details into a stable, frontend-friendly shape."""
+    normalized: Dict[str, Dict[str, Any]] = {}
+
+    for feature_name, raw_value in (feature_drifts or {}).items():
+        if isinstance(raw_value, dict):
+            threshold = float(raw_value.get("threshold", default_threshold))
+            p_value = raw_value.get("p_value")
+            drift_score = raw_value.get("drift_score")
+            if drift_score is None and p_value is not None:
+                drift_score = max(0.0, min(1.0, 1.0 - float(p_value)))
+            drift_score = float(drift_score or 0.0)
+
+            is_drifted = raw_value.get("is_drifted")
+            if is_drifted is None:
+                if p_value is not None:
+                    is_drifted = float(p_value) < threshold
+                else:
+                    is_drifted = drift_score > threshold
+
+            normalized[feature_name] = {
+                "drift_score": drift_score,
+                "p_value": float(p_value) if p_value is not None else None,
+                "threshold": threshold,
+                "is_drifted": bool(is_drifted),
+                "test_type": raw_value.get("test_type", "psi"),
+            }
+            continue
+
+        drift_score = float(raw_value)
+        normalized[feature_name] = {
+            "drift_score": drift_score,
+            "p_value": None,
+            "threshold": default_threshold,
+            "is_drifted": drift_score > default_threshold,
+            "test_type": "psi",
+        }
+
+    return normalized
+
+
+def _serialize_drift_report(report: DriftReport) -> Dict[str, Any]:
+    """Serialize a drift report with normalized feature drift details."""
+    normalized_feature_drifts = _normalize_feature_drifts(report.feature_drifts)
+    features_drifted = sum(
+        1 for details in normalized_feature_drifts.values() if details.get("is_drifted")
+    )
+
+    return {
+        "id": report.id,
+        "model_id": report.model_id,
+        "run_id": report.run_id,
+        "drift_score": report.drift_score,
+        "drift_detected": report.drift_detected,
+        "feature_drifts": normalized_feature_drifts,
+        "reference_data_summary": report.reference_data_summary,
+        "current_data_summary": report.current_data_summary,
+        "created_at": report.created_at,
+        "alert_generated": report.alert_generated,
+        "features_drifted": features_drifted,
+    }
 
 
 @router.get("", response_model=DriftReportList)
@@ -47,12 +113,14 @@ async def list_drift_reports(
     result = await db.execute(query)
     reports = result.scalars().all()
     
+    items = [_serialize_drift_report(report) for report in reports]
+
     return DriftReportList(
         total=total or 0,
         page=page,
         page_size=page_size,
         pages=(total or 0) // page_size + (1 if (total or 0) % page_size else 0),
-        items=[DriftReportResponse.model_validate(r) for r in reports],
+        items=items,
     )
 
 
@@ -66,23 +134,49 @@ async def trigger_drift_detection(
     # In real implementation, this would launch a background job
     # For now, simulate a detection result
     
-    # Mock drift detection results
-    drifted_features = ["avg_session_duration", "transaction_count"] if detect_request.threshold > 0.05 else []
-    drift_detected = len(drifted_features) > 0
+    metric_name = detect_request.test_types[0] if detect_request.test_types else "psi"
+    feature_drifts_map = {
+        "avg_session_duration": {
+            "drift_score": 0.28,
+            "p_value": 0.01,
+            "threshold": detect_request.threshold,
+            "is_drifted": 0.28 > detect_request.threshold,
+            "test_type": metric_name,
+        },
+        "transaction_count": {
+            "drift_score": 0.18,
+            "p_value": 0.03,
+            "threshold": detect_request.threshold,
+            "is_drifted": 0.18 > detect_request.threshold,
+            "test_type": metric_name,
+        },
+        "page_views": {
+            "drift_score": 0.04,
+            "p_value": 0.62,
+            "threshold": detect_request.threshold,
+            "is_drifted": 0.04 > detect_request.threshold,
+            "test_type": metric_name,
+        },
+    }
+
+    drifted_features = [
+        feature_name
+        for feature_name, details in feature_drifts_map.items()
+        if details["is_drifted"]
+    ]
+    drift_detected = bool(drifted_features)
+    overall_drift_score = max(
+        (details["drift_score"] for details in feature_drifts_map.values()),
+        default=0.0,
+    )
     
     # Create drift report
     report = DriftReport(
         model_id=detect_request.model_id,
         run_id=None,
-        drift_score=0.28,
+        drift_score=overall_drift_score,
         drift_detected=drift_detected,
-        feature_drifts={
-            f"feature_{i}": {
-                "p_value": 0.01 if i % 3 == 0 else 0.5,
-                "test_type": detect_request.test_types[0],
-            }
-            for i in range(10)
-        },
+        feature_drifts=feature_drifts_map,
         reference_data_summary={"rows": 10000, "columns": 20},
         current_data_summary={"rows": 5000, "columns": 20},
         alert_generated=drift_detected,
@@ -97,10 +191,10 @@ async def trigger_drift_detection(
             alert = DriftAlert(
                 drift_report_id=report.id,
                 feature_name=feature,
-                severity=AlertSeverity.WARNING,
+                severity=AlertSeverity.ERROR if feature_drifts_map[feature]["drift_score"] >= 0.25 else AlertSeverity.WARNING,
                 drift_type="feature",
-                drift_metric="psi",
-                drift_score=0.28,
+                drift_metric=metric_name,
+                drift_score=feature_drifts_map[feature]["drift_score"],
                 threshold=detect_request.threshold,
             )
             db.add(alert)
@@ -108,15 +202,18 @@ async def trigger_drift_detection(
     
     # Build feature drift details
     feature_drifts = []
-    for feature_name, stats in (report.feature_drifts or {}).items():
+    for feature_name, stats in _normalize_feature_drifts(
+        report.feature_drifts,
+        default_threshold=detect_request.threshold,
+    ).items():
         p_value = stats.get("p_value", 0.5)
-        is_drifted = p_value < detect_request.threshold
+        is_drifted = bool(stats.get("is_drifted"))
         if is_drifted:
             feature_drifts.append(FeatureDrift(
                 feature_name=feature_name,
-                drift_score=1.0 - p_value,
+                drift_score=float(stats.get("drift_score", 0.0)),
                 p_value=p_value,
-                threshold=detect_request.threshold,
+                threshold=float(stats.get("threshold", detect_request.threshold)),
                 is_drifted=is_drifted,
                 test_type=stats.get("test_type", "ks"),
             ))
@@ -127,7 +224,7 @@ async def trigger_drift_detection(
         features_analyzed=len(report.feature_drifts or {}),
         drifted_features=drifted_features,
         feature_drifts=feature_drifts,
-        report_path=f"/api/v1/drift/reports/{report.id}",
+        report_path=f"/api/v1/drift/{report.id}",
     )
 
 
@@ -156,25 +253,7 @@ async def get_drift_report(
     if not report:
         raise HTTPException(status_code=404, detail="Drift report not found")
     
-    return report
-
-
-@router.get("/{drift_id}", response_model=DriftReportResponse)
-async def get_drift_report_by_id(
-    drift_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get drift report by ID (alias for /reports/{id}).
-    
-    This endpoint matches the frontend expectation at /api/v1/drift/{id}
-    """
-    result = await db.execute(select(DriftReport).where(DriftReport.id == drift_id))
-    report = result.scalar_one_or_none()
-    
-    if not report:
-        raise HTTPException(status_code=404, detail="Drift report not found")
-    
-    return report
+    return _serialize_drift_report(report)
 
 
 @router.get("/latest")
@@ -194,49 +273,47 @@ async def get_latest_drift(
     
     if not report:
         return {
-            "drift_detected": False,
-            "last_check": datetime.utcnow().isoformat(),
-            "features_drifted": 0,
+            "id": None,
+            "model_id": model_id,
             "drift_score": 0.0,
+            "drift_detected": False,
+            "feature_drifts": {},
+            "created_at": datetime.utcnow().isoformat(),
+            "features_drifted": 0,
         }
-    
-    # Count alerts for this report
-    alerts_count = await db.scalar(
-        select(func.count(DriftAlert.id)).where(DriftAlert.drift_report_id == report.id)
-    )
-    
-    return {
-        "drift_detected": report.drift_detected,
-        "last_check": report.created_at.isoformat(),
-        "features_drifted": alerts_count or 0,
-        "drift_score": report.drift_score,
-        "report_id": report.id,
-    }
+
+    return _serialize_drift_report(report)
 
 
 # ==================== Alerts ====================
 
 @router.get("/alerts", response_model=DriftAlertList)
 async def list_alerts(
-    acknowledged: bool = Query(False),
+    acknowledged: Optional[bool] = Query(None),
     severity: Optional[str] = Query(None, description="Filter by severity"),
-    featured: Optional[str] = Query(None, description="Filter by feature name"),
+    feature_name: Optional[str] = Query(None, description="Filter by feature name"),
+    feature: Optional[str] = Query(None, alias="feature", description="Legacy feature alias"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """List drift alerts."""
-    
-    count_query = select(func.count(DriftAlert.id)).where(DriftAlert.acknowledged == acknowledged)
-    query = select(DriftAlert).where(DriftAlert.acknowledged == acknowledged)
+
+    resolved_feature_name = feature_name or feature
+    count_query = select(func.count(DriftAlert.id))
+    query = select(DriftAlert)
+
+    if acknowledged is not None:
+        count_query = count_query.where(DriftAlert.acknowledged == acknowledged)
+        query = query.where(DriftAlert.acknowledged == acknowledged)
     
     if severity:
         count_query = count_query.where(DriftAlert.severity == severity)
         query = query.where(DriftAlert.severity == severity)
     
-    if featured:
-        count_query = count_query.where(DriftAlert.feature_name.ilike(f"%{featured}%"))
-        query = query.where(DriftAlert.feature_name.ilike(f"%{featured}%"))
+    if resolved_feature_name:
+        count_query = count_query.where(DriftAlert.feature_name.ilike(f"%{resolved_feature_name}%"))
+        query = query.where(DriftAlert.feature_name.ilike(f"%{resolved_feature_name}%"))
     
     total = await db.scalar(count_query)
     
@@ -313,3 +390,21 @@ async def get_feature_drift_history(
         "history": history,
         "total_alerts": len(history),
     }
+
+
+@router.get("/{drift_id}", response_model=DriftReportResponse)
+async def get_drift_report_by_id(
+    drift_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get drift report by ID.
+
+    Must be last route to avoid conflicts with /latest, /alerts, /features, etc.
+    """
+    result = await db.execute(select(DriftReport).where(DriftReport.id == drift_id))
+    report = result.scalar_one_or_none()
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Drift report not found")
+
+    return _serialize_drift_report(report)

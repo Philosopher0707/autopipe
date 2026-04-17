@@ -1,64 +1,179 @@
-import React, { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
-  ArrowLeft, Play, Settings, GitBranch, Clock, CheckCircle,
-  XCircle, Loader2, Activity, Tag, FileText
+  ArrowLeft, Play, GitBranch, Loader2,
 } from 'lucide-react'
 import {
-  Card, CardContent, CardHeader, CardTitle, Badge, Button, Skeleton
+  Card, CardContent, CardHeader, CardTitle, Badge, Button, Skeleton,
 } from '@/components/ui'
 import { pipelinesApi } from '@/api/endpoints'
 import { cn, formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 
+type PipelineFormState = {
+  name: string
+  description: string
+  tags: string
+  configText: string
+}
+
+const DEFAULT_FORM: PipelineFormState = {
+  name: '',
+  description: '',
+  tags: '',
+  configText: '{\n  "steps": []\n}',
+}
+
+function parseJsonConfig(configText: string): Record<string, unknown> | undefined {
+  const trimmed = configText.trim()
+  if (!trimmed) return undefined
+  return JSON.parse(trimmed) as Record<string, unknown>
+}
+
+function parseTags(tags: string): string[] | undefined {
+  const items = tags
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+  return items.length > 0 ? items : undefined
+}
+
 export function PipelineDetail() {
   const { pipelineId } = useParams<{ pipelineId: string }>()
   const navigate = useNavigate()
-  const isNew = pipelineId === 'new'
-  const [activeTab, setActiveTab] = useState('overview')
+  const isNew = !pipelineId
+  const [activeTab, setActiveTab] = useState<'overview' | 'runs' | 'config'>('overview')
+  const [form, setForm] = useState<PipelineFormState>(DEFAULT_FORM)
+  const [formError, setFormError] = useState<string | null>(null)
 
   const { data: pipeline, isLoading } = useQuery({
     queryKey: ['pipeline', pipelineId],
-    queryFn: () => pipelinesApi.getById(Number(pipelineId)),
-    enabled: !!pipelineId && !isNew,
+    queryFn: () => pipelinesApi.getById(pipelineId!),
+    enabled: !!pipelineId,
   })
 
   const { data: runsData } = useQuery({
     queryKey: ['pipeline', pipelineId, 'runs'],
-    queryFn: () => pipelinesApi.listRuns(Number(pipelineId), { limit: 20 }),
-    enabled: !!pipelineId && !isNew,
+    queryFn: () => pipelinesApi.listRuns(pipelineId!, { limit: 20 }),
+    enabled: !!pipelineId,
   })
 
   const triggerMutation = useMutation({
-    mutationFn: () => pipelinesApi.triggerRun(Number(pipelineId)),
+    mutationFn: () => pipelinesApi.triggerRun(pipelineId!),
     onSuccess: (run) => navigate(`/runs/${run.id}`),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const config = parseJsonConfig(form.configText)
+      return pipelinesApi.create({
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+        tags: parseTags(form.tags),
+        config,
+      })
+    },
+    onSuccess: (createdPipeline) => {
+      navigate(`/pipelines/${createdPipeline.id}`)
+    },
   })
 
   const runs = runsData?.items || []
 
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFormError(null)
+
+    if (!form.name.trim()) {
+      setFormError('Pipeline name is required.')
+      return
+    }
+
+    try {
+      await createMutation.mutateAsync()
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        setFormError('Configuration must be valid JSON.')
+        return
+      }
+      setFormError('Unable to create pipeline.')
+    }
+  }
+
   if (isNew) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-3xl">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={() => navigate('/pipelines')}>
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back
           </Button>
           <div>
             <h1 className="text-3xl font-bold">New Pipeline</h1>
-            <p className="text-muted-foreground">Create a new ML pipeline</p>
+            <p className="text-muted-foreground">Create a runnable pipeline definition.</p>
           </div>
         </div>
+
         <Card>
-          <CardContent className="p-8 text-center">
-            <GitBranch className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Pipeline Editor</h3>
-            <p className="text-muted-foreground text-sm mb-4">
-              YAML-based pipeline configuration editor coming soon.
-              For now, pipelines can be triggered programmatically.
-            </p>
-            <Button onClick={() => navigate('/pipelines')}>
-              Back to Pipelines
-            </Button>
+          <CardHeader>
+            <CardTitle>Pipeline Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleCreate}>
+              <div>
+                <label className="text-sm font-medium">Name</label>
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="daily-feature-pipeline"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  className="mt-1 min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="Describe what this pipeline runs and why it exists."
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Tags</label>
+                <input
+                  value={form.tags}
+                  onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  placeholder="batch, nightly, feature-store"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Config JSON</label>
+                <textarea
+                  value={form.configText}
+                  onChange={(event) => setForm((current) => ({ ...current, configText: event.target.value }))}
+                  className="mt-1 min-h-56 w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm"
+                  spellCheck={false}
+                />
+              </div>
+
+              {formError && (
+                <p className="text-sm text-destructive">{formError}</p>
+              )}
+
+              <div className="flex items-center justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => navigate('/pipelines')}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Create Pipeline
+                </Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
       </div>
@@ -87,7 +202,6 @@ export function PipelineDetail() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
           <Button variant="ghost" onClick={() => navigate('/pipelines')}>
@@ -128,10 +242,9 @@ export function PipelineDetail() {
         </Button>
       </div>
 
-      {/* Tabs */}
       <div className="border-b border-border">
         <div className="flex gap-6">
-          {['overview', 'runs', 'config'].map((tab) => (
+          {(['overview', 'runs', 'config'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -148,7 +261,6 @@ export function PipelineDetail() {
         </div>
       </div>
 
-      {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
@@ -162,7 +274,7 @@ export function PipelineDetail() {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Total Runs</span>
-                <span className="text-sm">{runs.length}</span>
+                <span className="text-sm">{pipeline.run_count ?? runs.length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Created</span>
@@ -185,9 +297,9 @@ export function PipelineDetail() {
               ) : (
                 <div className="space-y-2">
                   {runs.slice(0, 5).map((run) => (
-                    <div
+                    <button
                       key={run.id}
-                      className="flex items-center justify-between p-2 rounded-lg hover:bg-muted cursor-pointer"
+                      className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-muted"
                       onClick={() => navigate(`/runs/${run.id}`)}
                     >
                       <div className="flex items-center gap-2">
@@ -195,8 +307,8 @@ export function PipelineDetail() {
                           run.status === 'success' ? 'bg-green-500' :
                           run.status === 'failed' ? 'bg-red-500' :
                           run.status === 'running' ? 'bg-blue-500 animate-pulse' :
-                          'bg-amber-500'
-                        )} />
+                          'bg-amber-500')}
+                        />
                         <span className="text-sm font-medium">
                           Run #{run.run_number || run.id.slice(0, 8)}
                         </span>
@@ -204,7 +316,7 @@ export function PipelineDetail() {
                       <span className="text-xs text-muted-foreground">
                         {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -242,9 +354,7 @@ export function PipelineDetail() {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <Badge className={getStatusBgColor(run.status as string)}>
-                          {run.status}
-                        </Badge>
+                        <Badge className={getStatusBgColor(run.status)}>{run.status}</Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
                         {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
@@ -280,9 +390,10 @@ export function PipelineDetail() {
                 {JSON.stringify(pipeline.config, null, 2)}
               </pre>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <GitBranch className="mx-auto mb-3 h-10 w-10" />
                 No configuration saved
-              </p>
+              </div>
             )}
           </CardContent>
         </Card>

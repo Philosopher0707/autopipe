@@ -1,12 +1,12 @@
 import { apiClient } from '../client'
-import type { Experiment, Trial, PaginatedResponse } from '@/types'
+import type { Experiment, PaginatedResponse, PipelineRun } from '@/types'
 
 export interface ExperimentDetail extends Experiment {
-  trials: Trial[]
+  runs: PipelineRun[]
 }
 
-export interface TrialsResponse {
-  items: Trial[]
+export interface ExperimentRunsResponse {
+  items: PipelineRun[]
 }
 
 export const experimentsApi = {
@@ -35,22 +35,14 @@ export const experimentsApi = {
   },
 
   update: async (id: string, data: Partial<Experiment>): Promise<Experiment> => {
-    return apiClient.put<Experiment>(`/experiments/${id}`, data)
+    return apiClient.patch<Experiment>(`/experiments/${id}`, data)
   },
 
   delete: async (id: string): Promise<void> => {
     return apiClient.delete(`/experiments/${id}`)
   },
 
-  listTrials: async (id: string): Promise<TrialsResponse> => {
-    return apiClient.get<TrialsResponse>(`/experiments/${id}/trials`)
-  },
-
-  getTrial: async (experimentId: string, trialId: string): Promise<Trial> => {
-    return apiClient.get<Trial>(`/experiments/${experimentId}/trials/${trialId}`)
-  },
-
-  getVisualization: async (id: string): Promise<unknown> => {
-    return apiClient.get(`/experiments/${id}/visualize`)
+  listRuns: async (id: string): Promise<ExperimentRunsResponse> => {
+    return apiClient.get<ExperimentRunsResponse>(`/experiments/${id}/runs`)
   },
 }

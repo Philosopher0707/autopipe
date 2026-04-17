@@ -1,20 +1,44 @@
 """Experiments endpoints."""
 
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Experiment, Run, Pipeline
+from app.db.models import Experiment, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import (
     ExperimentCreate, ExperimentUpdate, ExperimentResponse, ExperimentList,
-    RunCreate, RunResponse,
 )
 
 router = APIRouter()
+
+
+def _derive_experiment_status(runs: list[Run]) -> str:
+    """Derive an experiment status from its runs."""
+    statuses = {
+        run.status.value if hasattr(run.status, "value") else str(run.status)
+        for run in runs
+    }
+    if not statuses:
+        return "pending"
+    if RunStatus.RUNNING.value in statuses or RunStatus.PENDING.value in statuses:
+        return "running"
+    if RunStatus.SUCCESS.value in statuses:
+        return "completed"
+    if RunStatus.FAILED.value in statuses or RunStatus.CANCELLED.value in statuses:
+        return "failed"
+    return "pending"
+
+
+def _serialize_experiment(experiment: Experiment) -> ExperimentResponse:
+    """Serialize an experiment with derived status and run count."""
+    exp_dict = experiment.__dict__.copy()
+    exp_dict["run_count"] = len(experiment.runs) if experiment.runs else 0
+    exp_dict["status"] = _derive_experiment_status(experiment.runs or [])
+    return ExperimentResponse.model_validate(exp_dict)
 
 
 @router.get("", response_model=ExperimentList)
@@ -47,12 +71,7 @@ async def list_experiments(
     result = await db.execute(query)
     experiments = result.scalars().unique().all()
     
-    # Build response items
-    items = []
-    for e in experiments:
-        exp_dict = e.__dict__.copy()
-        exp_dict['run_count'] = len(e.runs) if e.runs else 0
-        items.append(ExperimentResponse.model_validate(exp_dict))
+    items = [_serialize_experiment(experiment) for experiment in experiments]
     
     return ExperimentList(
         total=total or 0,
@@ -78,7 +97,23 @@ async def create_experiment(
     db.add(db_experiment)
     await db.commit()
     await db.refresh(db_experiment)
-    return db_experiment
+    return ExperimentResponse.model_validate(
+        {
+            "id": db_experiment.id,
+            "name": db_experiment.name,
+            "description": db_experiment.description,
+            "config": db_experiment.config,
+            "tags": db_experiment.tags,
+            "created_at": db_experiment.created_at,
+            "updated_at": db_experiment.updated_at,
+            "created_by": db_experiment.created_by,
+            "best_run_id": db_experiment.best_run_id,
+            "best_metric": db_experiment.best_metric,
+            "metric_name": db_experiment.metric_name,
+            "run_count": 0,
+            "status": "pending",
+        }
+    )
 
 
 @router.get("/{experiment_id}", response_model=ExperimentResponse)
@@ -95,9 +130,7 @@ async def get_experiment(
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
     
-    exp_dict = experiment.__dict__.copy()
-    exp_dict['run_count'] = len(experiment.runs) if experiment.runs else 0
-    return ExperimentResponse.model_validate(exp_dict)
+    return _serialize_experiment(experiment)
 
 
 @router.patch("/{experiment_id}", response_model=ExperimentResponse)
@@ -121,8 +154,13 @@ async def update_experiment(
         experiment.tags = update_data.tags
     
     await db.commit()
-    await db.refresh(experiment)
-    return experiment
+    refreshed = await db.execute(
+        select(Experiment)
+        .where(Experiment.id == experiment_id)
+        .options(selectinload(Experiment.runs))
+    )
+    updated_experiment = refreshed.scalar_one()
+    return _serialize_experiment(updated_experiment)
 
 
 @router.delete("/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -159,11 +197,17 @@ async def get_experiment_runs(
         "items": [
             {
                 "id": r.id,
-                "status": r.status,
+                "pipeline_id": r.pipeline_id,
+                "status": r.status.value if hasattr(r.status, "value") else r.status,
+                "run_number": r.run_number,
                 "pipeline_name": r.pipeline.name if r.pipeline else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
                 "started_at": r.started_at.isoformat() if r.started_at else None,
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                 "duration_seconds": r.duration_seconds,
                 "metrics": r.metrics,
+                "error_message": r.error_message,
+                "config": r.config,
             }
             for r in runs
         ]
