@@ -98,6 +98,78 @@ class CommandError(Exception):
     pass
 
 
+# AST-BASED SECURITY CHECKER - Prevents sandbox escapes via __class__ chains
+import ast
+
+class SecurityError(Exception):
+    """Raised when potentially dangerous code patterns are detected."""
+    pass
+
+class _RestrictedASTChecker(ast.NodeVisitor):
+    """
+    AST visitor that blocks dangerous code patterns that could escape
+    the restricted builtins sandbox, even via __class__ chains.
+    """
+    
+    # Node types that are never allowed
+    BLOCKED_NODES = frozenset({
+        ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+        ast.Lambda, ast.Yield, ast.YieldFrom, ast.Await,
+        ast.Import, ast.ImportFrom, ast.TryStar,
+    })
+    
+    # Attribute names that start with __ or are dangerous
+    BLOCKED_PREFIXES = ('__', '_io', '_thread', '_signal', '_pickle', '_socket')
+    BLOCKED_ATTRS = frozenset({
+        '__import__', '__globals__', '__code__', '__closure__',
+        '__func__', '__self__', '__class__', '__bases__', '__subclasses__',
+        '__init__', '__new__', '__mro__', '__dict__', '__getattribute__',
+    })
+    
+    def visit(self, node: ast.AST) -> None:
+        # Check node type
+        node_type = type(node)
+        if node_type in self.BLOCKED_NODES:
+            raise SecurityError(f"'{node_type.__name__}' is not allowed")
+        
+        # Check attribute access (e.g., obj.__class__, obj.__subclasses__)
+        if isinstance(node, ast.Attribute):
+            if node.attr in self.BLOCKED_ATTRS:
+                raise SecurityError(f"Attribute '.{node.attr}' access blocked")
+            if node.attr.startswith('_'):
+                raise SecurityError(f"Attribute '.{node.attr}' access blocked")
+        
+        # Check for __import__ calls
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == '__import__':
+                raise SecurityError("'__import__' is not allowed")
+        
+        # Check for forbidden subscript access on names
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Name) and node.value.id == '__builtins__':
+                raise SecurityError("Direct '__builtins__' access blocked")
+        
+        self.generic_visit(node)
+
+def _validate_ast(code: str) -> None:
+    """
+    Parse and validate code for dangerous patterns before execution.
+    Raises SecurityError if dangerous patterns are found.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        raise SecurityError(f"Syntax error: {e.msg} (line {e.lineno})")
+    
+    checker = _RestrictedASTChecker()
+    try:
+        checker.visit(tree)
+    except SecurityError:
+        raise
+    except Exception as e:
+        raise SecurityError(f"AST validation error: {e}")
+
+
 class ExecutionError(Exception):
     """Error raised during command execution."""
     pass
@@ -595,7 +667,8 @@ class AutoPipeREPL:
                 namespace['Pipeline'] = Pipeline
                 namespace['Step'] = Step
 
-            # SECURITY FIX: Use restricted builtins to prevent code injection
+            # SECURITY FIX: Use restricted builtins + AST validation
+            _validate_ast(value_expr)  # Block __class__, __subclasses__, etc.
             value = eval(value_expr, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
             self.variables[name] = value
             ctx.print(f"[green]✓[/green] {name} = {self._format_value(value)}")
@@ -759,7 +832,10 @@ class AutoPipeREPL:
                 i += 2
             elif args[i] == '--params' and i + 1 < len(args):
                 try:
+                    _validate_ast(args[i + 1])  # Block dangerous patterns
                     params = eval(args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS})
+                except (SecurityError, SyntaxError) as e:
+                    raise CommandError(f"Invalid parameter expression: {e}")
                 except Exception:
                     params = {"raw": args[i + 1]}
                 i += 2
@@ -904,7 +980,8 @@ class AutoPipeREPL:
             namespace['Step'] = Step
 
         try:
-            # SECURITY FIX: Use restricted builtins to prevent code injection
+            # SECURITY FIX: AST validation + restricted builtins
+            _validate_ast(code)  # Block __class__, __subclasses__, etc.
             try:
                 result = eval(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
                 ctx.print(self._format_value(result))
@@ -913,6 +990,8 @@ class AutoPipeREPL:
                 # Fall back to exec with restricted builtins
                 exec(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
                 self.variables.update({k: v for k, v in namespace.items() if k not in self.variables or v != self.variables.get(k)})
+        except SecurityError as e:
+            ctx.print(f"[red]SecurityError: {e}[/red]")
         except Exception as e:
             ctx.print(f"[red]{type(e).__name__}: {e}[/red]")
 
