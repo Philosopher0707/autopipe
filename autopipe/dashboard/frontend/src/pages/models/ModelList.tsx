@@ -81,7 +81,7 @@ export function ModelList() {
                     <div>
                       <h3 className="font-semibold text-foreground">{model.name}</h3>
                       <p className="text-xs text-muted-foreground">
-                        {model.framework} • {model.version_count || 0} versions
+                        {model.framework} • {model.version_count || 0} {model.version_count === 1 ? 'version' : 'versions'}
                       </p>
                     </div>
                   </div>

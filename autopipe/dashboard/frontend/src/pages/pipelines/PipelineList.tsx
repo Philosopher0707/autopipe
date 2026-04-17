@@ -115,7 +115,7 @@ export function PipelineList() {
                         {pipeline.name}
                       </h3>
                       <p className="text-xs text-muted-foreground">
-                        {pipeline.run_count || 0} runs
+                        {pipeline.run_count || 0} {pipeline.run_count === 1 ? 'run' : 'runs'}
                       </p>
                     </div>
                   </div>
