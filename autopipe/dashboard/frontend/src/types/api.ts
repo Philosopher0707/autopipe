@@ -13,7 +13,7 @@ export interface DashboardStats {
   drift: {
     features_drifted: number
     drift_ratio: number
-    last_check: string
+    last_check: string | null
   }
   experiments: {
     active: number

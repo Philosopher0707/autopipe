@@ -33,7 +33,7 @@ export const runsApi = {
     page?: number
     page_size?: number
   }): Promise<PaginatedResponse<PipelineRun>> => {
-    return apiClient.get<PaginatedResponse<PipelineRun>>('/', {
+    return apiClient.get<PaginatedResponse<PipelineRun>>('/runs', {
       params: {
         pipeline_id: params?.pipeline_id,
         status: params?.status,
@@ -45,33 +45,33 @@ export const runsApi = {
   },
 
   getById: async (id: string): Promise<PipelineRun> => {
-    return apiClient.get<PipelineRun>(`/${id}`)
+    return apiClient.get<PipelineRun>(`/runs/${id}`)
   },
 
   update: async (
     id: string,
     data: { status?: string; metrics?: Record<string, number>; error_message?: string }
   ): Promise<PipelineRun> => {
-    return apiClient.patch<PipelineRun>(`/${id}`, data)
+    return apiClient.patch<PipelineRun>(`/runs/${id}`, data)
   },
 
   delete: async (id: string): Promise<void> => {
-    return apiClient.delete(`/${id}`)
+    return apiClient.delete(`/runs/${id}`)
   },
 
   getLogs: async (
     id: string,
     params?: { tail?: number; level?: string }
   ): Promise<RunLogsResponse> => {
-    return apiClient.get<RunLogsResponse>(`/${id}/logs`, { params })
+    return apiClient.get<RunLogsResponse>(`/runs/${id}/logs`, { params })
   },
 
   getSteps: async (id: string): Promise<StepsResponse> => {
-    return apiClient.get<StepsResponse>(`/${id}/steps`)
+    return apiClient.get<StepsResponse>(`/runs/${id}/steps`)
   },
 
   compare: async (id: string, otherId: string): Promise<RunCompareResponse> => {
-    return apiClient.get<RunCompareResponse>(`/${id}/compare/${otherId}`)
+    return apiClient.get<RunCompareResponse>(`/runs/${id}/compare/${otherId}`)
   },
 
   addStepLog: async (

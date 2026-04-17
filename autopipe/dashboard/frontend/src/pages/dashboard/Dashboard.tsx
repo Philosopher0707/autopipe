@@ -28,7 +28,6 @@ import {
 } from 'recharts'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi, runsApi } from '@/api/endpoints'
-import { wsClient } from '@/api/endpoints/websocket'
 import { cn, formatRelativeTime, getStatusBgColor, formatDuration } from '@/utils/helpers'
 import type { ActivityLog, PipelineRun } from '@/types'
 
@@ -51,76 +50,6 @@ const accuracyData = [
   { version: 'v2.0', accuracy: 0.92, f1: 0.90 },
   { version: 'v2.1', accuracy: 0.94, f1: 0.92 },
   { version: 'v2.2', accuracy: 0.942, f1: 0.925 },
-]
-
-// Mock activity data
-const mockActivities: ActivityLog[] = [
-  {
-    id: '1',
-    action: 'pipeline_completed',
-    resource_type: 'run',
-    details: { pipeline_name: 'training_v2', run_number: 234, accuracy: 0.942 },
-    created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '2',
-    action: 'model_promoted',
-    resource_type: 'model',
-    resource_id: 'customer_churn_v3',
-    details: { from_stage: 'staging', to_stage: 'production' },
-    created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '3',
-    action: 'drift_detected',
-    resource_type: 'drift',
-    details: { feature: 'avg_session_duration', psi: 0.28 },
-    created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '4',
-    action: 'experiment_started',
-    resource_type: 'experiment',
-    details: { name: 'hyperparam_search_xgb', trials: 125 },
-    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '5',
-    action: 'system_update',
-    resource_type: 'system',
-    details: { version: 'v1.0.0' },
-    created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-  },
-]
-
-// Mock runs data
-const mockRuns: PipelineRun[] = [
-  {
-    id: '1',
-    pipeline_id: 'training_v2',
-    status: 'running',
-    run_number: 234,
-    started_at: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-    duration_seconds: 272,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    pipeline_id: 'data_preprocessing',
-    status: 'success',
-    run_number: 233,
-    started_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    completed_at: new Date(Date.now() - 28 * 60 * 1000).toISOString(),
-    duration_seconds: 135,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    pipeline_id: 'hyperparam_tuning',
-    status: 'pending',
-    run_number: 232,
-    created_at: new Date().toISOString(),
-  },
 ]
 
 function StatCard({
@@ -196,15 +125,22 @@ function ActivityIcon({ action }: { action: string }) {
 }
 
 export function Dashboard() {
+  const [mounted, setMounted] = useState(false)
+
+  // Handle hydration mismatch for client-only rendering
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: () => dashboardApi.getOverview(),
     refetchInterval: 30000,
-    // Fallback to mock data if API fails
+    // Fallback to mock data if API fails - use null-safe values for hydration
     initialData: {
       pipelines: { total: 42, running: 5, completed_today: 15 },
       models: { total: 8, in_production: 8, in_staging: 4 },
-      drift: { features_drifted: 3, drift_ratio: 0.28, last_check: new Date().toISOString() },
+      drift: { features_drifted: 3, drift_ratio: 0.28, last_check: null },
       experiments: { active: 3, completed_today: 8, total_trials: 156 },
     },
   })
@@ -212,14 +148,37 @@ export function Dashboard() {
   const { data: runsData } = useQuery<PipelineRun[]>({
     queryKey: ['runs', 'recent'],
     queryFn: async () => {
-      const response = await runsApi.list({ limit: 5 })
+      const response = await runsApi.list({ page_size: 5 })
       return response.items || []
     },
     refetchInterval: 10000,
-    initialData: mockRuns,
+    initialData: [],
   })
 
-  const runs = runsData || mockRuns
+  const runs = runsData || []
+
+  const { data: activities } = useQuery({
+    queryKey: ['dashboard', 'activity'],
+    queryFn: async () => {
+      const response = await dashboardApi.getActivity(20)
+      return response.items
+    },
+    refetchInterval: 30000,
+    initialData: [],
+  })
+
+  // Don't render time-sensitive content until client-side hydration
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -255,7 +214,7 @@ export function Dashboard() {
           icon={GitBranch}
           color="bg-blue-500"
           status={{ running: stats?.pipelines.running }}
-          subtext={`${stats?.pipelines.completed_today} completed today`}
+          subtext={`${stats?.pipelines.completed_today ?? 0} completed today`}
         />
         <StatCard
           title="Models in Production"
@@ -264,7 +223,7 @@ export function Dashboard() {
           trendValue="3 new"
           icon={Box}
           color="bg-green-500"
-          subtext={`${stats?.models.in_staging} in staging`}
+          subtext={`${stats?.models.in_staging ?? 0} in staging`}
         />
         <StatCard
           title="Drift Alerts"
@@ -273,14 +232,14 @@ export function Dashboard() {
           trendValue="1 Alert"
           icon={AlertTriangle}
           color="bg-amber-500"
-          subtext={`PSI Avg: ${stats?.drift.drift_ratio}`}
+          subtext={`PSI Avg: ${stats?.drift.drift_ratio ?? 'N/A'}`}
         />
         <StatCard
           title="Active Experiments"
           value={stats?.experiments.active}
           icon={FlaskConical}
           color="bg-purple-500"
-          subtext={`${stats?.experiments.total_trials} trials today`}
+          subtext={`${stats?.experiments.total_trials ?? 0} trials today`}
         />
       </div>
 
@@ -509,7 +468,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activities?.items?.map((activity: ActivityLog) => (
+              {activities?.map((activity: ActivityLog) => (
                 <div key={activity.id} className="flex gap-3">
                   <ActivityIcon action={activity.action} />
                   <div className="flex-1">

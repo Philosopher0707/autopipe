@@ -19,10 +19,10 @@ from app.core.events import create_start_app_handler, create_stop_app_handler
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
-    create_start_app_handler(app)()
+    await create_start_app_handler(app)()
     yield
     # Shutdown
-    create_stop_app_handler(app)()
+    await create_stop_app_handler(app)()
 
 
 def create_application() -> FastAPI:
@@ -52,7 +52,7 @@ def create_application() -> FastAPI:
     # Mount static files for frontend (if built)
     try:
         app.mount("/static", StaticFiles(directory="static"), name="static")
-    except:
+    except RuntimeError:
         pass
 
     return app

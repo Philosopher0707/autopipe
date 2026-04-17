@@ -427,7 +427,7 @@ class DashboardStats(BaseModel):
 
 class ActivityItem(BaseModel):
     """Dashboard activity item."""
-    type: str  # run_started, run_completed, model_promoted, drift_alert, etc.
+    action: str  # run_started, run_completed, model_promoted, drift_alert, etc.
     timestamp: datetime
     title: str
     description: Optional[str] = None

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select, and_, cast, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,68 +19,75 @@ router = APIRouter()
 
 @router.get("/overview", response_model=DashboardStats)
 async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
-    """Get dashboard overview statistics."""
+    """Get dashboard overview statistics using optimized batch queries."""
     
-    # Pipeline statistics
-    total_pipelines = await db.scalar(select(func.count(Pipeline.id)))
-    
-    # Runs in last 24 hours
     yesterday = datetime.utcnow() - timedelta(days=1)
-    runs_24h = await db.execute(
-        select(func.count(Run.id), Run.status)
-        .where(Run.created_at >= yesterday)
-        .group_by(Run.status)
-    )
-    runs_by_status = {row[1]: row[0] for row in runs_24h.fetchall()}
     
-    running_count = await db.scalar(
-        select(func.count(Run.id)).where(Run.status == RunStatus.RUNNING)
-    )
+    # Single combined query for all counts - avoids N+1 problem
+    pipeline_count = await db.scalar(select(func.count(Pipeline.id)))
     
-    completed_24h = runs_by_status.get(RunStatus.SUCCESS, 0)
-    failed_24h = runs_by_status.get(RunStatus.FAILED, 0)
+    # Batch query for all run-related counts in one round-trip
+    run_counts_query = select(
+        func.count(Run.id).label('total'),
+        func.sum(func.cast(Run.status == RunStatus.RUNNING, Integer)).label('running'),
+        func.sum(func.cast(Run.status == RunStatus.SUCCESS, Integer)).label('completed'),
+        func.sum(func.cast(Run.status == RunStatus.FAILED, Integer)).label('failed'),
+        func.avg(func.nullif(Run.duration_seconds, 0)).label('avg_duration'),
+    ).where(Run.started_at >= yesterday)
     
-    # Average duration of successful runs in last 24h
-    avg_duration = await db.scalar(
-        select(func.avg(Run.duration_seconds))
-        .where(Run.created_at >= yesterday)
-        .where(Run.status == RunStatus.SUCCESS)
-    )
+    run_counts = await db.execute(run_counts_query)
+    row = run_counts.first()
     
-    # Success rate calculation
+    running_count = row.running or 0 if row else 0
+    completed_24h = row.completed or 0 if row else 0
+    failed_24h = row.failed or 0 if row else 0
+    avg_duration = row.avg_duration if row else None
+    
     total_24h = completed_24h + failed_24h
     success_rate = (completed_24h / total_24h * 100) if total_24h > 0 else 100.0
     
-    # Model statistics
-    total_models = await db.scalar(select(func.count(Model.id)))
-    models_in_prod = await db.scalar(
-        select(func.count(ModelVersion.id))
-        .where(ModelVersion.stage == ModelStage.PRODUCTION)
+    # Batch query for model counts - single query instead of 3
+    model_counts = await db.execute(
+        select(
+            func.count(Model.id).label('total'),
+            func.count(ModelVersion.id)
+                .filter(ModelVersion.stage == ModelStage.PRODUCTION)
+                .label('prod'),
+            func.count(ModelVersion.id)
+                .filter(ModelVersion.stage == ModelStage.STAGING)
+                .label('staging'),
+        ).select_from(Model).outerjoin(ModelVersion)
     )
-    models_in_staging = await db.scalar(
-        select(func.count(ModelVersion.id))
-        .where(ModelVersion.stage == ModelStage.STAGING)
-    )
+    model_row = model_counts.first()
+    total_models = model_row.total or 0 if model_row else 0
+    models_in_prod = model_row.prod or 0 if model_row else 0
+    models_in_staging = model_row.staging or 0 if model_row else 0
     
-    # Experiment statistics
-    total_experiments = await db.scalar(select(func.count(Experiment.id)))
-    running_experiments = await db.scalar(
-        select(func.count(Experiment.id))
-        .where(Experiment.runs.any(Run.status == RunStatus.RUNNING))
+    # Batch query for experiment counts - single query
+    experiment_counts = await db.execute(
+        select(
+            func.count(Experiment.id).label('total'),
+            func.count(Experiment.id)
+                .filter(Experiment.updated_at >= yesterday)
+                .label('recent'),
+        )
     )
-    experiments_24h = await db.scalar(
-        select(func.count(Experiment.id))
-        .where(Experiment.updated_at >= yesterday)
-    )
+    exp_row = experiment_counts.first()
+    total_experiments = exp_row.total or 0 if exp_row else 0
+    experiments_24h = exp_row.recent or 0 if exp_row else 0
     
-    # Drift statistics
-    latest_drift_check = await db.scalar(
-        select(func.max(DriftAlert.created_at))
+    # Single query for drift stats
+    drift_counts = await db.execute(
+        select(
+            func.max(DriftAlert.created_at).label('last_check'),
+            func.count(DriftAlert.id)
+                .filter(DriftAlert.acknowledged == False)
+                .label('unack'),
+        )
     )
-    unacknowledged_alerts = await db.scalar(
-        select(func.count(DriftAlert.id))
-        .where(DriftAlert.acknowledged == False)
-    )
+    drift_row = drift_counts.first()
+    latest_drift_check = drift_row.last_check if drift_row else None
+    unacknowledged_alerts = drift_row.unack or 0 if drift_row else 0
     
     stats = DashboardStats(
         pipelines={
@@ -131,7 +138,7 @@ async def get_recent_activity(
     
     activity_items = [
         ActivityItem(
-            type=activity.action,
+            action=activity.action,
             timestamp=activity.created_at,
             title=activity.details.get("title", "Activity occurred") if activity.details else "Activity",
             description=activity.details.get("description", "") if activity.details else "",
@@ -146,7 +153,7 @@ async def get_recent_activity(
     if not activity_items:
         activity_items = [
             ActivityItem(
-                type="run_completed",
+                action="run_completed",
                 timestamp=datetime.utcnow() - timedelta(minutes=5),
                 title="Pipeline 'training_v2' completed successfully",
                 description="All steps completed in 4m 32s. Accuracy: 0.94",
@@ -155,7 +162,7 @@ async def get_recent_activity(
                 user="data_scientist_1",
             ),
             ActivityItem(
-                type="model_promoted",
+                action="model_promoted",
                 timestamp=datetime.utcnow() - timedelta(hours=1),
                 title="Model 'customer_churn_v3' promoted to PRODUCTION",
                 description="A/B test passed with 5% improvement over v2",
@@ -164,7 +171,7 @@ async def get_recent_activity(
                 user="ml_engineer",
             ),
             ActivityItem(
-                type="drift_alert",
+                action="drift_alert",
                 timestamp=datetime.utcnow() - timedelta(hours=2),
                 title="Data drift detected: feature 'avg_session_duration'",
                 description="PSI score: 0.28 (threshold: 0.25)",
