@@ -9,6 +9,7 @@ Bridges the dashboard's Run/Step DB records with autopipe.core.Pipeline:
 """
 
 import asyncio
+import io
 import logging
 import sys
 import threading
@@ -97,6 +98,22 @@ def _broadcast_step_metric(run_id: str, step_id: str, metric_name: str, value: f
     """Broadcast a step metric via WebSocket."""
     from app.api.v1.endpoints.websocket import broadcast_run_metric
     _broadcast_sync(broadcast_run_metric(run_id, step_id, metric_name, value))
+
+
+class _WebSocketLogHandler(logging.Handler):
+    """Captures Python log records during step execution and broadcasts them."""
+
+    def __init__(self, run_id: str, step_id: str):
+        super().__init__()
+        self.run_id = run_id
+        self.step_id = step_id
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            _broadcast_step_status(self.run_id, self.step_id, "", f"[{record.levelname}] {msg}")
+        except Exception:
+            pass
 
 
 def _update_run_status(db: Session, run_id: str, status: RunStatus,
@@ -264,7 +281,11 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
             else:
                 inputs = dict(initial_inputs or {})
 
-            # Execute the step
+            # Execute the step with log capture
+            log_handler = _WebSocketLogHandler(run_id, step_id)
+            log_handler.setLevel(logging.DEBUG)
+            autopipe_logger = logging.getLogger("autopipe")
+            autopipe_logger.addHandler(log_handler)
             try:
                 step_output = core_step.run(**inputs)
                 outputs[step_name] = step_output
@@ -291,6 +312,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
                 with SessionLocal() as db:
                     _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error,
                                         run_id=run_id, step_name=step_name)
+            finally:
+                autopipe_logger.removeHandler(log_handler)
 
         # Finalize run status
         with SessionLocal() as db:
