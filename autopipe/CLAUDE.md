@@ -39,7 +39,7 @@ Three independent subsystems sharing data concepts but not code:
 
 1. **autopipe core** (`autopipe/core/`) — Pipeline orchestration engine. `Pipeline` manages a DAG of `Step` objects, runs via topological sort. Pipelines defined in Python or YAML. LLM adapters in `autopipe/llm/`. CLI: `autopipe run <file>`.
 
-2. **Dashboard Backend** (`autopipe/dashboard/backend/`) — FastAPI + SQLAlchemy 2.0 (async) + SQLite. REST API at `/api/v1/` with JWT auth. Does NOT import the core library. Models: Pipeline → Runs → Steps, Experiment → Runs, Model → Versions, DriftReport → Alerts, ChartArtifact.
+2. **Dashboard Backend** (`autopipe/dashboard/backend/`) — FastAPI + SQLAlchemy 2.0 (async) + SQLite. REST API at `/api/v1/` with JWT auth. The executor (`app/executor/`) bridges dashboard runs to `autopipe.core.Pipeline`: loads pipeline configs via `autopipe.core.loader`, runs steps sequentially in a background thread, creates/updates Step records, and broadcasts status changes over WebSocket. Uses sync SQLAlchemy sessions in background threads (separate from async app sessions). Models: Pipeline → Runs → Steps, Experiment → Runs, Model → Versions, DriftReport → Alerts, ChartArtifact.
 
 3. **Dashboard Frontend** (`autopipe/dashboard/frontend/`) — React 18 + TypeScript + Vite + Tailwind + TanStack Query + Zustand. Path alias `@/` → `src/`. Lazy-loaded route components. Axios client with JWT interceptor.
 
@@ -51,9 +51,15 @@ Three independent subsystems sharing data concepts but not code:
 - Pagination: `?page=1&page_size=20` (defaults from settings)
 - Experiment status is **derived** from runs (not stored): no runs=pending, any running=running, any success=completed
 - Run numbers are per-experiment sequential, not global
-- `POST /experiments/{id}/trials` generates trial runs from experiment.config.search_space
+- `POST /experiments/{id}/trials` generates trial runs from experiment.config.search_space; when `simulate=false`, dispatches to the executor with trial params as `initial_inputs`
 - `Base.metadata.create_all()` auto-creates tables on startup
 - WebSocket at `/api/v1/ws/dashboard` and `/api/v1/ws/runs/{run_id}`
+- **Pipeline Executor** (`app/executor/`):
+  - `runner.py`: `execute_run()` spawns a daemon thread; runs pipeline steps sequentially with per-step DB tracking and WebSocket broadcasts
+  - `registry.py`: Thread-safe dict of `threading.Event` per active run — `PATCH /runs/{id}` with `status=cancelled` signals the executor to skip remaining steps
+  - `_WebSocketLogHandler`: Captures `autopipe` logger output during step execution and broadcasts via WebSocket
+  - `asyncio.run_coroutine_threadsafe()` bridges sync thread → async event loop for WebSocket broadcasts
+  - Pipeline config must have `"steps"` key to trigger actual execution; otherwise runs stay PENDING
 
 ### Frontend
 - API clients in `src/api/endpoints/` (one file per domain: pipelines, runs, experiments, models, drift, charts)
