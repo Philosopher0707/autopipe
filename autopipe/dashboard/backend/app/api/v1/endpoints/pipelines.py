@@ -1,9 +1,10 @@
 """Pipeline management endpoints."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +15,11 @@ from app.schemas import (
     PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
 )
 
+
+class TriggerRunRequest(BaseModel):
+    """Request body for triggering a pipeline run."""
+    config_override: Optional[Dict[str, Any]] = None
+
 router = APIRouter()
 
 
@@ -22,11 +28,13 @@ def _serialize_run(run: Run, pipeline_name: Optional[str] = None) -> RunResponse
     return RunResponse(
         id=run.id,
         pipeline_id=run.pipeline_id,
+        experiment_id=run.experiment_id,
         status=run.status,
         run_number=run.run_number,
         started_at=run.started_at,
         completed_at=run.completed_at,
         duration_seconds=run.duration_seconds,
+        config=run.config,
         metrics=run.metrics,
         error_message=run.error_message,
         created_by=run.created_by,
@@ -264,41 +272,44 @@ async def delete_pipeline(
 @router.post("/{pipeline_id}/runs", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
 async def trigger_run(
     pipeline_id: str,
-    config_override: Optional[Dict[str, Any]] = None,
+    background_tasks: BackgroundTasks,
+    body: TriggerRunRequest = TriggerRunRequest(),
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger a new pipeline run."""
-    
+
     # Check pipeline exists
     result = await db.execute(
         select(Pipeline).where(Pipeline.id == pipeline_id)
     )
     pipeline = result.scalar_one_or_none()
-    
+
     if not pipeline:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pipeline {pipeline_id} not found",
         )
-    
+
     # Get next run number
     result = await db.execute(
         select(func.max(Run.run_number)).where(Run.pipeline_id == pipeline_id)
     )
     max_run = result.scalar() or 0
-    
+
+    run_config = body.config_override or pipeline.config
+
     # Create run
     run = Run(
         pipeline_id=pipeline_id,
         status=RunStatus.PENDING,
         run_number=max_run + 1,
-        config=config_override or pipeline.config,
+        config=run_config,
     )
-    
+
     db.add(run)
     await db.commit()
     await db.refresh(run)
-    
+
     # Log activity
     activity = ActivityLog(
         action="run_triggered",
@@ -311,7 +322,12 @@ async def trigger_run(
     )
     db.add(activity)
     await db.commit()
-    
+
+    # Execute pipeline in background if config has steps
+    if run_config and "steps" in run_config:
+        from app.executor.runner import execute_run
+        background_tasks.add_task(execute_run, run.id, run_config)
+
     return _serialize_run(run, pipeline.name)
 
 
