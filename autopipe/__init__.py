@@ -61,13 +61,16 @@ def __getattr__(name: str) -> Any:
         return Step
     
     # Data processing
-    elif name in ["DataLoaderStep", "DataValidatorStep", "DataPreprocessorStep", 
-                 "FeatureSelectionStep", "DataSplitterStep", "FeatureEngineeringStep"]:
+    elif name in ["DataLoaderStep", "DataValidatorStep", "DataPreprocessorStep",
+                 "FeatureSelectionStep", "FeatureEngineeringStep"]:
         from .steps.data import DataLoaderStep, DataValidatorStep, DataPreprocessorStep
-        from .steps.data import FeatureSelectionStep, DataSplitterStep
+        from .steps.data import FeatureSelectionStep
         from .core.steps import FeatureEngineeringStep
         module = sys.modules['autopipe.steps.data']
         return getattr(module, name)
+    elif name == "DataSplitterStep":
+        from .steps.cross_validation import DataSplitterStep
+        return DataSplitterStep
     
     # Training
     elif name in ["SklearnTrainerStep", "PyTorchTrainerStep", "TensorFlowTrainerStep",

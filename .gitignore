@@ -41,7 +41,6 @@ log/
 # Data
 data/
 *.csv
-*.json
 *.parquet
 *.db
 *.sqlite
@@ -90,3 +89,6 @@ dmypy.json
 
 # Vite deps cache
 .vite/
+
+# Node
+node_modules/

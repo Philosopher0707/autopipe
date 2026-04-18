@@ -4,11 +4,14 @@ A production-grade dashboard for monitoring ML pipelines with real-time
 updates, model registry management, drift detection, and experiment tracking.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger(__name__)
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -53,7 +56,10 @@ def create_application() -> FastAPI:
     try:
         app.mount("/static", StaticFiles(directory="static"), name="static")
     except RuntimeError:
-        pass
+        logger.warning(
+            "Static files directory 'static' not found; skipping. "
+            "Build the frontend to enable static file serving."
+        )
 
     return app
 

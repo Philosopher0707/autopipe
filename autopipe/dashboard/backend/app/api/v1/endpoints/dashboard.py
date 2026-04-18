@@ -20,7 +20,10 @@ from app.db.models import (
     RunStatus,
 )
 from app.db.session import get_db
-from app.schemas import ActivityFeed, ActivityItem, DashboardStats, HealthStatus, SidebarCounts, SystemHealth
+from app.schemas import (
+    ActivityFeed, ActivityItem, DashboardStats, DriftStats, ExperimentStats,
+    HealthStatus, ModelStats, PipelineStats, SidebarCounts, SystemHealth,
+)
 
 router = APIRouter()
 
@@ -129,32 +132,32 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
                 latest_features_drifted += int(float(stats) > 0.1)
     
     stats = DashboardStats(
-        pipelines={
-            "total": pipeline_count or 0,
-            "running": running_count or 0,
-            "completed_today": completed_24h or 0,
-            "failed_today": failed_24h or 0,
-            "avg_duration": f"{int((avg_duration or 0) / 60)}m {int((avg_duration or 0) % 60)}s",
-            "success_rate": round(success_rate, 1),
-        },
-        models={
-            "total": total_models or 0,
-            "in_production": models_in_prod or 0,
-            "in_staging": models_in_staging or 0,
-            "recent_versions": 0,
-        },
-        drift={
-            "alerts_today": unacknowledged_alerts or 0,
-            "features_drifted": latest_features_drifted or unacknowledged_alerts or 0,
-            "drift_ratio": latest_drift_score,
-            "last_check": latest_drift_check.isoformat() if latest_drift_check else None,
-        },
-        experiments={
-            "total": total_experiments or 0,
-            "active": active_experiments or 0,
-            "completed_today": experiments_24h or 0,
-            "total_trials": total_experiment_runs or 0,
-        },
+        pipelines=PipelineStats(
+            total=pipeline_count or 0,
+            running=running_count or 0,
+            completed_today=completed_24h or 0,
+            failed_today=failed_24h or 0,
+            avg_duration=f"{int((avg_duration or 0) / 60)}m {int((avg_duration or 0) % 60)}s",
+            success_rate=round(success_rate, 1),
+        ),
+        models=ModelStats(
+            total=total_models or 0,
+            in_production=models_in_prod or 0,
+            in_staging=models_in_staging or 0,
+            recent_versions=0,
+        ),
+        drift=DriftStats(
+            alerts_today=unacknowledged_alerts or 0,
+            features_drifted=latest_features_drifted or unacknowledged_alerts or 0,
+            drift_ratio=latest_drift_score,
+            last_check=latest_drift_check.isoformat() if latest_drift_check else None,
+        ),
+        experiments=ExperimentStats(
+            total=total_experiments or 0,
+            active=active_experiments or 0,
+            completed_today=experiments_24h or 0,
+            total_trials=total_experiment_runs or 0,
+        ),
     )
     
     return stats

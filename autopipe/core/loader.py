@@ -31,7 +31,7 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     builtin_map = {
         "print": "autopipe.core.steps.PrintStep",
         "llm": "autopipe.core.steps.LLMStep",
-        "data_loader": "autopipe.core.steps.DataLoaderStep",
+        "data_loader": "autopipe.steps.data.DataLoaderStep",
         "visualization": "autopipe.core.steps.VisualizationStep",
         "feature_engineering": "autopipe.core.steps.FeatureEngineeringStep",
         "fe": "autopipe.core.steps.FeatureEngineeringStep",
