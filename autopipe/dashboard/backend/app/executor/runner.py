@@ -4,9 +4,11 @@ Bridges the dashboard's Run/Step DB records with autopipe.core.Pipeline:
 1. Loads a pipeline from config dict using autopipe's loader
 2. Runs it step-by-step in a background thread
 3. Creates/updates Step DB records with status, timestamps, metrics
-4. Updates DB run record with final status, timestamps, metrics, errors
+4. Broadcasts status changes via WebSocket in real time
+5. Updates DB run record with final status, timestamps, metrics, errors
 """
 
+import asyncio
 import logging
 import sys
 import threading
@@ -32,6 +34,15 @@ if _PROJECT_ROOT not in sys.path:
 _sync_engine = None
 _SyncSessionLocal = None
 
+# Reference to the running event loop for scheduling async broadcasts
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Store the event loop reference for async broadcasts from threads."""
+    global _event_loop
+    _event_loop = loop
+
 
 def _get_sync_session_factory() -> sessionmaker:
     """Get or create the sync session factory for background threads."""
@@ -54,6 +65,39 @@ def _load_pipeline(config: dict):
     return load_pipeline_from_config(config)
 
 
+def _broadcast_sync(coro):
+    """Schedule an async coroutine on the event loop from a sync thread.
+
+    Silently ignores if no event loop is available (e.g. during tests).
+    """
+    if _event_loop is None or _event_loop.is_closed():
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(coro, _event_loop)
+    except RuntimeError:
+        pass
+
+
+def _broadcast_run_status(run_id: str, status: str, data: dict | None = None) -> None:
+    """Broadcast a run status change via WebSocket."""
+    from app.api.v1.endpoints.websocket import broadcast_run_status
+    _broadcast_sync(broadcast_run_status(run_id, status, data))
+
+
+def _broadcast_step_status(run_id: str, step_id: str, step_name: str, status: str) -> None:
+    """Broadcast a step status change via WebSocket as a run.log event."""
+    from app.api.v1.endpoints.websocket import broadcast_run_log
+    _broadcast_sync(broadcast_run_log(
+        run_id, step_id, "info", f"Step {step_name}: {status}"
+    ))
+
+
+def _broadcast_step_metric(run_id: str, step_id: str, metric_name: str, value: float) -> None:
+    """Broadcast a step metric via WebSocket."""
+    from app.api.v1.endpoints.websocket import broadcast_run_metric
+    _broadcast_sync(broadcast_run_metric(run_id, step_id, metric_name, value))
+
+
 def _update_run_status(db: Session, run_id: str, status: RunStatus,
                        error_message: str | None = None,
                        metrics: dict | None = None) -> None:
@@ -74,12 +118,23 @@ def _update_run_status(db: Session, run_id: str, status: RunStatus,
         run.metrics = metrics
     db.commit()
 
+    # Broadcast status change
+    status_str = status.value if hasattr(status, "value") else str(status)
+    data = {}
+    if error_message:
+        data["error_message"] = error_message
+    if metrics:
+        data["metrics"] = metrics
+    _broadcast_run_status(run_id, status_str, data)
+
 
 def _update_step_status(db: Session, step_id: str, status: StepStatus,
+                        run_id: str = "",
+                        step_name: str = "",
                         metrics: dict | None = None,
                         error_message: str | None = None,
                         duration_seconds: float | None = None) -> None:
-    """Update step status and timestamps in the DB."""
+    """Update step status and timestamps in the DB + broadcast."""
     step = db.get(Step, step_id)
     if not step:
         return
@@ -98,6 +153,17 @@ def _update_step_status(db: Session, step_id: str, status: StepStatus,
         step.duration_seconds = duration_seconds
     db.commit()
 
+    # Broadcast step status change
+    if run_id:
+        status_str = status.value if hasattr(status, "value") else str(status)
+        _broadcast_step_status(run_id, step_id, step_name, status_str)
+
+        # Broadcast individual metrics
+        if metrics and status == StepStatus.SUCCESS:
+            for metric_name, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    _broadcast_step_metric(run_id, step_id, metric_name, float(value))
+
 
 def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: dict | None = None) -> None:
     """Execute a pipeline run in a background thread with step-level tracking."""
@@ -112,6 +178,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
         run.status = RunStatus.RUNNING
         run.started_at = datetime.utcnow()
         db.commit()
+
+    _broadcast_run_status(run_id, "running")
 
     # Load pipeline from config
     try:
@@ -159,7 +227,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
         if run_failed:
             # Skip remaining steps after a failure
             with SessionLocal() as db:
-                _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED)
+                _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED,
+                                    run_id=run_id, step_name=step_name)
             continue
 
         core_step = pipeline.steps[step_name]
@@ -167,7 +236,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
 
         # Mark step as RUNNING
         with SessionLocal() as db:
-            _update_step_status(db, step_id, StepStatus.RUNNING)
+            _update_step_status(db, step_id, StepStatus.RUNNING,
+                                run_id=run_id, step_name=step_name)
 
         # Build inputs from dependency outputs
         if core_step.depends_on:
@@ -190,7 +260,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
                 pass
 
             with SessionLocal() as db:
-                _update_step_status(db, step_id, StepStatus.SUCCESS, metrics=step_metrics)
+                _update_step_status(db, step_id, StepStatus.SUCCESS, metrics=step_metrics,
+                                    run_id=run_id, step_name=step_name)
 
         except Exception as e:
             step_error = f"{type(e).__name__}: {e}"
@@ -199,7 +270,8 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
             failed_step_name = step_name
 
             with SessionLocal() as db:
-                _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error)
+                _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error,
+                                    run_id=run_id, step_name=step_name)
 
     # Finalize run status
     with SessionLocal() as db:
@@ -223,8 +295,15 @@ async def execute_run(run_id: str, pipeline_config: dict, initial_inputs: dict |
     """Launch a pipeline run in a background thread.
 
     This is the async entry point called by FastAPI BackgroundTasks.
-    It spawns a daemon thread that does the actual work synchronously.
+    It captures the current event loop for WebSocket broadcasts,
+    then spawns a daemon thread for the actual work.
     """
+    global _event_loop
+    try:
+        _event_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _event_loop = None
+
     thread = threading.Thread(
         target=_run_pipeline_in_thread,
         args=(run_id, pipeline_config, initial_inputs),
