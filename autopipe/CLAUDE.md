@@ -20,9 +20,11 @@ cd autopipe/dashboard/backend
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload   # Dev server (port 8765)
 python -m app.seed                                          # Seed database
+.venv/bin/python -m pytest tests/ -v                         # Run test suite (~48 tests)
 ```
 - API docs: `http://localhost:8765/api/v1/docs`
 - Default credentials: `admin` / `admin123`
+- Tests use in-memory SQLite with `httpx.AsyncClient` + `ASGITransport`, dependency overrides for `get_db`
 
 ### Dashboard Frontend (React + Vite)
 ```bash
@@ -31,7 +33,11 @@ pnpm install          # Install dependencies
 pnpm dev              # Dev server on :3000, proxies /api → :8765
 pnpm build            # Production build → dist/
 pnpm typecheck        # TypeScript check (tsc --noEmit)
+pnpm test             # Run test suite (~34 tests)
+pnpm test:watch       # Run tests in watch mode
+pnpm test:coverage    # Run tests with coverage
 ```
+- Tests use Vitest 1.x with jsdom environment, `@testing-library/jest-dom`, `vi.mock()` for API client mocking
 
 ## Architecture
 
