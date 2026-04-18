@@ -95,8 +95,24 @@ async def create_model(
     )
     db.add(db_model)
     await db.commit()
-    await db.refresh(db_model)
-    return db_model
+    refreshed = await db.execute(
+        select(Model).where(Model.id == db_model.id).options(selectinload(Model.versions))
+    )
+    db_model = refreshed.scalar_one()
+    return ModelResponse(
+        id=db_model.id,
+        name=db_model.name,
+        description=db_model.description,
+        framework=db_model.framework,
+        task_type=db_model.task_type,
+        signature=db_model.signature,
+        tags=db_model.tags or [],
+        current_stage=db_model.current_stage,
+        created_at=db_model.created_at,
+        updated_at=db_model.updated_at,
+        version_count=len(db_model.versions) if db_model.versions else 0,
+        versions=[],
+    )
 
 
 @router.get("/{model_id}", response_model=ModelResponse)
@@ -170,8 +186,27 @@ async def update_model(
         model.tags = update_data.tags
     
     await db.commit()
-    await db.refresh(model)
-    return model
+    refreshed = await db.execute(
+        select(Model).where(Model.id == model_id).options(selectinload(Model.versions))
+    )
+    model = refreshed.scalar_one()
+    version_count = await db.scalar(
+        select(func.count(ModelVersion.id)).where(ModelVersion.model_id == model_id)
+    )
+    return ModelResponse(
+        id=model.id,
+        name=model.name,
+        description=model.description,
+        framework=model.framework,
+        task_type=model.task_type,
+        signature=model.signature,
+        tags=model.tags or [],
+        current_stage=model.current_stage,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        version_count=version_count or 0,
+        versions=[],
+    )
 
 
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
