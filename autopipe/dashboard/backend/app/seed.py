@@ -152,7 +152,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
 async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: list[Experiment] | None = None) -> None:
     """Create sample pipeline runs, optionally linked to experiments."""
     import random
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     statuses = [RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.RUNNING]
     runs_created = 0
@@ -161,7 +161,7 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
         experiment_id = experiments[p_idx].id if experiments and p_idx < len(experiments) else None
         # Create 5 runs per pipeline
         for i in range(5):
-            started = datetime.utcnow() - timedelta(days=random.randint(0, 7), hours=random.randint(0, 12))
+            started = datetime.now(timezone.utc) - timedelta(days=random.randint(0, 7), hours=random.randint(0, 12))
             status = statuses[i]
 
             if status == RunStatus.SUCCESS:
@@ -356,7 +356,7 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experime
 
 async def seed_drift_reports(db: AsyncSession) -> None:
     """Create sample drift reports and alerts."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     
     # Drift report
     report = DriftReport(
@@ -401,14 +401,14 @@ async def seed_drift_reports(db: AsyncSession) -> None:
 
 async def seed_dashboard_metrics(db: AsyncSession) -> None:
     """Create sample dashboard metrics."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     import random
     
     metric_names = ["pipeline_success_rate", "avg_run_duration", "model_accuracy", "active_runs"]
     
     for metric_name in metric_names:
         for days_ago in range(14):
-            timestamp = datetime.utcnow() - timedelta(days=days_ago)
+            timestamp = datetime.now(timezone.utc) - timedelta(days=days_ago)
             # Vary value slightly each day
             base_values = {
                 "pipeline_success_rate": 0.92,
@@ -434,7 +434,7 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
 
 async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
     """Create sample activity logs."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     import random
     
     activities = [
@@ -454,7 +454,7 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
             resource_type=activity_data["resource_type"],
             resource_id=str(uuid.uuid4()),
             details={"title": activity_data["title"], "description": "Automated system event"},
-            created_at=datetime.utcnow() - timedelta(hours=i * 2 + 1),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=i * 2 + 1),
         )
         db.add(activity)
     

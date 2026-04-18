@@ -1,6 +1,6 @@
 """Run management endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -150,9 +150,9 @@ async def update_run(
     if update.status:
         run.status = RunStatus(update.status)
         if update.status == RunStatus.RUNNING and not run.started_at:
-            run.started_at = datetime.utcnow()
+            run.started_at = datetime.now(timezone.utc)
         if update.status in [RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED]:
-            run.completed_at = datetime.utcnow()
+            run.completed_at = datetime.now(timezone.utc)
             if run.started_at:
                 run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
         # Signal the executor thread to stop if cancelling

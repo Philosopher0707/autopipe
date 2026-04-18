@@ -3,7 +3,7 @@
 import random
 import uuid
 import itertools
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, status
@@ -318,7 +318,7 @@ def _generate_metrics(search_space: dict | None, metric_name: str | None) -> dic
 def _simulate_run(run: Run, search_space: dict | None, metric_name: str | None) -> None:
     """Simulate execution of a trial run: advance status, set timestamps, generate metrics."""
     is_failed = random.random() < 0.15
-    started = datetime.utcnow() - timedelta(minutes=random.randint(5, 30), seconds=random.randint(0, 59))
+    started = datetime.now(timezone.utc) - timedelta(minutes=random.randint(5, 30), seconds=random.randint(0, 59))
     duration = random.uniform(60, 600)
 
     run.started_at = started
@@ -336,7 +336,7 @@ def _simulate_run(run: Run, search_space: dict | None, metric_name: str | None) 
 def _create_steps(run: Run) -> list[Step]:
     """Create pipeline steps for a simulated run."""
     is_failed = run.status == RunStatus.FAILED
-    started = run.started_at or datetime.utcnow()
+    started = run.started_at or datetime.now(timezone.utc)
     steps = []
 
     failed_index = STEP_NAMES.index("train") if is_failed else len(STEP_NAMES)

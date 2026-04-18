@@ -57,7 +57,7 @@ class TestLoadPipelineFromConfig:
         config = {
             "name": "test_pipe",
             "steps": [
-                {"name": "load", "type": "data_loader", "params": {"dataset": "iris"}},
+                {"name": "load", "type": "data_loader", "params": {"source": "iris.csv", "format": "csv"}},
                 {"name": "print", "type": "print", "params": {"message": "done"}, "depends_on": ["load"]},
             ],
         }

@@ -1,6 +1,6 @@
 """Dashboard overview endpoints."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -32,7 +32,7 @@ router = APIRouter()
 async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     """Get dashboard overview statistics using optimized batch queries."""
     
-    yesterday = datetime.utcnow() - timedelta(days=1)
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
     
     pipeline_count = await db.scalar(select(func.count(Pipeline.id)))
     
@@ -275,7 +275,7 @@ async def get_recent_activity(
         activity_items = [
             ActivityItem(
                 action="run_completed",
-                timestamp=datetime.utcnow() - timedelta(minutes=5),
+                timestamp=datetime.now(timezone.utc) - timedelta(minutes=5),
                 title="Pipeline 'training_v2' completed successfully",
                 description="All steps completed in 4m 32s. Accuracy: 0.94",
                 resource_type="run",
@@ -284,7 +284,7 @@ async def get_recent_activity(
             ),
             ActivityItem(
                 action="model_promoted",
-                timestamp=datetime.utcnow() - timedelta(hours=1),
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=1),
                 title="Model 'customer_churn_v3' promoted to PRODUCTION",
                 description="A/B test passed with 5% improvement over v2",
                 resource_type="model",
@@ -293,7 +293,7 @@ async def get_recent_activity(
             ),
             ActivityItem(
                 action="drift_alert",
-                timestamp=datetime.utcnow() - timedelta(hours=2),
+                timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
                 title="Data drift detected: feature 'avg_session_duration'",
                 description="PSI score: 0.28 (threshold: 0.25)",
                 resource_type="drift",
@@ -314,19 +314,19 @@ async def get_system_health():
             service="database",
             status="healthy",
             message="Connected",
-            last_check=datetime.utcnow(),
+            last_check=datetime.now(timezone.utc),
         ),
         HealthStatus(
             service="redis",
             status="healthy",
             message="Connected",
-            last_check=datetime.utcnow(),
+            last_check=datetime.now(timezone.utc),
         ),
         HealthStatus(
             service="autopipe_core",
             status="healthy",
             message="Connected",
-            last_check=datetime.utcnow(),
+            last_check=datetime.now(timezone.utc),
         ),
     ]
     
@@ -349,7 +349,7 @@ async def get_metrics_timeseries(
     db: AsyncSession = Depends(get_db),
 ):
     """Get time-series metrics for dashboard charts."""
-    end = end or datetime.utcnow()
+    end = end or datetime.now(timezone.utc)
     start = start or (end - timedelta(days=7))
     
     # Query time-series metrics from database
@@ -432,7 +432,7 @@ async def get_active_alerts(
                 "severity": "warning",
                 "drift_score": 0.28,
                 "acknowledged": False,
-                "created_at": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
+                "created_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
                 "message": "Feature 'avg_session_duration' PSI = 0.28 (threshold: 0.25)",
             },
         ]
@@ -452,7 +452,7 @@ async def get_dashboard_metrics(
     
     This endpoint matches the frontend expectation at /api/v1/dashboard/metrics
     """
-    end = end or datetime.utcnow()
+    end = end or datetime.now(timezone.utc)
     start = start or (end - timedelta(days=7))
     
     # Build query

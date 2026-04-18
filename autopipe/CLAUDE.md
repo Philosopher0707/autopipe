@@ -2,25 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Environment Setup
+
+**Core library** uses the `pipeline` conda env. **Dashboard backend** uses its own `.venv` (Python 3.12). Do NOT use bare `python` — it's aliased to anaconda in `.zshrc`.
+
+```bash
+conda activate pipeline                   # Core library env
+cd autopipe/dashboard/backend && source .venv/bin/activate  # Backend env
+```
+
 ## Build, Run, and Test Commands
 
 ### Core Library (autopipe Python package)
 ```bash
-pip install -e ".[dev]"                    # Install with dev dependencies
-pytest tests/unit --cov=autopipe           # Unit tests with coverage
-pytest tests/integration -m integration   # Integration tests
-ruff check autopipe tests                 # Lint
-black --check autopipe tests               # Format check
-mypy autopipe                             # Type check
+conda run -n pipeline pip install -e ".[dev]"   # Install with dev dependencies
+conda run -n pipeline pytest tests/unit -q       # Unit tests (33 pass, 10 known failures)
+conda run -n pipeline pytest tests/integration -m integration  # Integration tests
+conda run -n pipeline ruff check autopipe tests   # Lint
+conda run -n pipeline black --check autopipe tests # Format check
+conda run -n pipeline mypy autopipe               # Type check
 ```
 
 ### Dashboard Backend (FastAPI)
 ```bash
 cd autopipe/dashboard/backend
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload   # Dev server (port 8765)
-python -m app.seed                                          # Seed database
-.venv/bin/python -m pytest tests/ -v                         # Run test suite (~48 tests)
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload  # Dev server
+.venv/bin/python -m app.seed                                                     # Seed database
+.venv/bin/python -m pytest tests/ -v                                            # Run 48 tests
 ```
 - API docs: `http://localhost:8765/api/v1/docs`
 - Default credentials: `admin` / `admin123`
@@ -33,11 +42,10 @@ pnpm install          # Install dependencies
 pnpm dev              # Dev server on :3000, proxies /api → :8765
 pnpm build            # Production build → dist/
 pnpm typecheck        # TypeScript check (tsc --noEmit)
-pnpm test             # Run test suite (~34 tests)
+pnpm test             # Run 34 tests
 pnpm test:watch       # Run tests in watch mode
 pnpm test:coverage    # Run tests with coverage
 ```
-- Tests use Vitest 1.x with jsdom environment, `@testing-library/jest-dom`, `vi.mock()` for API client mocking
 
 ## Architecture
 
@@ -77,9 +85,20 @@ Three independent subsystems sharing data concepts but not code:
 ### Seeding
 `python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts. Experiments must be seeded BEFORE runs for linking to work.
 
+### Docker & Deployment
+- `docker-compose.yml` at `autopipe/dashboard/`: backend (port 8765), frontend (nginx on :3000), Postgres, Redis
+- Frontend multi-stage Dockerfile: node:20-slim build → nginx:alpine serve
+- nginx.conf: SPA fallback (`try_files $uri $uri/ /index.html`), static asset caching, API proxy to `backend:8000`, WebSocket proxy at `/ws/`
+
+### CI (GitHub Actions)
+- `test` job: 3 OS × 4 Python versions, ruff/black/mypy/bandit, pytest with coverage
+- `integration` job: runs on push to main only
+- `build` job: package build + twine check
+- `frontend` job: pnpm install/typecheck/test/build in `autopipe/dashboard/frontend/`
+
 ## Port Configuration
 
-The backend dev server runs on **8765** (not 8000 as start.sh says). The frontend Vite proxy targets `:8765`. If you start the backend with `start.sh` it uses port 8000 — override with `--port 8765`.
+The backend dev server runs on **8765** (not 8000). The frontend Vite proxy targets `:8765`. Docker-compose also maps backend to 8765.
 
 ## Commit Style
 

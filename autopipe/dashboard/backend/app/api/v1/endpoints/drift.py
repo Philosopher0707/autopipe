@@ -1,6 +1,6 @@
 """Drift Detection endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -278,7 +278,7 @@ async def get_latest_drift(
             "drift_score": 0.0,
             "drift_detected": False,
             "feature_drifts": {},
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "features_drifted": 0,
         }
 
@@ -345,7 +345,7 @@ async def acknowledge_alert(
         raise HTTPException(status_code=404, detail="Alert not found")
     
     alert.acknowledged = True
-    alert.acknowledged_at = datetime.utcnow()
+    alert.acknowledged_at = datetime.now(timezone.utc)
     # alert.acknowledged_by = current_user.id  # Would need auth
     
     await db.commit()
@@ -361,9 +361,9 @@ async def get_feature_drift_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Get drift history for a specific feature."""
-    from datetime import timedelta
+    from datetime import timedelta, timezone
     
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     
     result = await db.execute(
         select(DriftAlert)

@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, Float
@@ -63,8 +63,8 @@ class Pipeline(Base):
     config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relationships
@@ -79,7 +79,7 @@ class Run(Base):
     pipeline_id: Mapped[str] = mapped_column(String, ForeignKey("pipelines.id"), nullable=False)
     experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True)
     status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -106,7 +106,7 @@ class Step(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     step_type: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[StepStatus] = mapped_column(Enum(StepStatus), default=StepStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -131,8 +131,8 @@ class Experiment(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     best_run_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     best_metric: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -153,8 +153,8 @@ class Model(Base):
     task_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # classification, regression, etc.
     signature: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     current_stage: Mapped[ModelStage] = mapped_column(Enum(ModelStage), default=ModelStage.PENDING)
     latest_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
@@ -175,7 +175,7 @@ class ModelVersion(Base):
     artifact_path: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     run_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     transitioned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
 
@@ -200,7 +200,7 @@ class DriftReport(Base):
     feature_drifts: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     reference_data_summary: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     current_data_summary: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     alert_generated: Mapped[bool] = mapped_column(default=False)
 
 
@@ -219,7 +219,7 @@ class DriftAlert(Base):
     acknowledged: Mapped[bool] = mapped_column(default=False)
     acknowledged_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Artifact(Base):
@@ -234,7 +234,7 @@ class Artifact(Base):
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     meta_data: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     run: Mapped[Optional["Run"]] = relationship("Run", back_populates="artifacts")
@@ -254,7 +254,7 @@ class User(Base):
     api_key: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     preferences: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
 
 
@@ -267,7 +267,7 @@ class DashboardMetric(Base):
     metric_value: Mapped[float] = mapped_column(Float, nullable=False)
     metric_type: Mapped[str] = mapped_column(String(50), default="gauge")  # gauge, counter, histogram
     tags: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
 
 
@@ -282,7 +282,7 @@ class ActivityLog(Base):
     resource_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     details: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ChartArtifact(Base):
@@ -297,4 +297,4 @@ class ChartArtifact(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     data: Mapped[Dict] = mapped_column(JSON, nullable=False)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

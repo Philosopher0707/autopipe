@@ -14,7 +14,7 @@ import logging
 import sys
 import threading
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -125,9 +125,9 @@ def _update_run_status(db: Session, run_id: str, status: RunStatus,
         return
     run.status = status
     if status == RunStatus.RUNNING and not run.started_at:
-        run.started_at = datetime.utcnow()
+        run.started_at = datetime.now(timezone.utc)
     if status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
-        run.completed_at = datetime.utcnow()
+        run.completed_at = datetime.now(timezone.utc)
         if run.started_at:
             run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
     if error_message:
@@ -158,9 +158,9 @@ def _update_step_status(db: Session, step_id: str, status: StepStatus,
         return
     step.status = status
     if status == StepStatus.RUNNING and not step.started_at:
-        step.started_at = datetime.utcnow()
+        step.started_at = datetime.now(timezone.utc)
     if status == StepStatus.SUCCESS:
-        step.completed_at = datetime.utcnow()
+        step.completed_at = datetime.now(timezone.utc)
         if step.started_at:
             step.duration_seconds = (step.completed_at - step.started_at).total_seconds()
     if status == StepStatus.FAILED:
@@ -198,7 +198,7 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
                 logger.error(f"Run {run_id} not found, cannot execute")
                 return
             run.status = RunStatus.RUNNING
-            run.started_at = datetime.utcnow()
+            run.started_at = datetime.now(timezone.utc)
             db.commit()
 
         _broadcast_run_status(run_id, "running")

@@ -126,6 +126,10 @@ class VisualizationStep(Step):
             elif isinstance(value, pd.DataFrame):
                 chart.plot_feature_importance({col: 1.0 for col in value.columns[:5]}, top_n=5)
                 outputs[f"chart_{key}"] = "feature_importance.png"
+            # Bare int/float → plot as distribution with single value
+            elif isinstance(value, (int, float)):
+                chart.plot_distribution([value], title=f"Value - {key}")
+                outputs[f"chart_{key}"] = f"distribution_{key}.png"
         return outputs
 
 

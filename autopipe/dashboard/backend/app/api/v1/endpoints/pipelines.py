@@ -1,6 +1,6 @@
 """Pipeline management endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -223,7 +223,7 @@ async def update_pipeline(
     if pipeline_update.tags is not None:
         pipeline.tags = pipeline_update.tags
     
-    pipeline.updated_at = datetime.utcnow()
+    pipeline.updated_at = datetime.now(timezone.utc)
     
     await db.commit()
     await db.refresh(pipeline)

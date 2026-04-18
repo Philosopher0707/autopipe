@@ -1,7 +1,7 @@
 """Model Registry endpoints."""
 
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy import select, func, desc
@@ -361,7 +361,7 @@ async def promote_model_version(
         raise HTTPException(status_code=400, detail="Invalid stage")
     
     version.stage = stage_map[promote_data.stage]
-    version.transitioned_at = datetime.utcnow()
+    version.transitioned_at = datetime.now(timezone.utc)
     
     # Update model's current stage if promoted to production
     model_result = await db.execute(select(Model).where(Model.id == model_id))

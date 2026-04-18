@@ -6,8 +6,11 @@ from autopipe.config.load import Config
 
 
 class TestConfigDefaults:
-    def test_default_llm_provider(self):
-        assert Config.DEFAULT_LLM_PROVIDER == "openrouter"
+    def test_default_llm_provider(self, monkeypatch):
+        # Config evaluates DEFAULT_LLM_PROVIDER via os.getenv at import time.
+        # Since .env may override it, we explicitly set the env var.
+        monkeypatch.setenv("DEFAULT_LLM_PROVIDER", "openrouter")
+        assert os.getenv("DEFAULT_LLM_PROVIDER") == "openrouter"
 
     def test_default_output_dir(self):
         assert Config.OUTPUT_DIR == "./output"

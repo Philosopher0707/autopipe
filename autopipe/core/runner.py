@@ -23,7 +23,10 @@ def load_pipeline_from_module(filepath: str) -> Pipeline:
         raise ValueError(f"Could not load module from {filepath}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except FileNotFoundError:
+        raise ValueError(f"File not found: {filepath}")
     
     if not hasattr(module, "pipeline"):
         raise AttributeError("Module must define a 'pipeline' variable")

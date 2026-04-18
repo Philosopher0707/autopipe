@@ -10,8 +10,14 @@ logger = logging.getLogger(__name__)
 def import_class(class_path: str):
     """Import a class from a dotted path."""
     module_name, class_name = class_path.rsplit('.', 1)
-    module = importlib.import_module(module_name)
-    return getattr(module, class_name)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as e:
+        raise ValueError(f"Failed to import module '{module_name}': {e}") from e
+    try:
+        return getattr(module, class_name)
+    except AttributeError as e:
+        raise ValueError(f"Class '{class_name}' not found in module '{module_name}'") from e
 
 def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     """Create a Step instance from a config dictionary.
@@ -40,10 +46,7 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
         step_type = builtin_map[step_type]
     
     # Import the class
-    try:
-        cls = import_class(step_type)
-    except (ImportError, AttributeError) as e:
-        raise ValueError(f"Could not import step class {step_type}: {e}")
+    cls = import_class(step_type)
     
     # Instantiate with params
     try:

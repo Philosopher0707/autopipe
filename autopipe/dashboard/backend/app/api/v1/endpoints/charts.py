@@ -1,7 +1,7 @@
 """Chart data endpoints — return JSON shapes for Recharts rendering."""
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -230,7 +230,7 @@ async def get_drift_trend(
     days: int = Query(30, ge=1, le=90),
     db: AsyncSession = Depends(get_db),
 ):
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     query = select(DriftReport).where(DriftReport.created_at >= cutoff)
     if model_id:
         query = query.where(DriftReport.model_id == model_id)

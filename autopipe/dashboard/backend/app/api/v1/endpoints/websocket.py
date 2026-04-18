@@ -1,7 +1,7 @@
 """WebSocket endpoints for real-time updates."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
@@ -95,7 +95,7 @@ async def run_websocket(websocket: WebSocket, run_id: str):
         await manager.send_to_websocket(websocket, {
             "type": "connection_established",
             "run_id": run_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         
         # Keep connection alive and handle incoming messages
@@ -107,7 +107,7 @@ async def run_websocket(websocket: WebSocket, run_id: str):
                 if message.get("type") == "ping":
                     await manager.send_to_websocket(websocket, {
                         "type": "pong",
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
             except json.JSONDecodeError:
                 pass
@@ -127,7 +127,7 @@ async def dashboard_websocket(websocket: WebSocket):
         await manager.send_to_websocket(websocket, {
             "type": "connection_established",
             "channel": "dashboard",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         
         # Keep connection alive
@@ -138,7 +138,7 @@ async def dashboard_websocket(websocket: WebSocket):
                 if message.get("type") == "ping":
                     await manager.send_to_websocket(websocket, {
                         "type": "pong",
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
             except json.JSONDecodeError:
                 pass
@@ -154,7 +154,7 @@ async def broadcast_run_status(run_id: str, status: str, data: dict = None):
         "run_id": run_id,
         "status": status,
         "data": data or {},
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel(f"run:{run_id}", message)
     # Also broadcast to dashboard
@@ -170,7 +170,7 @@ async def broadcast_run_log(run_id: str, step_id: str, level: str, message_text:
         "step_id": step_id,
         "level": level,
         "message": message_text,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel(f"run:{run_id}", message)
 
@@ -184,7 +184,7 @@ async def broadcast_run_metric(run_id: str, step_id: str, metric_name: str, valu
         "metric_name": metric_name,
         "value": value,
         "step_number": step_number,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel(f"run:{run_id}", message)
 
@@ -197,7 +197,7 @@ async def broadcast_drift_alert(alert_id: str, feature_name: str, severity: str,
         "feature_name": feature_name,
         "severity": severity,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel("dashboard", alert_message)
 
@@ -210,7 +210,7 @@ async def broadcast_model_promoted(model_id: str, version: int, from_stage: str,
         "version": version,
         "from_stage": from_stage,
         "to_stage": to_stage,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel("dashboard", message)
 
@@ -220,6 +220,6 @@ async def broadcast_dashboard_update(update_type: str, data: dict):
     message = {
         "type": f"dashboard.{update_type}",
         "data": data,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     await manager.broadcast_to_channel("dashboard", message)
