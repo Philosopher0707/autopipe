@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
 from app.db.session import get_db
+from app.executor.registry import cancel_run as signal_cancel
 from app.schemas import RunResponse, RunUpdate, RunList
 
 router = APIRouter()
@@ -154,6 +155,9 @@ async def update_run(
             run.completed_at = datetime.utcnow()
             if run.started_at:
                 run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
+        # Signal the executor thread to stop if cancelling
+        if update.status == RunStatus.CANCELLED.value:
+            signal_cancel(run_id)
     
     if update.metrics:
         run.metrics = update.metrics

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.db.models import Run, RunStatus, Step, StepStatus
+from app.executor.registry import register_run, unregister_run, cancel_run as _cancel_signal
 
 logger = logging.getLogger(__name__)
 
@@ -169,126 +170,149 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
     """Execute a pipeline run in a background thread with step-level tracking."""
     SessionLocal = _get_sync_session_factory()
 
-    # Mark run as RUNNING
-    with SessionLocal() as db:
-        run = db.get(Run, run_id)
-        if not run:
-            logger.error(f"Run {run_id} not found, cannot execute")
-            return
-        run.status = RunStatus.RUNNING
-        run.started_at = datetime.utcnow()
-        db.commit()
+    # Register run for cancellation tracking
+    cancel_event = register_run(run_id)
 
-    _broadcast_run_status(run_id, "running")
-
-    # Load pipeline from config
     try:
-        pipeline = _load_pipeline(pipeline_config)
-    except Exception as e:
-        logger.error(f"Failed to load pipeline for run {run_id}: {e}")
-        logger.error(traceback.format_exc())
+        # Mark run as RUNNING
         with SessionLocal() as db:
-            _update_run_status(db, run_id, RunStatus.FAILED, error_message=f"Pipeline load error: {e}")
-        return
+            run = db.get(Run, run_id)
+            if not run:
+                logger.error(f"Run {run_id} not found, cannot execute")
+                return
+            run.status = RunStatus.RUNNING
+            run.started_at = datetime.utcnow()
+            db.commit()
 
-    # Resolve execution order
-    try:
-        execution_order = pipeline.execution_order
-    except ValueError as e:
-        logger.error(f"Pipeline has cycle or invalid deps for run {run_id}: {e}")
-        with SessionLocal() as db:
-            _update_run_status(db, run_id, RunStatus.FAILED, error_message=str(e))
-        return
+        _broadcast_run_status(run_id, "running")
 
-    # Create Step DB records (PENDING)
-    step_id_map = {}  # step_name -> step DB id
-    with SessionLocal() as db:
-        for i, step_name in enumerate(execution_order):
-            core_step = pipeline.steps[step_name]
-            db_step = Step(
-                id=str(__import__('uuid').uuid4()),
-                run_id=run_id,
-                name=step_name,
-                step_type=type(core_step).__name__,
-                status=StepStatus.PENDING,
-                order_index=i,
-            )
-            db.add(db_step)
-            db.flush()
-            step_id_map[step_name] = db_step.id
-        db.commit()
-
-    # Execute pipeline step-by-step (instead of pipeline.run())
-    outputs = dict(initial_inputs or {})
-    run_failed = False
-    failed_step_name = None
-
-    for step_name in execution_order:
-        if run_failed:
-            # Skip remaining steps after a failure
-            with SessionLocal() as db:
-                _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED,
-                                    run_id=run_id, step_name=step_name)
-            continue
-
-        core_step = pipeline.steps[step_name]
-        step_id = step_id_map[step_name]
-
-        # Mark step as RUNNING
-        with SessionLocal() as db:
-            _update_step_status(db, step_id, StepStatus.RUNNING,
-                                run_id=run_id, step_name=step_name)
-
-        # Build inputs from dependency outputs
-        if core_step.depends_on:
-            inputs = {dep: outputs[dep] for dep in core_step.depends_on if dep in outputs}
-        else:
-            inputs = dict(initial_inputs or {})
-
-        # Execute the step
+        # Load pipeline from config
         try:
-            step_output = core_step.run(**inputs)
-            outputs[step_name] = step_output
-
-            # Collect step metrics
-            step_metrics = dict(core_step.metrics) if core_step.metrics else None
-
-            # Try to visualize (non-critical)
-            try:
-                core_step.visualize(**inputs)
-            except Exception:
-                pass
-
-            with SessionLocal() as db:
-                _update_step_status(db, step_id, StepStatus.SUCCESS, metrics=step_metrics,
-                                    run_id=run_id, step_name=step_name)
-
+            pipeline = _load_pipeline(pipeline_config)
         except Exception as e:
-            step_error = f"{type(e).__name__}: {e}"
-            logger.error(f"Step {step_name} failed for run {run_id}: {step_error}")
-            run_failed = True
-            failed_step_name = step_name
-
+            logger.error(f"Failed to load pipeline for run {run_id}: {e}")
+            logger.error(traceback.format_exc())
             with SessionLocal() as db:
-                _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error,
+                _update_run_status(db, run_id, RunStatus.FAILED, error_message=f"Pipeline load error: {e}")
+            return
+
+        # Resolve execution order
+        try:
+            execution_order = pipeline.execution_order
+        except ValueError as e:
+            logger.error(f"Pipeline has cycle or invalid deps for run {run_id}: {e}")
+            with SessionLocal() as db:
+                _update_run_status(db, run_id, RunStatus.FAILED, error_message=str(e))
+            return
+
+        # Create Step DB records (PENDING)
+        step_id_map = {}  # step_name -> step DB id
+        with SessionLocal() as db:
+            for i, step_name in enumerate(execution_order):
+                core_step = pipeline.steps[step_name]
+                db_step = Step(
+                    id=str(__import__('uuid').uuid4()),
+                    run_id=run_id,
+                    name=step_name,
+                    step_type=type(core_step).__name__,
+                    status=StepStatus.PENDING,
+                    order_index=i,
+                )
+                db.add(db_step)
+                db.flush()
+                step_id_map[step_name] = db_step.id
+            db.commit()
+
+        # Execute pipeline step-by-step (instead of pipeline.run())
+        outputs = dict(initial_inputs or {})
+        run_failed = False
+        failed_step_name = None
+        cancelled = False
+
+        for step_name in execution_order:
+            # Check for cancellation between steps
+            if cancel_event.is_set():
+                cancelled = True
+                with SessionLocal() as db:
+                    _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED,
+                                        run_id=run_id, step_name=step_name)
+                # Skip all remaining steps
+                for remaining in execution_order[execution_order.index(step_name)+1:]:
+                    with SessionLocal() as db:
+                        _update_step_status(db, step_id_map[remaining], StepStatus.SKIPPED,
+                                            run_id=run_id, step_name=remaining)
+                break
+
+            if run_failed:
+                # Skip remaining steps after a failure
+                with SessionLocal() as db:
+                    _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED,
+                                        run_id=run_id, step_name=step_name)
+                continue
+
+            core_step = pipeline.steps[step_name]
+            step_id = step_id_map[step_name]
+
+            # Mark step as RUNNING
+            with SessionLocal() as db:
+                _update_step_status(db, step_id, StepStatus.RUNNING,
                                     run_id=run_id, step_name=step_name)
 
-    # Finalize run status
-    with SessionLocal() as db:
-        if run_failed:
-            error_msg = f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
-            _update_run_status(db, run_id, RunStatus.FAILED, error_message=error_msg)
-        else:
-            # Collect run-level metrics from all steps
-            run_metrics = {}
-            for step_name in execution_order:
-                core_step = pipeline.steps[step_name]
-                if core_step.metrics:
-                    for k, v in core_step.metrics.items():
-                        run_metrics[f"{step_name}_{k}" if k != step_name else k] = v
-            _update_run_status(db, run_id, RunStatus.SUCCESS, metrics=run_metrics or None)
+            # Build inputs from dependency outputs
+            if core_step.depends_on:
+                inputs = {dep: outputs[dep] for dep in core_step.depends_on if dep in outputs}
+            else:
+                inputs = dict(initial_inputs or {})
 
-    logger.info(f"Run {run_id} {'failed' if run_failed else 'completed successfully'}")
+            # Execute the step
+            try:
+                step_output = core_step.run(**inputs)
+                outputs[step_name] = step_output
+
+                # Collect step metrics
+                step_metrics = dict(core_step.metrics) if core_step.metrics else None
+
+                # Try to visualize (non-critical)
+                try:
+                    core_step.visualize(**inputs)
+                except Exception:
+                    pass
+
+                with SessionLocal() as db:
+                    _update_step_status(db, step_id, StepStatus.SUCCESS, metrics=step_metrics,
+                                        run_id=run_id, step_name=step_name)
+
+            except Exception as e:
+                step_error = f"{type(e).__name__}: {e}"
+                logger.error(f"Step {step_name} failed for run {run_id}: {step_error}")
+                run_failed = True
+                failed_step_name = step_name
+
+                with SessionLocal() as db:
+                    _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error,
+                                        run_id=run_id, step_name=step_name)
+
+        # Finalize run status
+        with SessionLocal() as db:
+            if cancelled:
+                _update_run_status(db, run_id, RunStatus.CANCELLED, error_message="Run cancelled by user")
+            elif run_failed:
+                error_msg = f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
+                _update_run_status(db, run_id, RunStatus.FAILED, error_message=error_msg)
+            else:
+                # Collect run-level metrics from all steps
+                run_metrics = {}
+                for step_name in execution_order:
+                    core_step = pipeline.steps[step_name]
+                    if core_step.metrics:
+                        for k, v in core_step.metrics.items():
+                            run_metrics[f"{step_name}_{k}" if k != step_name else k] = v
+                _update_run_status(db, run_id, RunStatus.SUCCESS, metrics=run_metrics or None)
+
+        logger.info(f"Run {run_id} {'cancelled' if cancelled else 'failed' if run_failed else 'completed successfully'}")
+    finally:
+        # Always unregister the run
+        unregister_run(run_id)
 
 
 async def execute_run(run_id: str, pipeline_config: dict, initial_inputs: dict | None = None) -> None:
