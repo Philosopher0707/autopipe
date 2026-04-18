@@ -2,8 +2,9 @@
 
 Bridges the dashboard's Run/Step DB records with autopipe.core.Pipeline:
 1. Loads a pipeline from config dict using autopipe's loader
-2. Runs it in a background thread (Pipeline.run() is synchronous)
-3. Updates DB run record with status, timestamps, metrics, errors
+2. Runs it step-by-step in a background thread
+3. Creates/updates Step DB records with status, timestamps, metrics
+4. Updates DB run record with final status, timestamps, metrics, errors
 """
 
 import logging
@@ -18,7 +19,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.db.models import Run, RunStatus
+from app.db.models import Run, RunStatus, Step, StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ def _get_sync_session_factory() -> sessionmaker:
     global _sync_engine, _SyncSessionLocal
     if _SyncSessionLocal is None:
         db_url = settings.DATABASE_URL
-        # aiosqlite URL → sqlite for sync engine
         db_url = db_url.replace("sqlite+aiosqlite://", "sqlite:///")
         if not db_url.startswith("sqlite"):
             db_url = db_url.replace("sqlite://", "sqlite:///")
@@ -54,11 +54,53 @@ def _load_pipeline(config: dict):
     return load_pipeline_from_config(config)
 
 
-def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: dict | None = None) -> None:
-    """Execute a pipeline run in a background thread.
+def _update_run_status(db: Session, run_id: str, status: RunStatus,
+                       error_message: str | None = None,
+                       metrics: dict | None = None) -> None:
+    """Update run status and timestamps in the DB."""
+    run = db.get(Run, run_id)
+    if not run:
+        return
+    run.status = status
+    if status == RunStatus.RUNNING and not run.started_at:
+        run.started_at = datetime.utcnow()
+    if status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
+        run.completed_at = datetime.utcnow()
+        if run.started_at:
+            run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
+    if error_message:
+        run.error_message = error_message
+    if metrics:
+        run.metrics = metrics
+    db.commit()
 
-    Uses a sync DB session since we're outside the async event loop.
-    """
+
+def _update_step_status(db: Session, step_id: str, status: StepStatus,
+                        metrics: dict | None = None,
+                        error_message: str | None = None,
+                        duration_seconds: float | None = None) -> None:
+    """Update step status and timestamps in the DB."""
+    step = db.get(Step, step_id)
+    if not step:
+        return
+    step.status = status
+    if status == StepStatus.RUNNING and not step.started_at:
+        step.started_at = datetime.utcnow()
+    if status == StepStatus.SUCCESS:
+        step.completed_at = datetime.utcnow()
+        if step.started_at:
+            step.duration_seconds = (step.completed_at - step.started_at).total_seconds()
+    if status == StepStatus.FAILED:
+        step.error_message = error_message
+    if metrics:
+        step.metrics = metrics
+    if duration_seconds is not None:
+        step.duration_seconds = duration_seconds
+    db.commit()
+
+
+def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: dict | None = None) -> None:
+    """Execute a pipeline run in a background thread with step-level tracking."""
     SessionLocal = _get_sync_session_factory()
 
     # Mark run as RUNNING
@@ -78,59 +120,103 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
         logger.error(f"Failed to load pipeline for run {run_id}: {e}")
         logger.error(traceback.format_exc())
         with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run:
-                run.status = RunStatus.FAILED
-                run.error_message = f"Pipeline load error: {e}"
-                run.completed_at = datetime.utcnow()
-                db.commit()
+            _update_run_status(db, run_id, RunStatus.FAILED, error_message=f"Pipeline load error: {e}")
         return
 
-    # Execute pipeline (synchronous)
+    # Resolve execution order
     try:
-        outputs = pipeline.run(initial_inputs=initial_inputs)
-
-        # Collect metrics from steps
-        metrics = {}
-        for step in pipeline.steps.values():
-            if step.metrics:
-                metrics[step.name] = step.metrics
-
-        # Flatten top-level metrics for the run
-        run_metrics = {}
-        for name, vals in metrics.items():
-            if isinstance(vals, dict):
-                for k, v in vals.items():
-                    run_metrics[f"{name}_{k}" if k != name else k] = v
-            else:
-                run_metrics[name] = vals
-
+        execution_order = pipeline.execution_order
+    except ValueError as e:
+        logger.error(f"Pipeline has cycle or invalid deps for run {run_id}: {e}")
         with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run:
-                run.status = RunStatus.SUCCESS
-                run.completed_at = datetime.utcnow()
-                if run.started_at:
-                    run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
-                if run_metrics:
-                    run.metrics = run_metrics
-                db.commit()
+            _update_run_status(db, run_id, RunStatus.FAILED, error_message=str(e))
+        return
 
-        logger.info(f"Run {run_id} completed successfully")
+    # Create Step DB records (PENDING)
+    step_id_map = {}  # step_name -> step DB id
+    with SessionLocal() as db:
+        for i, step_name in enumerate(execution_order):
+            core_step = pipeline.steps[step_name]
+            db_step = Step(
+                id=str(__import__('uuid').uuid4()),
+                run_id=run_id,
+                name=step_name,
+                step_type=type(core_step).__name__,
+                status=StepStatus.PENDING,
+                order_index=i,
+            )
+            db.add(db_step)
+            db.flush()
+            step_id_map[step_name] = db_step.id
+        db.commit()
 
-    except Exception as e:
-        error_message = f"{type(e).__name__}: {e}"
-        logger.error(f"Run {run_id} failed: {error_message}\n{traceback.format_exc()}")
+    # Execute pipeline step-by-step (instead of pipeline.run())
+    outputs = dict(initial_inputs or {})
+    run_failed = False
+    failed_step_name = None
 
+    for step_name in execution_order:
+        if run_failed:
+            # Skip remaining steps after a failure
+            with SessionLocal() as db:
+                _update_step_status(db, step_id_map[step_name], StepStatus.SKIPPED)
+            continue
+
+        core_step = pipeline.steps[step_name]
+        step_id = step_id_map[step_name]
+
+        # Mark step as RUNNING
         with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run:
-                run.status = RunStatus.FAILED
-                run.error_message = error_message
-                run.completed_at = datetime.utcnow()
-                if run.started_at:
-                    run.duration_seconds = (run.completed_at - run.started_at).total_seconds()
-                db.commit()
+            _update_step_status(db, step_id, StepStatus.RUNNING)
+
+        # Build inputs from dependency outputs
+        if core_step.depends_on:
+            inputs = {dep: outputs[dep] for dep in core_step.depends_on if dep in outputs}
+        else:
+            inputs = dict(initial_inputs or {})
+
+        # Execute the step
+        try:
+            step_output = core_step.run(**inputs)
+            outputs[step_name] = step_output
+
+            # Collect step metrics
+            step_metrics = dict(core_step.metrics) if core_step.metrics else None
+
+            # Try to visualize (non-critical)
+            try:
+                core_step.visualize(**inputs)
+            except Exception:
+                pass
+
+            with SessionLocal() as db:
+                _update_step_status(db, step_id, StepStatus.SUCCESS, metrics=step_metrics)
+
+        except Exception as e:
+            step_error = f"{type(e).__name__}: {e}"
+            logger.error(f"Step {step_name} failed for run {run_id}: {step_error}")
+            run_failed = True
+            failed_step_name = step_name
+
+            with SessionLocal() as db:
+                _update_step_status(db, step_id, StepStatus.FAILED, error_message=step_error)
+
+    # Finalize run status
+    with SessionLocal() as db:
+        if run_failed:
+            error_msg = f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
+            _update_run_status(db, run_id, RunStatus.FAILED, error_message=error_msg)
+        else:
+            # Collect run-level metrics from all steps
+            run_metrics = {}
+            for step_name in execution_order:
+                core_step = pipeline.steps[step_name]
+                if core_step.metrics:
+                    for k, v in core_step.metrics.items():
+                        run_metrics[f"{step_name}_{k}" if k != step_name else k] = v
+            _update_run_status(db, run_id, RunStatus.SUCCESS, metrics=run_metrics or None)
+
+    logger.info(f"Run {run_id} {'failed' if run_failed else 'completed successfully'}")
 
 
 async def execute_run(run_id: str, pipeline_config: dict, initial_inputs: dict | None = None) -> None:
