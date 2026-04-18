@@ -6,7 +6,7 @@ import itertools
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -392,6 +392,7 @@ def _serialize_run(run: Run, pipeline_name: str | None = None) -> RunResponse:
 async def launch_trials(
     experiment_id: str,
     body: TrialLaunchRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Launch trial runs for an experiment using its search-space config."""
@@ -468,6 +469,19 @@ async def launch_trials(
             experiment.best_metric = best_value
             await db.commit()
             await db.refresh(experiment)
+
+    # Execute runs via the pipeline executor if not simulating
+    if not body.simulate:
+        from app.executor.runner import execute_run
+        pipeline_config = pipeline.config or {}
+        for run in created_runs:
+            if pipeline_config and "steps" in pipeline_config:
+                # Pass the pipeline config as-is and trial params as initial_inputs
+                # This allows steps to access hyperparameters via their inputs
+                run_config = run.config or {}
+                skip_keys = {"search_space", "direction", "metric_name", "metric"}
+                trial_params = {k: v for k, v in run_config.items() if k not in skip_keys}
+                background_tasks.add_task(execute_run, run.id, pipeline_config, trial_params)
 
     return TrialLaunchResponse(
         experiment_id=experiment_id,
