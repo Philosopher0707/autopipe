@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useMemo, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, Rocket } from 'lucide-react'
 import { Card, CardContent, CardHeader, Badge, Button, Skeleton } from '@/components/ui'
 import { chartsApi, experimentsApi, pipelinesApi } from '@/api/endpoints'
 import { ChartArtifactList } from '@/components/charts/ChartRenderer'
-import { cn, formatDate, formatDuration } from '@/utils/helpers'
+import { cn, formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -40,7 +40,7 @@ export function ExperimentDetail() {
   const { experimentId } = useParams<{ experimentId: string }>()
   const navigate = useNavigate()
   const isNew = !experimentId
-  const [activeTab, setActiveTab] = useState<'overview' | 'runs'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'runs' | 'compare'>('overview')
   const [form, setForm] = useState<ExperimentFormState>(DEFAULT_FORM)
   const [formError, setFormError] = useState<string | null>(null)
   const [showTrials, setShowTrials] = useState(false)
@@ -95,6 +95,7 @@ export function ExperimentDetail() {
   const { data: pipelinesData } = useQuery({
     queryKey: ['pipelines'],
     queryFn: () => pipelinesApi.list(),
+    enabled: showTrials,
   })
 
   const launchTrialsMutation = useMutation({
@@ -112,10 +113,25 @@ export function ExperimentDetail() {
     onError: (err: Error) => setTrialError(err.message),
   })
 
-  const bestRun = runs.find((run) => run.id === experiment?.best_run_id)
+  const compareMutation = useMutation({
+    mutationFn: () => experimentsApi.compare(experimentId!, metricName),
+  })
+
+  const bestRun = useMemo(() =>
+    runs.find((run) => run.id === experiment?.best_run_id)
     || [...runs]
       .filter((run) => typeof run.metrics?.[metricName] === 'number')
       .sort((left, right) => Number(right.metrics?.[metricName] ?? 0) - Number(left.metrics?.[metricName] ?? 0))[0]
+  , [runs, experiment?.best_run_id, metricName])
+
+  const { completedRuns, failedRuns, runningRuns } = useMemo(() =>
+    runs.reduce((acc, run) => {
+      if (run.status === 'success') acc.completedRuns++
+      else if (run.status === 'failed') acc.failedRuns++
+      else if (run.status === 'running' || run.status === 'pending') acc.runningRuns++
+      return acc
+    }, { completedRuns: 0, failedRuns: 0, runningRuns: 0 })
+  , [runs])
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -236,10 +252,6 @@ export function ExperimentDetail() {
     )
   }
 
-  const completedRuns = runs.filter((run) => run.status === 'success').length
-  const failedRuns = runs.filter((run) => run.status === 'failed').length
-  const runningRuns = runs.filter((run) => run.status === 'running' || run.status === 'pending').length
-
   return (
     <div className="space-y-6">
       <div className="flex items-start gap-4">
@@ -250,12 +262,7 @@ export function ExperimentDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{experiment.name}</h1>
-            <Badge className={cn(
-              experiment.status === 'running' ? 'bg-blue-100 text-blue-700' :
-              experiment.status === 'completed' ? 'bg-green-100 text-green-700' :
-              experiment.status === 'failed' ? 'bg-red-100 text-red-700' :
-              'bg-amber-100 text-amber-700')}
-            >
+            <Badge className={getStatusBgColor(experiment.status)}>
               {experiment.status}
             </Badge>
           </div>
@@ -300,7 +307,7 @@ export function ExperimentDetail() {
 
       <div className="border-b">
         <div className="flex gap-1">
-          {(['overview', 'runs'] as const).map((tab) => (
+          {(['overview', 'runs', 'compare'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -380,12 +387,7 @@ export function ExperimentDetail() {
                     <tr key={run.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="py-3 px-4 font-mono text-sm">#{run.run_number ?? run.id.slice(0, 8)}</td>
                       <td className="py-3 px-4">
-                        <Badge className={cn(
-                          run.status === 'success' ? 'bg-green-100 text-green-700' :
-                          run.status === 'running' ? 'bg-blue-100 text-blue-700' :
-                          run.status === 'failed' ? 'bg-red-100 text-red-700' :
-                          'bg-amber-100 text-amber-700')}
-                        >
+                        <Badge className={getStatusBgColor(run.status)}>
                           {run.status}
                         </Badge>
                       </td>
@@ -405,6 +407,61 @@ export function ExperimentDetail() {
                 )}
               </tbody>
             </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'compare' && (
+        <Card>
+          <CardContent className="p-6">
+            {completedRuns < 2 ? (
+              <p className="text-center text-sm text-muted-foreground py-8">
+                Need at least 2 completed runs to compare.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold">Run Comparison ({metricName})</h3>
+                  <Button
+                    size="sm"
+                    disabled={compareMutation.isPending}
+                    onClick={() => compareMutation.mutate()}
+                  >
+                    {compareMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                    Compare
+                  </Button>
+                </div>
+
+                {compareMutation.data && (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground uppercase">Run ID</th>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground uppercase">{metricName}</th>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground uppercase">Started</th>
+                        <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground uppercase">Params</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {compareMutation.data.runs.map((cr) => (
+                        <tr key={cr.id} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="py-2 px-3 font-mono text-sm">{cr.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3 font-mono text-sm">
+                            {cr.metric_value != null ? cr.metric_value.toFixed(4) : '--'}
+                          </td>
+                          <td className="py-2 px-3 text-sm text-muted-foreground">
+                            {cr.started_at ? formatDate(cr.started_at) : '--'}
+                          </td>
+                          <td className="py-2 px-3 text-sm text-muted-foreground">
+                            {cr.params ? JSON.stringify(cr.params).slice(0, 60) : '--'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       )}

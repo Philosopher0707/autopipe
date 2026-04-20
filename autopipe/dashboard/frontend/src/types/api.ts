@@ -59,12 +59,14 @@ export interface Pipeline {
 export interface PipelineRun {
   id: string
   pipeline_id: string
+  experiment_id?: string
   status: RunStatus
   run_number: number
   started_at?: string
   completed_at?: string
   duration_seconds?: number
   metrics?: Record<string, number>
+  config?: Record<string, unknown>
   error_message?: string
   created_at: string
   pipeline_name?: string

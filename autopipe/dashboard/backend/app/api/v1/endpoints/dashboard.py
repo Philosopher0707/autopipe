@@ -28,6 +28,29 @@ from app.schemas import (
 router = APIRouter()
 
 
+def count_drifted_features(feature_drifts: dict | None) -> int:
+    """Count how many features have drifted in a DriftReport.feature_drifts dict."""
+    if not feature_drifts:
+        return 0
+    count = 0
+    for stats in feature_drifts.values():
+        if isinstance(stats, dict):
+            if stats.get("is_drifted"):
+                count += 1
+            elif "p_value" in stats:
+                threshold = float(stats.get("threshold", 0.05))
+                if float(stats.get("p_value", 1.0)) < threshold:
+                    count += 1
+            elif "drift_score" in stats:
+                threshold = float(stats.get("threshold", 0.1))
+                if float(stats.get("drift_score", 0.0)) > threshold:
+                    count += 1
+        elif isinstance(stats, (int, float)):
+            if float(stats) > 0.1:
+                count += 1
+    return count
+
+
 @router.get("/overview", response_model=DashboardStats)
 async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     """Get dashboard overview statistics using optimized batch queries."""
@@ -36,10 +59,18 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     
     pipeline_count = await db.scalar(select(func.count(Pipeline.id)))
     
-    run_counts_query = select(
-        func.count(Run.id)
-        .filter(Run.status == RunStatus.RUNNING)
-        .label("running"),
+    active_run_statuses = [RunStatus.RUNNING, RunStatus.PENDING]
+    active_pipeline_sub = (
+        select(Run.pipeline_id)
+        .where(Run.status.in_(active_run_statuses))
+        .distinct()
+    )
+    active_pipelines = await db.scalar(
+        select(func.count()).select_from(Pipeline)
+        .where(Pipeline.id.in_(active_pipeline_sub))
+    )
+
+    run_24h_query = select(
         func.count(Run.id)
         .filter(Run.status == RunStatus.SUCCESS, Run.completed_at >= yesterday)
         .label("completed"),
@@ -50,15 +81,14 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
         .filter(Run.completed_at >= yesterday, Run.duration_seconds.is_not(None))
         .label("avg_duration"),
     )
-    
-    run_counts = await db.execute(run_counts_query)
-    row = run_counts.first()
-    
-    running_count = row.running or 0 if row else 0
+
+    run_24h = await db.execute(run_24h_query)
+    row = run_24h.first()
+
     completed_24h = row.completed or 0 if row else 0
     failed_24h = row.failed or 0 if row else 0
     avg_duration = row.avg_duration if row else None
-    
+
     total_24h = completed_24h + failed_24h
     success_rate = (completed_24h / total_24h * 100) if total_24h > 0 else 100.0
     
@@ -104,37 +134,28 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
             func.count(DriftAlert.id)
             .filter(DriftAlert.acknowledged.is_(False))
             .label("unack"),
+            func.count(DriftAlert.id)
+            .filter(DriftAlert.created_at >= yesterday)
+            .label("today"),
         )
     )
     drift_row = drift_counts.first()
     latest_drift_check = drift_row.last_check if drift_row else None
     unacknowledged_alerts = drift_row.unack or 0 if drift_row else 0
+    alerts_today = drift_row.today or 0 if drift_row else 0
 
     latest_report_result = await db.execute(
-        select(DriftReport).order_by(DriftReport.created_at.desc()).limit(1)
+        select(DriftReport.drift_score, DriftReport.feature_drifts)
+        .order_by(DriftReport.created_at.desc()).limit(1)
     )
-    latest_report = latest_report_result.scalar_one_or_none()
+    latest_report = latest_report_result.first()
     latest_drift_score = latest_report.drift_score if latest_report else 0.0
-
-    latest_features_drifted = 0
-    if latest_report and latest_report.feature_drifts:
-        for stats in latest_report.feature_drifts.values():
-            if isinstance(stats, dict):
-                if stats.get("is_drifted"):
-                    latest_features_drifted += 1
-                elif "p_value" in stats:
-                    threshold = float(stats.get("threshold", 0.05))
-                    latest_features_drifted += int(float(stats.get("p_value", 1.0)) < threshold)
-                elif "drift_score" in stats:
-                    threshold = float(stats.get("threshold", 0.1))
-                    latest_features_drifted += int(float(stats.get("drift_score", 0.0)) > threshold)
-            elif isinstance(stats, (int, float)):
-                latest_features_drifted += int(float(stats) > 0.1)
+    latest_features_drifted = count_drifted_features(latest_report.feature_drifts if latest_report else None)
     
     stats = DashboardStats(
         pipelines=PipelineStats(
             total=pipeline_count or 0,
-            running=running_count or 0,
+            running=active_pipelines or 0,
             completed_today=completed_24h or 0,
             failed_today=failed_24h or 0,
             avg_duration=f"{int((avg_duration or 0) / 60)}m {int((avg_duration or 0) % 60)}s",
@@ -147,8 +168,8 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
             recent_versions=0,
         ),
         drift=DriftStats(
-            alerts_today=unacknowledged_alerts or 0,
-            features_drifted=latest_features_drifted or unacknowledged_alerts or 0,
+            alerts_today=alerts_today or 0,
+            features_drifted=latest_features_drifted,
             drift_ratio=latest_drift_score,
             last_check=latest_drift_check.isoformat() if latest_drift_check else None,
         ),
@@ -166,8 +187,6 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
 @router.get("/counts", response_model=SidebarCounts)
 async def get_sidebar_counts(db: AsyncSession = Depends(get_db)):
     """Get sidebar badge counts with clean direct queries — no complex joins."""
-    from sqlalchemy import select, func, exists
-    from sqlalchemy.orm import selectinload
 
     # Pipelines: total and those with active (non-terminal) runs
     pipelines_total = await db.scalar(select(func.count(Pipeline.id)))
@@ -211,23 +230,11 @@ async def get_sidebar_counts(db: AsyncSession = Depends(get_db)):
 
     # Drift reports: features currently drifted from latest report
     latest_report_result = await db.execute(
-        select(DriftReport).order_by(DriftReport.created_at.desc()).limit(1)
+        select(DriftReport.feature_drifts)
+        .order_by(DriftReport.created_at.desc()).limit(1)
     )
-    latest_report = latest_report_result.scalar_one_or_none()
-    drift_features_drifted = 0
-    if latest_report and latest_report.feature_drifts:
-        for feature_name, stats in latest_report.feature_drifts.items():
-            if isinstance(stats, dict):
-                if stats.get("is_drifted"):
-                    drift_features_drifted += 1
-                elif "p_value" in stats:
-                    threshold = float(stats.get("threshold", 0.05))
-                    if float(stats["p_value"]) < threshold:
-                        drift_features_drifted += 1
-                elif "drift_score" in stats:
-                    threshold = float(stats.get("threshold", 0.1))
-                    if float(stats["drift_score"]) > threshold:
-                        drift_features_drifted += 1
+    latest_report = latest_report_result.first()
+    drift_features_drifted = count_drifted_features(latest_report.feature_drifts if latest_report else None)
 
     return SidebarCounts(
         pipelines_total=pipelines_total or 0,
@@ -269,39 +276,7 @@ async def get_recent_activity(
         )
         for activity in activities
     ]
-    
-    # If no activities in DB, return mock data for now
-    if not activity_items:
-        activity_items = [
-            ActivityItem(
-                action="run_completed",
-                timestamp=datetime.now(timezone.utc) - timedelta(minutes=5),
-                title="Pipeline 'training_v2' completed successfully",
-                description="All steps completed in 4m 32s. Accuracy: 0.94",
-                resource_type="run",
-                resource_id="run_12345",
-                user="data_scientist_1",
-            ),
-            ActivityItem(
-                action="model_promoted",
-                timestamp=datetime.now(timezone.utc) - timedelta(hours=1),
-                title="Model 'customer_churn_v3' promoted to PRODUCTION",
-                description="A/B test passed with 5% improvement over v2",
-                resource_type="model",
-                resource_id="model_789",
-                user="ml_engineer",
-            ),
-            ActivityItem(
-                action="drift_alert",
-                timestamp=datetime.now(timezone.utc) - timedelta(hours=2),
-                title="Data drift detected: feature 'avg_session_duration'",
-                description="PSI score: 0.28 (threshold: 0.25)",
-                resource_type="drift",
-                resource_id="drift_456",
-                user="system",
-            ),
-        ]
-    
+
     return ActivityFeed(items=activity_items[:limit])
 
 
@@ -370,18 +345,7 @@ async def get_metrics_timeseries(
         }
         for m in metrics
     ]
-    
-    # If no data, generate mock points
-    if not points:
-        current = start
-        while current <= end:
-            points.append({
-                "timestamp": current.isoformat(),
-                "value": 0.8 + 0.1 * (current.hour / 24),
-                "tags": {},
-            })
-            current += timedelta(hours=1)
-    
+
     return {
         "metric_name": metric_name,
         "start": start.isoformat(),
@@ -421,22 +385,7 @@ async def get_active_alerts(
         }
         for alert in alerts
     ]
-    
-    # Return mock alert if none exist
-    if not alert_list:
-        alert_list = [
-            {
-                "id": "alert_001",
-                "feature_name": "avg_session_duration",
-                "type": "feature_drift",
-                "severity": "warning",
-                "drift_score": 0.28,
-                "acknowledged": False,
-                "created_at": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
-                "message": "Feature 'avg_session_duration' PSI = 0.28 (threshold: 0.25)",
-            },
-        ]
-    
+
     return {"alerts": alert_list, "total": len(alert_list)}
 
 
@@ -478,16 +427,5 @@ async def get_dashboard_metrics(
         }
         for m in metrics
     ]
-    
-    # Return mock data if no metrics exist
-    if not data_points:
-        # Generate mock data for the requested time range
-        current = start
-        while current <= end:
-            data_points.append({
-                "timestamp": current.isoformat(),
-                "value": 0.8 + 0.1 * ((current.hour % 24) / 24),
-            })
-            current += timedelta(hours=1)
-    
+
     return {"data": data_points}

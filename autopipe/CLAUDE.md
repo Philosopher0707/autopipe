@@ -67,20 +67,32 @@ Three independent subsystems sharing data concepts but not code:
 - Run numbers are per-experiment sequential, not global
 - `POST /experiments/{id}/trials` generates trial runs from experiment.config.search_space; when `simulate=false`, dispatches to the executor with trial params as `initial_inputs`
 - `Base.metadata.create_all()` auto-creates tables on startup
-- WebSocket at `/api/v1/ws/dashboard` and `/api/v1/ws/runs/{run_id}`
+- WebSocket at `/api/v1/ws/dashboard` and `/api/v1/ws/runs/{run_id}` — channel-based pub/sub via `ConnectionManager`; broadcast helpers (`broadcast_run_status`, `broadcast_run_log`, `broadcast_run_metric`) in `websocket.py`
+- Dashboard endpoints return empty data when DB is empty (no mock fallbacks)
+- `pipelines.running` in `/dashboard/overview` counts distinct pipelines with active runs (not total running runs)
+- `drift.alerts_today` filters by created_at within 24h; `drift.features_drifted` does NOT fall back to alert count
 - **Pipeline Executor** (`app/executor/`):
   - `runner.py`: `execute_run()` spawns a daemon thread; runs pipeline steps sequentially with per-step DB tracking and WebSocket broadcasts
   - `registry.py`: Thread-safe dict of `threading.Event` per active run — `PATCH /runs/{id}` with `status=cancelled` signals the executor to skip remaining steps
   - `_WebSocketLogHandler`: Captures `autopipe` logger output during step execution and broadcasts via WebSocket
   - `asyncio.run_coroutine_threadsafe()` bridges sync thread → async event loop for WebSocket broadcasts
   - Pipeline config must have `"steps"` key to trigger actual execution; otherwise runs stay PENDING
+- `GET /experiments/{id}/compare?metric=X` — compares runs by metric, returns run IDs with metric values and params
+- `count_drifted_features()` helper in `dashboard.py` deduplicates drift-counting logic across `/overview` and `/counts` endpoints
+- DriftReport queries use column-level selects (`select(DriftReport.drift_score, DriftReport.feature_drifts)`) instead of full ORM loads
 
 ### Frontend
-- API clients in `src/api/endpoints/` (one file per domain: pipelines, runs, experiments, models, drift, charts)
+- API clients in `src/api/endpoints/` (one file per domain: pipelines, runs, experiments, models, drift, charts, websocket)
 - TanStack Query with 5-min stale time, 2 retries
 - Auth state via Zustand with `persist` middleware (localStorage)
 - Component library in `src/components/ui/` (shadcn/ui-inspired with Radix primitives)
 - Tailwind with HSL CSS variables for theming (dark/light mode)
+- WebSocket client (`wsClient` singleton in `src/api/endpoints/websocket.ts`): auto-reconnect with exponential backoff, channel-based pub/sub
+- RunDetail page uses WebSocket for real-time log streaming, step/status updates; falls back to 3s HTTP polling when WS disconnected
+- `getStatusBgColor()` in `src/utils/helpers.ts` is the single source of truth for status badge colors — always use it, never inline color ternaries
+- `useMemo` for derived data: bestRun, run status counts, metricName computed from runs array
+- `useMutation.data` preferred over separate state for mutation results (e.g., compare in ExperimentDetail)
+- Conditional query `enabled` flags to avoid unnecessary fetches (e.g., `pipelinesData` only when trials dialog open)
 
 ### Seeding
 `python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts. Experiments must be seeded BEFORE runs for linking to work.

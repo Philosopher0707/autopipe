@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardTitle, Badge, Button } from '@/components/ui'
 import { chartsApi, runsApi } from '@/api/endpoints'
+import { wsClient } from '@/api/endpoints/websocket'
 import { ChartArtifactList } from '@/components/charts/ChartRenderer'
 import { Clock, Terminal, BarChart3, ArrowLeft } from 'lucide-react'
 import {
@@ -14,8 +15,10 @@ import type { PipelineRun, Step } from '@/types'
 export function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'logs' | 'metrics'>('logs')
   const [logs, setLogs] = useState<string[]>([])
+  const [wsConnected, setWsConnected] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   const { data: run, isLoading } = useQuery<PipelineRun>({
@@ -33,8 +36,8 @@ export function RunDetail() {
   const { data: logsData } = useQuery({
     queryKey: ['runs', runId, 'logs'],
     queryFn: () => runsApi.getLogs(runId!),
-    enabled: !!runId && activeTab === 'logs',
-    refetchInterval: run?.status === 'running' ? 3000 : false,
+    enabled: !!runId && activeTab === 'logs' && !wsConnected,
+    refetchInterval: run?.status === 'running' && !wsConnected ? 3000 : false,
   })
 
   const steps = stepsData?.items || []
@@ -61,6 +64,39 @@ export function RunDetail() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
+
+  useEffect(() => {
+    if (!runId) return
+
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws/runs/${runId}`
+
+    wsClient.connect(wsUrl)
+    setWsConnected(true)
+
+    const unsubStatus = wsClient.subscribe('run.status', () => {
+      queryClient.invalidateQueries({ queryKey: ['runs', runId] })
+      queryClient.invalidateQueries({ queryKey: ['runs', runId, 'steps'] })
+    })
+
+    const unsubLog = wsClient.subscribe('run.log', (msg) => {
+      const level = (msg.data.level as string) || 'INFO'
+      const step = msg.data.step_id ? `(${msg.data.step_id}) ` : ''
+      const text = (msg.data.message as string) || ''
+      setLogs((prev) => [...prev, `[${level}] ${step}${text}`])
+    })
+
+    const unsubMetric = wsClient.subscribe('run.metric', () => {
+      queryClient.invalidateQueries({ queryKey: ['runs', runId] })
+    })
+
+    return () => {
+      unsubStatus()
+      unsubLog()
+      unsubMetric()
+      wsClient.disconnect()
+      setWsConnected(false)
+    }
+  }, [runId, queryClient])
 
   if (isLoading) {
     return (
