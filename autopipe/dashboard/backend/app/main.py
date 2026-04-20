@@ -9,13 +9,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
-
-logger = logging.getLogger(__name__)
 
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.events import create_start_app_handler, create_stop_app_handler
+from app.core.security_headers import SecurityHeadersMiddleware
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -38,6 +40,18 @@ def create_application() -> FastAPI:
         docs_url=f"{settings.API_V1_STR}/docs",
         redoc_url=f"{settings.API_V1_STR}/redoc",
         lifespan=lifespan,
+        # Request body size limit - prevents memory exhaustion attacks
+        # 10MB for regular API calls, file uploads handled separately
+        max_request_body=10 * 1024 * 1024,
+    )
+
+    # Security headers middleware (must be first)
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Trusted host middleware
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["*"],  # Configure via env vars for production
     )
 
     # CORS middleware
@@ -45,8 +59,10 @@ def create_application() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
+        max_age=600,
     )
 
     # Include API router

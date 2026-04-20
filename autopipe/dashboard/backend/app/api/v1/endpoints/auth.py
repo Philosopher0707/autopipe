@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -16,6 +16,7 @@ from app.core.auth import (
     verify_password,
 )
 from app.core.config import settings
+from app.core.security import check_login_rate_limit, check_register_rate_limit
 from app.db.models import User
 from app.db.session import get_db
 
@@ -80,8 +81,12 @@ class LoginRequest(BaseModel):
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """Login with username and password. Returns JWT access token."""
+    # Check rate limit
+    check_login_rate_limit(request)
+    
     # Find user
     result = await db.execute(
         select(User).where(User.username == form_data.username)
@@ -128,8 +133,12 @@ async def login(
 async def login_json(
     credentials: LoginRequest,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """Login with JSON body instead of form data."""
+    # Check rate limit
+    check_login_rate_limit(request)
+    
     # Find user
     result = await db.execute(
         select(User).where(User.username == credentials.username)
@@ -191,8 +200,12 @@ async def get_current_user_info(
 async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """Register a new user account."""
+    # Check rate limit
+    check_register_rate_limit(request)
+    
     # Check if username exists
     result = await db.execute(
         select(User).where(User.username == user_data.username)

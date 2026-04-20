@@ -87,8 +87,9 @@ Three independent subsystems sharing data concepts but not code:
 - Auth state via Zustand with `persist` middleware (localStorage)
 - Component library in `src/components/ui/` (shadcn/ui-inspired with Radix primitives)
 - Tailwind with HSL CSS variables for theming (dark/light mode)
-- WebSocket client (`wsClient` singleton in `src/api/endpoints/websocket.ts`): auto-reconnect with exponential backoff, channel-based pub/sub
-- RunDetail page uses WebSocket for real-time log streaming, step/status updates; falls back to 3s HTTP polling when WS disconnected
+- WebSocket client (`wsClient` singleton in `src/api/endpoints/websocket.ts`): auto-reconnect with exponential backoff, channel-based pub/sub; `disconnect()` sets `reconnectAttempts = maxReconnectAttempts` to prevent reconnect after intentional close
+- RunDetail page uses WebSocket for real-time log streaming, step/status updates; falls back to 3s HTTP polling when WS disconnected; uses `wsConnectedRef` (ref) not state to avoid render loops; `apiLogs` effect skips when WS connected
+- Vite proxy for `/api` includes `ws: true` to forward WebSocket connections (no separate `/ws` proxy needed)
 - `getStatusBgColor()` in `src/utils/helpers.ts` is the single source of truth for status badge colors — always use it, never inline color ternaries
 - `useMemo` for derived data: bestRun, run status counts, metricName computed from runs array
 - `useMutation.data` preferred over separate state for mutation results (e.g., compare in ExperimentDetail)
@@ -98,9 +99,14 @@ Three independent subsystems sharing data concepts but not code:
 `python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts. Experiments must be seeded BEFORE runs for linking to work.
 
 ### Docker & Deployment
-- `docker-compose.yml` at `autopipe/dashboard/`: backend (port 8765), frontend (nginx on :3000), Postgres, Redis
+- `docker-compose.yml` at `autopipe/dashboard/`: backend (port 8765, context `./backend`), frontend (nginx on :3000), Postgres, Redis
 - Frontend multi-stage Dockerfile: node:20-slim build → nginx:alpine serve
-- nginx.conf: SPA fallback (`try_files $uri $uri/ /index.html`), static asset caching, API proxy to `backend:8000`, WebSocket proxy at `/ws/`
+- nginx.conf: SPA fallback, static asset caching, API + WebSocket proxy via `/api/` block (includes Upgrade headers)
+- DB session (`app/db/session.py`) auto-detects SQLite vs Postgres and uses appropriate async driver (aiosqlite vs asyncpg)
+- Backend `requirements.txt` includes both `aiosqlite` (dev/SQLite) and `asyncpg`+`psycopg2-binary` (Docker/Postgres)
+- `/dashboard/health` endpoint performs real DB connectivity check (`select(1)`) and autopipe_core import check; no fake Redis check
+- 52 backend tests (including 11 auth tests covering OAuth2 form login, disabled users, expired tokens)
+- 34 frontend tests
 
 ### CI (GitHub Actions)
 - `test` job: 3 OS × 4 Python versions, ruff/black/mypy/bandit, pytest with coverage

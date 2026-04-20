@@ -18,7 +18,7 @@ export function RunDetail() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'logs' | 'metrics'>('logs')
   const [logs, setLogs] = useState<string[]>([])
-  const [wsConnected, setWsConnected] = useState(false)
+  const wsConnectedRef = useRef(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
   const { data: run, isLoading } = useQuery<PipelineRun>({
@@ -36,8 +36,8 @@ export function RunDetail() {
   const { data: logsData } = useQuery({
     queryKey: ['runs', runId, 'logs'],
     queryFn: () => runsApi.getLogs(runId!),
-    enabled: !!runId && activeTab === 'logs' && !wsConnected,
-    refetchInterval: run?.status === 'running' && !wsConnected ? 3000 : false,
+    enabled: !!runId && activeTab === 'logs' && !wsConnectedRef.current,
+    refetchInterval: run?.status === 'running' && !wsConnectedRef.current ? 3000 : false,
   })
 
   const steps = stepsData?.items || []
@@ -56,9 +56,11 @@ export function RunDetail() {
   })
 
   useEffect(() => {
-    setLogs(
-      apiLogs.map((entry) => `[${entry.level}] ${entry.step ? `(${entry.step}) ` : ''}${entry.message}`)
-    )
+    if (!wsConnectedRef.current) {
+      setLogs(
+        apiLogs.map((entry) => `[${entry.level}] ${entry.step ? `(${entry.step}) ` : ''}${entry.message}`)
+      )
+    }
   }, [apiLogs])
 
   useEffect(() => {
@@ -71,7 +73,6 @@ export function RunDetail() {
     const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws/runs/${runId}`
 
     wsClient.connect(wsUrl)
-    setWsConnected(true)
 
     const unsubStatus = wsClient.subscribe('run.status', () => {
       queryClient.invalidateQueries({ queryKey: ['runs', runId] })
@@ -89,14 +90,16 @@ export function RunDetail() {
       queryClient.invalidateQueries({ queryKey: ['runs', runId] })
     })
 
+    wsConnectedRef.current = true
+
     return () => {
       unsubStatus()
       unsubLog()
       unsubMetric()
       wsClient.disconnect()
-      setWsConnected(false)
+      wsConnectedRef.current = false
     }
-  }, [runId, queryClient])
+  }, [runId])
 
   if (isLoading) {
     return (

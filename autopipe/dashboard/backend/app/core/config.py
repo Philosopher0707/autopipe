@@ -3,7 +3,7 @@
 import secrets
 from typing import Any, List, Optional, Union
 
-from pydantic import field_validator
+from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = secrets.token_urlsafe(32)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
 
-    # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:3002"]
+    # CORS - dev defaults (override in production via env vars)
+    BACKEND_CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000", "http://localhost:5173"])
+
+    # Production CORS origins (split from env string)
+    PRODUCTION_CORS_ORIGINS: Optional[str] = None
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
@@ -59,6 +62,14 @@ class Settings(BaseSettings):
     # Security
     PASSWORD_MIN_LENGTH: int = 8
     JWT_ALGORITHM: str = "HS256"
+
+    # Rate Limiting
+    RATE_LIMIT_LOGIN_REQUESTS: int = 5
+    RATE_LIMIT_LOGIN_WINDOW: int = 300  # 5 minutes in seconds
+    RATE_LIMIT_REGISTER_REQUESTS: int = 3
+    RATE_LIMIT_REGISTER_WINDOW: int = 3600  # 1 hour in seconds
+    RATE_LIMIT_DEFAULT_REQUESTS: int = 100
+    RATE_LIMIT_DEFAULT_WINDOW: int = 60  # 1 minute in seconds
 
     # Monitoring
     ENABLE_METRICS: bool = True

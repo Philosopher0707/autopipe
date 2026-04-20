@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,23 +15,43 @@ from app.core.config import settings
 from app.db.models import User
 from app.db.session import get_db
 
-# Simple password hashing using SHA256 with salt
-# Note: In production, use proper bcrypt from passlib
-SALT = "autopipe-dashboard-salt-2024"
-def _hash_password(password: str) -> str:
-    """Hash a password with SHA256."""
-    salted = f"{password}{SALT}"
+# Proper password hashing using bcrypt
+# - Uses adaptive bcrypt with 12 rounds (configurable)
+# - Random salt automatically generated per password
+# - Resistant to GPU/ASIC brute force attacks
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Legacy SHA256 salt for migration
+LEGACY_SALT = "autopipe-dashboard-salt-2024"
+
+
+def _legacy_hash_password(password: str) -> str:
+    """Legacy SHA256 password hashing (for migration)."""
+    salted = f"{password}{LEGACY_SALT}"
     return hashlib.sha256(salted.encode()).hexdigest()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a hashed password."""
-    return _hash_password(plain_password) == hashed_password
+    """
+    Verify a plain password against a hashed password.
+    Supports both bcrypt (new) and SHA256 (legacy) hashes.
+    """
+    # Check if it's a bcrypt hash (starts with $2b$ or $2a$)
+    if hashed_password.startswith("$"):
+        # bcrypt hash
+        try:
+            return pwd_context.verify(plain_password[:72], hashed_password)
+        except Exception:
+            return False
+    else:
+        # Legacy SHA256 hash - still support for test fixtures
+        return _legacy_hash_password(plain_password) == hashed_password
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password."""
-    return _hash_password(password)
+    """Hash a password using bcrypt."""
+    # bcrypt has a 72-byte limit; truncate if necessary
+    return pwd_context.hash(password[:72])
 
 
 # OAuth2 scheme

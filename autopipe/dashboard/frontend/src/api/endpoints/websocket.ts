@@ -83,6 +83,7 @@ class WebSocketClient {
   }
 
   disconnect() {
+    this.reconnectAttempts = this.maxReconnectAttempts // prevent reconnect
     if (this.ws) {
       this.ws.close()
       this.ws = null

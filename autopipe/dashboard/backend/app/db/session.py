@@ -3,22 +3,27 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-import aiosqlite
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
-# For SQLite, we use aiosqlite
 from app.core.config import settings
 
-# SQLite async URL
 DATABASE_URL = settings.DATABASE_URL
-ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
 
-# Create async engine
-engine = create_async_engine(
-    ASYNC_DATABASE_URL,
-    echo=False,
-)
+# Convert sync driver URLs to async equivalents
+if DATABASE_URL.startswith("sqlite://"):
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://")
+elif DATABASE_URL.startswith("postgresql://"):
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+else:
+    ASYNC_DATABASE_URL = DATABASE_URL
+
+# Create async engine — use NullPool for SQLite (file locking), default for Postgres
+engine_kwargs = {"echo": False}
+if ASYNC_DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(ASYNC_DATABASE_URL, **engine_kwargs)
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(
