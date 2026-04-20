@@ -109,7 +109,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           
           <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={counts?.experiments_total ?? 0} />
           <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={counts?.models_total ?? 0} />
-          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={counts?.drift_alerts_unacknowledged ?? 0} />
+          <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={counts?.drift_features_drifted ?? 0} />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             System

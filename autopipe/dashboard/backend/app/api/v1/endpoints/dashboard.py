@@ -281,37 +281,32 @@ async def get_recent_activity(
 
 
 @router.get("/health", response_model=SystemHealth)
-async def get_system_health():
-    """Get system health status."""
-    
-    services = [
-        HealthStatus(
-            service="database",
-            status="healthy",
-            message="Connected",
-            last_check=datetime.now(timezone.utc),
-        ),
-        HealthStatus(
-            service="redis",
-            status="healthy",
-            message="Connected",
-            last_check=datetime.now(timezone.utc),
-        ),
-        HealthStatus(
-            service="autopipe_core",
-            status="healthy",
-            message="Connected",
-            last_check=datetime.now(timezone.utc),
-        ),
-    ]
-    
-    # Check if any service is degraded
+async def get_system_health(db: AsyncSession = Depends(get_db)):
+    """Get system health status with real connectivity checks."""
+
+    now = datetime.now(timezone.utc)
+    services: list[HealthStatus] = []
+
+    # Database connectivity check
+    try:
+        await db.execute(select(1))
+        services.append(HealthStatus(service="database", status="healthy", message="Connected", last_check=now))
+    except Exception as e:
+        services.append(HealthStatus(service="database", status="down", message=str(e)[:200], last_check=now))
+
+    # Autopipe core check (import availability)
+    try:
+        from autopipe.core.pipeline import Pipeline  # noqa: F401
+        services.append(HealthStatus(service="autopipe_core", status="healthy", message="Available", last_check=now))
+    except ImportError:
+        services.append(HealthStatus(service="autopipe_core", status="degraded", message="Not installed", last_check=now))
+
     overall_status = "healthy"
     if any(s.status == "down" for s in services):
         overall_status = "degraded"
     elif any(s.status == "degraded" for s in services):
         overall_status = "degraded"
-    
+
     return SystemHealth(status=overall_status, services=services)
 
 
@@ -330,7 +325,7 @@ async def get_metrics_timeseries(
     # Query time-series metrics from database
     result = await db.execute(
         select(DashboardMetric)
-        .where(DashboardMetric.metric_name == metric_name)
+        .where(DashboardMetric.metric_name.contains(metric_name))
         .where(DashboardMetric.recorded_at >= start)
         .where(DashboardMetric.recorded_at <= end)
         .order_by(DashboardMetric.recorded_at)
@@ -412,7 +407,7 @@ async def get_dashboard_metrics(
     ).order_by(DashboardMetric.recorded_at)
     
     if metric_name:
-        query = query.where(DashboardMetric.metric_name == metric_name)
+        query = query.where(DashboardMetric.metric_name.contains(metric_name))
     
     if pipeline_id:
         query = query.where(DashboardMetric.tags.contains({"pipeline_id": pipeline_id}))

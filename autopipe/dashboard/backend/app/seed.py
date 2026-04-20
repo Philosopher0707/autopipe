@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 
+from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_password_hash
@@ -12,57 +13,65 @@ from app.db.models import (
     Experiment, Model, ModelVersion, ModelStage, DriftReport, DriftAlert,
     AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact,
 )
+from sqlalchemy import select
+
 from app.db.session import engine, AsyncSessionLocal
 
 
 async def seed_users(db: AsyncSession) -> None:
     """Create initial users."""
-    users = [
-        User(
-            id=str(uuid.uuid4()),
-            username="admin",
-            email="admin@autopipe.io",
-            full_name="System Administrator",
-            hashed_password=get_password_hash("admin123"),
-            role=UserRole.ADMIN,
-            is_active=True,
-        ),
-        User(
-            id=str(uuid.uuid4()),
-            username="data_scientist",
-            email="ds@autopipe.io",
-            full_name="Jane Data Scientist",
-            hashed_password=get_password_hash("ds123456"),
-            role=UserRole.DATA_SCIENTIST,
-            is_active=True,
-        ),
-        User(
-            id=str(uuid.uuid4()),
-            username="ml_engineer",
-            email="ml@autopipe.io",
-            full_name="John ML Engineer",
-            hashed_password=get_password_hash("ml123456"),
-            role=UserRole.DATA_SCIENTIST,
-            is_active=True,
-        ),
-        User(
-            id=str(uuid.uuid4()),
-            username="viewer",
-            email="viewer@autopipe.io",
-            full_name="Bob Viewer",
-            hashed_password=get_password_hash("viewer123"),
-            role=UserRole.VIEWER,
-            is_active=True,
-        ),
+    users_data = [
+        {
+            "username": "admin",
+            "email": "admin@autopipe.io",
+            "full_name": "System Administrator",
+            "password": "admin123",
+            "role": UserRole.ADMIN,
+            "is_active": True,
+        },
+        {
+            "username": "data_scientist",
+            "email": "ds@autopipe.io",
+            "full_name": "Jane Data Scientist",
+            "password": "ds123456",
+            "role": UserRole.DATA_SCIENTIST,
+            "is_active": True,
+        },
+        {
+            "username": "ml_engineer",
+            "email": "ml@autopipe.io",
+            "full_name": "John ML Engineer",
+            "password": "ml123456",
+            "role": UserRole.DATA_SCIENTIST,
+            "is_active": True,
+        },
+        {
+            "username": "viewer",
+            "email": "viewer@autopipe.io",
+            "full_name": "Bob Viewer",
+            "password": "viewer123",
+            "role": UserRole.VIEWER,
+            "is_active": True,
+        },
     ]
-    
-    for user in users:
-        existing = await db.get(User, user.id)
-        if not existing:
-            db.add(user)
-    
+
+    created = 0
+    for ud in users_data:
+        result = await db.execute(select(User).where(User.email == ud["email"]))
+        if result.scalars().first() is None:
+            db.add(User(
+                id=str(uuid.uuid4()),
+                username=ud["username"],
+                email=ud["email"],
+                full_name=ud["full_name"],
+                hashed_password=get_password_hash(ud["password"]),
+                role=ud["role"],
+                is_active=ud["is_active"],
+            ))
+            created += 1
+
     await db.commit()
-    print(f"  ✓ Created {len(users)} users")
+    print(f"  ✓ Created {created} users, {len(users_data) - created} already existed")
 
 
 async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
@@ -131,26 +140,39 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
     ]
     
     pipelines = []
+    created = 0
     for data in pipelines_data:
-        pipeline = Pipeline(
-            id=str(uuid.uuid4()),
-            name=data["name"],
-            description=data["description"],
-            config=data["config"],
-            tags=data["tags"],
-            created_by=data["created_by"],
-            is_active=True,
-        )
-        db.add(pipeline)
-        pipelines.append(pipeline)
-    
+        result = await db.execute(select(Pipeline).where(Pipeline.name == data["name"]))
+        existing = result.scalars().first()
+        if existing:
+            pipelines.append(existing)
+        else:
+            pipeline = Pipeline(
+                id=str(uuid.uuid4()),
+                name=data["name"],
+                description=data["description"],
+                config=data["config"],
+                tags=data["tags"],
+                created_by=data["created_by"],
+                is_active=True,
+            )
+            db.add(pipeline)
+            pipelines.append(pipeline)
+            created += 1
+
     await db.commit()
-    print(f"  ✓ Created {len(pipelines)} pipelines")
+    print(f"  ✓ Created {created} pipelines, {len(pipelines_data) - created} already existed")
     return pipelines
 
 
 async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: list[Experiment] | None = None) -> None:
     """Create sample pipeline runs, optionally linked to experiments."""
+    # Skip if runs already exist
+    existing_count = await db.scalar(select(sa_func.count(Run.id)))
+    if existing_count and existing_count > 0:
+        print(f"  ✓ Runs already exist ({existing_count}), skipping")
+        return
+
     import random
     from datetime import datetime, timedelta, timezone
 
@@ -264,7 +286,12 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
         },
     ]
     
+    created = 0
     for model_data in models_data:
+        result = await db.execute(select(Model).where(Model.name == model_data["name"]))
+        if result.scalars().first() is not None:
+            continue
+
         model = Model(
             id=str(uuid.uuid4()),
             name=model_data["name"],
@@ -275,6 +302,7 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
             current_stage=ModelStage(model_data["stages"][0]),
         )
         db.add(model)
+        created += 1
         
         # Create versions
         for i, (stage, metrics) in enumerate(zip(model_data["stages"], model_data["metrics"])):
@@ -291,7 +319,7 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
             db.add(version)
     
     await db.commit()
-    print(f"  ✓ Created {len(models_data)} models with versions")
+    print(f"  ✓ Created {created} models with versions, {len(models_data) - created} already existed")
 
 
 async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experiment]:
@@ -335,27 +363,39 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experime
     ]
 
     experiments = []
+    created = 0
     for data in experiments_data:
-        experiment = Experiment(
-            id=str(uuid.uuid4()),
-            name=data["name"],
-            description=data["description"],
-            config=data["config"],
-            tags=data["tags"],
-            created_by=users[1].id,
-            best_metric=data["best_metric"],
-            metric_name="accuracy",
-        )
-        db.add(experiment)
-        experiments.append(experiment)
+        result = await db.execute(select(Experiment).where(Experiment.name == data["name"]))
+        existing = result.scalars().first()
+        if existing:
+            experiments.append(existing)
+        else:
+            experiment = Experiment(
+                id=str(uuid.uuid4()),
+                name=data["name"],
+                description=data["description"],
+                config=data["config"],
+                tags=data["tags"],
+                created_by=users[1].id,
+                best_metric=data["best_metric"],
+                metric_name="accuracy",
+            )
+            db.add(experiment)
+            experiments.append(experiment)
+            created += 1
 
     await db.commit()
-    print(f"  ✓ Created {len(experiments_data)} experiments")
+    print(f"  ✓ Created {created} experiments, {len(experiments_data) - created} already existed")
     return experiments
 
 
 async def seed_drift_reports(db: AsyncSession) -> None:
     """Create sample drift reports and alerts."""
+    existing = await db.scalar(select(sa_func.count(DriftReport.id)))
+    if existing and existing > 0:
+        print(f"  ✓ Drift reports already exist ({existing}), skipping")
+        return
+
     from datetime import datetime, timedelta, timezone
     
     # Drift report
@@ -401,6 +441,11 @@ async def seed_drift_reports(db: AsyncSession) -> None:
 
 async def seed_dashboard_metrics(db: AsyncSession) -> None:
     """Create sample dashboard metrics."""
+    existing = await db.scalar(select(sa_func.count(DashboardMetric.id)))
+    if existing and existing > 0:
+        print(f"  ✓ Dashboard metrics already exist ({existing}), skipping")
+        return
+
     from datetime import datetime, timedelta, timezone
     import random
     
@@ -434,6 +479,11 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
 
 async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
     """Create sample activity logs."""
+    existing = await db.scalar(select(sa_func.count(ActivityLog.id)))
+    if existing and existing > 0:
+        print(f"  ✓ Activity logs already exist ({existing}), skipping")
+        return
+
     from datetime import datetime, timedelta, timezone
     import random
     
@@ -464,7 +514,11 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
 
 async def seed_chart_artifacts(db: AsyncSession) -> None:
     """Create sample chart artifacts for seeded runs."""
-    from sqlalchemy import select
+    existing = await db.scalar(select(sa_func.count(ChartArtifact.id)))
+    if existing and existing > 0:
+        print(f"  ✓ Chart artifacts already exist ({existing}), skipping")
+        return
+
     import random
 
     result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(5))
