@@ -5,6 +5,7 @@ import {
   Play,
   FlaskConical,
   Box,
+  BarChart3,
   AlertTriangle,
   Settings,
   Users,
@@ -101,7 +102,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
           
           <SidebarItem to="/" icon={<LayoutDashboard className="w-5 h-5" />} label="Dashboard" />
+          <SidebarItem to="/workspace" icon={<BarChart3 className="w-5 h-5" />} label="Workspace" />
           <SidebarItem to="/pipelines" icon={<GitBranch className="w-5 h-5" />} label="Pipelines" badge={counts?.pipelines_active ?? 0} />
+          <SidebarItem to="/runs" icon={<Play className="w-5 h-5" />} label="Runs" />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             ML Lifecycle

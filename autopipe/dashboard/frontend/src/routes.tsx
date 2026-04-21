@@ -9,12 +9,14 @@ const PipelineList = lazy(() => import('@/pages/pipelines/PipelineList').then((m
 const PipelineDetail = lazy(() => import('@/pages/pipelines/PipelineDetail').then((module) => ({ default: module.PipelineDetail })))
 const RunList = lazy(() => import('@/pages/runs/RunList').then((module) => ({ default: module.RunList })))
 const RunDetail = lazy(() => import('@/pages/runs/RunDetail').then((module) => ({ default: module.RunDetail })))
+const RunCompare = lazy(() => import('@/pages/runs/RunCompare').then((module) => ({ default: module.RunCompare })))
 const ModelList = lazy(() => import('@/pages/models/ModelList').then((module) => ({ default: module.ModelList })))
 const ModelDetail = lazy(() => import('@/pages/models/ModelDetail').then((module) => ({ default: module.ModelDetail })))
 const ExperimentList = lazy(() => import('@/pages/experiments/ExperimentList').then((module) => ({ default: module.ExperimentList })))
 const ExperimentDetail = lazy(() => import('@/pages/experiments/ExperimentDetail').then((module) => ({ default: module.ExperimentDetail })))
 const DriftList = lazy(() => import('@/pages/drift/DriftList').then((module) => ({ default: module.DriftList })))
 const DriftReport = lazy(() => import('@/pages/drift/DriftReport').then((module) => ({ default: module.DriftReport })))
+const Workspace = lazy(() => import('@/pages/workspace/Workspace').then((module) => ({ default: module.Workspace })))
 const SettingsPage = lazy(() => import('@/pages/settings/Settings').then((module) => ({ default: module.SettingsPage })))
 const TeamPage = lazy(() => import('@/pages/settings/Team').then((module) => ({ default: module.TeamPage })))
 
@@ -125,6 +127,24 @@ export function AppRoutes() {
         element={
           <ProtectedLayout>
             <RunDetail />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/runs/compare"
+        element={
+          <ProtectedLayout>
+            <RunCompare />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/workspace"
+        element={
+          <ProtectedLayout>
+            <Workspace />
           </ProtectedLayout>
         }
       />

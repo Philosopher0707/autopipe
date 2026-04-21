@@ -120,7 +120,79 @@ export function Skeleton({ className }: React.HTMLAttributes<HTMLDivElement>) {
   )
 }
 
-// Dropdown Menu Components
+// Tabs Components
+interface TabsContextValue {
+  value: string
+  onValueChange: (value: string) => void
+}
+
+const TabsContext = React.createContext<TabsContextValue | null>(null)
+
+export function Tabs({ children, value, onValueChange, className }: {
+  children: ReactNode
+  value: string
+  onValueChange: (value: string) => void
+  className?: string
+}) {
+  return (
+    <TabsContext.Provider value={{ value, onValueChange }}>
+      <div className={cn('w-full', className)}>{children}</div>
+    </TabsContext.Provider>
+  )
+}
+
+export function TabsList({ children, className }: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn('flex items-center gap-1 border-b border-border bg-muted/50 rounded-lg p-1 w-fit', className)}>
+      {children}
+    </div>
+  )
+}
+
+export function TabsTrigger({ children, value, className }: {
+  children: ReactNode
+  value: string
+  className?: string
+}) {
+  const ctx = React.useContext(TabsContext)
+  const isActive = ctx?.value === value
+
+  return (
+    <button
+      onClick={() => ctx?.onValueChange(value)}
+      className={cn(
+        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        isActive 
+          ? 'bg-background text-foreground shadow-sm' 
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        className
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function TabsContent({ children, value, className }: {
+  children: ReactNode
+  value: string
+  className?: string
+}) {
+  const ctx = React.useContext(TabsContext)
+  const isActive = ctx?.value === value
+
+  if (!isActive) return null
+
+  return (
+    <div className={cn('focus-visible:outline-none', className)}>
+      {children}
+    </div>
+  )
+}
 const DropdownMenuContext = React.createContext<{
   open: boolean
   onOpenChange: (open: boolean) => void

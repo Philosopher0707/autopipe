@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardContent, CardTitle, Skeleton } from '@/components/ui'
+import { Card, CardContent, CardTitle, Skeleton, Button } from '@/components/ui'
 import { runsApi } from '@/api/endpoints'
 import {
-  Search, Clock, MoreHorizontal
+  Search, Clock, MoreHorizontal, GitCompare, X
 } from 'lucide-react'
 import { formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
@@ -13,6 +13,7 @@ export function RunList() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set())
 
   const { data, isLoading } = useQuery({
     queryKey: ['runs', { search, status: statusFilter }],
@@ -24,6 +25,32 @@ export function RunList() {
 
   const runs: PipelineRun[] = data?.items || []
 
+  const handleToggleSelect = (runId: string) => {
+    const newSelected = new Set(selectedRuns)
+    if (newSelected.has(runId)) {
+      newSelected.delete(runId)
+    } else {
+      newSelected.add(runId)
+    }
+    setSelectedRuns(newSelected)
+  }
+
+  const handleSelectAll = () => {
+    if (selectedRuns.size === runs.length) {
+      setSelectedRuns(new Set())
+    } else {
+      setSelectedRuns(new Set(runs.map(r => r.id)))
+    }
+  }
+
+  const handleClearSelection = () => setSelectedRuns(new Set())
+
+  const handleCompare = () => {
+    if (selectedRuns.size >= 2) {
+      navigate(`/runs/compare?ids=${Array.from(selectedRuns).join(',')}`)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -34,6 +61,34 @@ export function RunList() {
           </p>
         </div>
       </div>
+
+      {/* Selection Bar */}
+      {selectedRuns.size >= 2 && (
+        <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{selectedRuns.size} runs selected</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              onClick={handleClearSelection}
+              className="h-8"
+            >
+              <X className="w-4 h-4 mr-1" />
+              Clear
+            </Button>
+            <Button 
+              size="sm" 
+              onClick={handleCompare}
+              className="h-8"
+            >
+              <GitCompare className="w-4 h-4 mr-1" />
+              Compare
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -82,6 +137,14 @@ export function RunList() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
+                    <th className="py-3 px-4 text-left w-10">
+                      <input
+                        type="checkbox"
+                        checked={runs.length > 0 && selectedRuns.size === runs.length}
+                        onChange={handleSelectAll}
+                        className="rounded border-border"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">
                       Run ID
                     </th>
@@ -109,6 +172,14 @@ export function RunList() {
                       className="border-b border-border last:border-0 hover:bg-muted/50 cursor-pointer"
                       onClick={() => navigate(`/runs/${run.id}`)}
                     >
+                      <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedRuns.has(run.id)}
+                          onChange={() => handleToggleSelect(run.id)}
+                          className="rounded border-border"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div>
                           <CardTitle className="text-sm font-medium text-foreground">
@@ -133,7 +204,10 @@ export function RunList() {
                         {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
                       </td>
                       <td className="py-3 px-4">
-                        <button className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
+                        <button 
+                          className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
                       </td>

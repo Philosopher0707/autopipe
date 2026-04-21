@@ -73,6 +73,10 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
   return 'just now'
 }
 
+export function formatDistanceToNow(date: string | Date | null | undefined): string {
+  return formatRelativeTime(date)
+}
+
 export function getStatusColor(status: string): string {
   switch (status.toLowerCase()) {
     case 'pending':
