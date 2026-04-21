@@ -9,6 +9,13 @@ export type PanelType =
   | 'param-importance'
   | 'metric-summary'
   | 'confusion-matrix'
+  | 'run-table'
+  | 'run-comparison'
+  | 'histogram'
+  | 'parallel-coords'
+  | 'media-viewer'
+  | 'dataframe-table'
+  | 'text-log'
 
 export interface PanelConfig {
   metricName?: string
@@ -170,6 +177,13 @@ function getDefaultTitle(type: PanelType): string {
     case 'param-importance': return 'Parameter Comparison'
     case 'metric-summary': return 'Metric Summary'
     case 'confusion-matrix': return 'Confusion Matrix'
+    case 'run-table': return 'Runs Table'
+    case 'run-comparison': return 'Run Comparison'
+    case 'histogram': return 'Histogram'
+    case 'parallel-coords': return 'Parallel Coordinates'
+    case 'media-viewer': return 'Media Viewer'
+    case 'dataframe-table': return 'Dataframe Table'
+    case 'text-log': return 'Text Log'
     default:
       return 'Panel'
   }

@@ -11,6 +11,11 @@ import {
   ScatterChart,
   Table2,
   Trophy,
+  GitCompare,
+  GitBranch,
+  Image,
+  Table,
+  FileText,
 } from 'lucide-react'
 import { CardTitle, Skeleton } from '@/components/ui'
 import { useQuery } from '@tanstack/react-query'
@@ -23,6 +28,14 @@ import {
   ScatterPlotPanel,
   MetricSummaryPanel,
   ParamImportancePanel,
+  RunTablePanel,
+  RunComparisonPanel,
+  HistogramPanel,
+  ConfusionMatrixPanel,
+  ParallelCoordsPanel,
+  MediaViewer,
+  DataframeTable,
+  TextLogPanel,
 } from './panels'
 import type { PanelLayout } from './WorkspaceContext'
 
@@ -33,6 +46,13 @@ const PANEL_ICONS: Record<PanelType, React.ReactNode> = {
   'param-importance': <Table2 className="w-4 h-4" />,
   'metric-summary': <Trophy className="w-4 h-4" />,
   'confusion-matrix': <Activity className="w-4 h-4" />,
+  'run-table': <Table2 className="w-4 h-4" />,
+  'run-comparison': <GitCompare className="w-4 h-4" />,
+  'histogram': <BarChart3 className="w-4 h-4" />,
+  'parallel-coords': <GitBranch className="w-4 h-4" />,
+  'media-viewer': <Image className="w-4 h-4" />,
+  'dataframe-table': <Table className="w-4 h-4" />,
+  'text-log': <FileText className="w-4 h-4" />,
 }
 
 const PANEL_LABELS: Record<PanelType, string> = {
@@ -42,6 +62,13 @@ const PANEL_LABELS: Record<PanelType, string> = {
   'param-importance': 'Parameters',
   'metric-summary': 'Metric Cards',
   'confusion-matrix': 'Confusion Matrix',
+  'run-table': 'Runs Table',
+  'run-comparison': 'Run Comparison',
+  'histogram': 'Histogram',
+  'parallel-coords': 'Parallel Coords',
+  'media-viewer': 'Media Viewer',
+  'dataframe-table': 'Dataframe Table',
+  'text-log': 'Text Log',
 }
 
 function PanelRenderer({ panel }: { panel: PanelLayout }) {
@@ -56,6 +83,22 @@ function PanelRenderer({ panel }: { panel: PanelLayout }) {
       return <MetricSummaryPanel panel={panel} />
     case 'param-importance':
       return <ParamImportancePanel panel={panel} />
+    case 'run-table':
+      return <RunTablePanel panel={panel} />
+    case 'run-comparison':
+      return <RunComparisonPanel panel={panel} />
+    case 'histogram':
+      return <HistogramPanel panel={panel} />
+    case 'parallel-coords':
+      return <ParallelCoordsPanel panel={panel} />
+    case 'confusion-matrix':
+      return <ConfusionMatrixPanel panel={panel} />
+    case 'media-viewer':
+      return <MediaViewer panel={panel} />
+    case 'dataframe-table':
+      return <DataframeTable panel={panel} />
+    case 'text-log':
+      return <TextLogPanel panel={panel} />
     default:
       return (
         <PanelWrapper panel={panel}>
@@ -127,6 +170,14 @@ function WorkspaceToolbar() {
     'scatter-plot',
     'metric-summary',
     'param-importance',
+    'confusion-matrix',
+    'run-table',
+    'run-comparison',
+    'histogram',
+    'parallel-coords',
+    'media-viewer',
+    'dataframe-table',
+    'text-log',
   ]
 
   return (
