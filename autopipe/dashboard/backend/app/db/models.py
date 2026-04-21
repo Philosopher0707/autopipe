@@ -71,6 +71,29 @@ class Pipeline(Base):
     runs: Mapped[List["Run"]] = relationship("Run", back_populates="pipeline", lazy="select")
 
 
+# ------------------------------------------------------------------
+# MetricLog — append-only time-series metric storage
+# ------------------------------------------------------------------
+
+class MetricLog(Base):
+    """Append-only time-series log of scalar metric values per run/step."""
+    __tablename__ = "metric_logs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id: Mapped[str] = mapped_column(String, ForeignKey("runs.id"), nullable=False, index=True)
+    step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True, index=True)
+    pipeline_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("pipelines.id"), nullable=True, index=True)
+    experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True, index=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    step_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    __table_args__ = (
+        {"sqlite_autoincrement": False},
+    )
+
+
 class Run(Base):
     """Pipeline execution run."""
     __tablename__ = "runs"

@@ -10,9 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.v1.endpoints.drift import _normalize_feature_drifts
-from app.db.models import ChartArtifact, DriftReport, Experiment, Model, ModelVersion, Run, RunStatus, Step
+from app.db.models import (
+    ChartArtifact, DriftReport, Experiment, MetricLog, Model, ModelVersion, Run, RunStatus, Step
+)
 from app.db.session import get_db
 from app.schemas import (
+    AvailableMetricsResponse,
     ChartArtifactCreate,
     ChartArtifactList,
     ChartArtifactResponse,
@@ -22,6 +25,9 @@ from app.schemas import (
     DriftTrendPoint,
     DriftTrendResponse,
     ExperimentMetricTraceResponse,
+    MetricLogCreate,
+    MetricLogPoint,
+    MetricSeriesResponse,
     ModelVersionMetricsResponse,
     RunMetricsOverTimeResponse,
     StepDurationPoint,
@@ -319,6 +325,105 @@ async def list_chart_artifacts(
         page=page,
         page_size=page_size,
         pages=max(1, (total or 0 + page_size - 1) // page_size) if total else 0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /charts/available-metrics
+# ---------------------------------------------------------------------------
+
+@router.get("/available-metrics", response_model=AvailableMetricsResponse)
+async def get_available_metrics(
+    run_ids: Optional[str] = Query(None, description="Comma-separated run IDs, or omit to see all from recent runs"),
+    db: AsyncSession = Depends(get_db),
+):
+    if run_ids:
+        ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+        result = await db.execute(
+            select(MetricLog.metric_name).where(MetricLog.run_id.in_(ids)).distinct()
+        )
+    else:
+        # Last 50 metric logs → discover what's being tracked
+        result = await db.execute(
+            select(MetricLog.metric_name).distinct().limit(50)
+        )
+    metrics = sorted([m for m in result.scalars().all()])
+    return AvailableMetricsResponse(metrics=metrics)
+
+
+# ---------------------------------------------------------------------------
+# GET /charts/metric-series
+# ---------------------------------------------------------------------------
+
+@router.get("/metric-series", response_model=List[MetricSeriesResponse])
+async def get_metric_series(
+    run_ids: Optional[str] = Query(None, description="Comma-separated run IDs"),
+    metric_name: str = Query(..., description="Metric name to plot"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not run_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="run_ids is required",
+        )
+
+    ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+    if len(ids) == 0 or len(ids) > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="1–10 run_ids required",
+        )
+
+    series_data: List[MetricSeriesResponse] = []
+    for rid in ids:
+        run_result = await db.execute(select(Run).where(Run.id == rid))
+        run = run_result.scalar_one_or_none()
+        if not run:
+            continue
+
+        log_result = await db.execute(
+            select(MetricLog)
+            .where(MetricLog.run_id == rid, MetricLog.metric_name == metric_name)
+            .order_by(MetricLog.step_index.nullsfirst(), MetricLog.recorded_at)
+        )
+        logs = log_result.scalars().all()
+
+        points = [
+            MetricLogPoint(
+                step_index=l.step_index,
+                value=l.value,
+                recorded_at=l.recorded_at.isoformat(),
+            )
+            for l in logs
+        ]
+
+        series_data.append(MetricSeriesResponse(
+            metric_name=metric_name,
+            run_id=rid,
+            run_number=run.run_number,
+            points=points,
+        ))
+
+    return series_data
+
+
+# ---------------------------------------------------------------------------
+# POST /charts/metric-logs
+# ---------------------------------------------------------------------------
+
+@router.post("/metric-logs", response_model=MetricLogPoint, status_code=status.HTTP_201_CREATED)
+async def create_metric_log(
+    body: MetricLogCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    log = MetricLog(**body.model_dump())
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    return MetricLogPoint(
+        step_index=log.step_index,
+        value=log.value,
+        recorded_at=log.recorded_at.isoformat(),
     )
 
 

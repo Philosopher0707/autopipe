@@ -1,7 +1,8 @@
 """Run management endpoints."""
 
+import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -12,6 +13,15 @@ from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
 from app.schemas import RunResponse, RunUpdate, RunList
+from app.schemas import (
+    RunCompareRequest,
+    RunCompareResponse,
+    RunSummaryForComparison,
+    ParameterComparisonRow,
+    MetricComparison,
+    MetricComparisonRow,
+    RunDiffSummary,
+)
 
 router = APIRouter()
 
@@ -158,6 +168,9 @@ async def update_run(
         # Signal the executor thread to stop if cancelling
         if update.status == RunStatus.CANCELLED.value:
             signal_cancel(run_id)
+    
+    if update.config is not None:
+        run.config = update.config
     
     if update.metrics:
         run.metrics = update.metrics
@@ -388,3 +401,185 @@ async def compare_runs(
     }
     
     return comparison
+
+
+@router.post("/compare")
+async def compare_multiple_runs(
+    request: RunCompareRequest,
+    db: AsyncSession = Depends(get_db),
+) -> RunCompareResponse:
+    """Compare multiple runs side-by-side with parameter and metric diffs.
+    
+    Accepts 2-10 run IDs and returns a structured comparison including:
+    - Run summaries with full config and metrics
+    - Parameter rows showing which values differ across runs
+    - Metric rows with percentage deltas from baseline (first run)
+    - Summary of total differences and best runs per metric
+    """
+    if len(request.run_ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least 2 run IDs required for comparison",
+        )
+    
+    if len(request.run_ids) > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 10 runs can be compared at once",
+        )
+    
+    # Fetch runs with pipeline info
+    result = await db.execute(
+        select(Run, Pipeline.name.label("pipeline_name"))
+        .join(Pipeline, Run.pipeline_id == Pipeline.id)
+        .where(Run.id.in_(request.run_ids))
+    )
+    rows = result.all()
+    
+    if len(rows) != len(request.run_ids):
+        found_ids = {r.Run.id for r in rows}
+        missing = set(request.run_ids) - found_ids
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Runs not found: {missing}",
+        )
+    
+    # Build run map preserving input order
+    run_map: Dict[str, Run] = {}
+    pipeline_names: Dict[str, str] = {}
+    for row in rows:
+        run_map[row.Run.id] = row.Run
+        pipeline_names[row.Run.id] = row.pipeline_name
+    
+    runs_ordered = [run_map[rid] for rid in request.run_ids if rid in run_map]
+    
+    # Build run summaries
+    run_summaries = [
+        RunSummaryForComparison(
+            id=r.id,
+            run_number=r.run_number,
+            status=r.status.value if hasattr(r.status, "value") else str(r.status),
+            pipeline_name=pipeline_names.get(r.id),
+            pipeline_id=r.pipeline_id,
+            experiment_id=r.experiment_id,
+            created_at=r.created_at,
+            started_at=r.started_at,
+            completed_at=r.completed_at,
+            duration_seconds=r.duration_seconds,
+            config=r.config or {},
+            metrics=r.metrics or {},
+        )
+        for r in runs_ordered
+    ]
+    
+    # Build parameter comparison rows
+    all_param_keys: set[str] = set()
+    for r in runs_ordered:
+        all_param_keys.update((r.config or {}).keys())
+    
+    param_rows: List[ParameterComparisonRow] = []
+    for key in sorted(all_param_keys):
+        values: Dict[str, Optional[Any]] = {}
+        vals_seen: set = set()
+        for r in runs_ordered:
+            val = (r.config or {}).get(key)
+            values[r.id] = val
+            # Use string representation for comparison
+            try:
+                vals_seen.add(json.dumps(val, sort_keys=True) if isinstance(val, (dict, list)) else str(val))
+            except (TypeError, ValueError):
+                vals_seen.add(str(val))
+        
+        param_rows.append(ParameterComparisonRow(
+            name=key,
+            values=values,
+            is_different=len(vals_seen) > 1,
+        ))
+    
+    # Build metric comparison rows
+    all_metric_keys: set[str] = set()
+    for r in runs_ordered:
+        all_metric_keys.update((r.metrics or {}).keys())
+    
+    # Define which metrics are better when higher (for determining best run)
+    higher_is_better_metrics = {
+        "accuracy", "precision", "recall", "f1", "f1_score", "f1-score",
+        "auc", "roc_auc", "ap", "average_precision", "r2", "r_squared",
+        "score", "reward", "return", "sharpe", "win_rate",
+    }
+    lower_is_better_metrics = {
+        "loss", "error", "mse", "rmse", "mae", "mape", "latency", 
+        "duration", "time", "cost", "kl_divergence",
+    }
+    
+    metric_rows: list[MetricComparisonRow] = []
+    best_metric_per_key: Dict[str, str] = {}
+    
+    for key in sorted(all_metric_keys):
+        values: Dict[str, MetricComparison] = {}
+        baseline_value: Optional[float] = None
+        
+        # Get baseline (first run) value
+        baseline_metrics = runs_ordered[0].metrics or {}
+        baseline_raw = baseline_metrics.get(key)
+        try:
+            baseline_value = float(baseline_raw) if baseline_raw is not None else None
+        except (ValueError, TypeError):
+            baseline_value = None
+        
+        metric_vals: Dict[str, float] = {}
+        for r in runs_ordered:
+            raw = (r.metrics or {}).get(key)
+            try:
+                val = float(raw) if raw is not None else None
+            except (ValueError, TypeError):
+                val = None
+            
+            delta = None
+            if val is not None and baseline_value is not None and baseline_value != 0:
+                delta = ((val - baseline_value) / abs(baseline_value)) * 100
+            elif val is not None and baseline_value is not None and baseline_value == 0:
+                delta = float('inf') if val > 0 else float('-inf') if val < 0 else 0
+            
+            values[r.id] = MetricComparison(value=val, delta_from_baseline=delta)
+            if val is not None:
+                metric_vals[r.id] = val
+        
+        # Determine if higher is better for this metric
+        key_lower = key.lower().replace("-", "_")
+        is_higher_better = any(b in key_lower for b in higher_is_better_metrics)
+        is_lower_better = any(b in key_lower for b in lower_is_better_metrics)
+        higher_is_better = is_higher_better or (not is_lower_better)  # default to higher
+        
+        # Find best run
+        best_run_id: Optional[str] = None
+        if metric_vals:
+            if higher_is_better:
+                best_run_id = max(metric_vals.items(), key=lambda x: x[1])[0]
+            else:
+                best_run_id = min(metric_vals.items(), key=lambda x: x[1])[0]
+            best_metric_per_key[key] = best_run_id
+        
+        metric_rows.append(MetricComparisonRow(
+            name=key,
+            values=values,
+            best_run_id=best_run_id,
+            higher_is_better=higher_is_better,
+        ))
+    
+    # Calculate diff summary
+    different_params = sum(1 for p in param_rows if p.is_different)
+    
+    diff_summary = RunDiffSummary(
+        total_params=len(param_rows),
+        different_params=different_params,
+        total_metrics=len(metric_rows),
+        best_metric_per_key=best_metric_per_key,
+    )
+    
+    return RunCompareResponse(
+        runs=run_summaries,
+        parameters=param_rows,
+        metrics=metric_rows,
+        diff_summary=diff_summary,
+    )

@@ -20,6 +20,57 @@ export interface RunCompareResponse {
   metric_comparison: Record<string, { a: number | null; b: number | null; diff: number | null }>
 }
 
+export interface RunCompareRequest {
+  run_ids: string[]
+}
+
+export interface MetricComparison {
+  value: number | null
+  delta_from_baseline: number | null
+}
+
+export interface MetricComparisonRow {
+  name: string
+  values: Record<string, MetricComparison>
+  best_run_id: string | null
+  higher_is_better: boolean
+}
+
+export interface ParameterComparisonRow {
+  name: string
+  values: Record<string, unknown>
+  is_different: boolean
+}
+
+export interface RunSummaryForComparison {
+  id: string
+  run_number: number
+  status: string
+  pipeline_name: string | null
+  pipeline_id: string
+  experiment_id: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  config: Record<string, unknown> | null
+  metrics: Record<string, unknown> | null
+}
+
+export interface RunDiffSummary {
+  total_params: number
+  different_params: number
+  total_metrics: number
+  best_metric_per_key: Record<string, string>
+}
+
+export interface MultiRunCompareResponse {
+  runs: RunSummaryForComparison[]
+  parameters: ParameterComparisonRow[]
+  metrics: MetricComparisonRow[]
+  diff_summary: RunDiffSummary
+}
+
 export interface StepsResponse {
   items: Step[]
 }
@@ -73,6 +124,10 @@ export const runsApi = {
 
   compare: async (id: string, otherId: string): Promise<RunCompareResponse> => {
     return apiClient.get<RunCompareResponse>(`/runs/${id}/compare/${otherId}`)
+  },
+
+  compareMultiple: async (runIds: string[]): Promise<MultiRunCompareResponse> => {
+    return apiClient.post<MultiRunCompareResponse>('/runs/compare', { run_ids: runIds })
   },
 
   addStepLog: async (

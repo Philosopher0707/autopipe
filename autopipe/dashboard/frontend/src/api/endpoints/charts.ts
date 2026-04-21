@@ -62,6 +62,33 @@ export interface ChartArtifact {
   created_at: string
 }
 
+export interface MetricLogPoint {
+  step_index: number | null
+  value: number
+  recorded_at: string
+}
+
+export interface MetricSeriesResponse {
+  metric_name: string
+  run_id: string
+  run_number: number
+  points: MetricLogPoint[]
+}
+
+export interface AvailableMetricsResponse {
+  metrics: string[]
+}
+
+export interface MetricLogCreate {
+  run_id: string
+  step_id?: string
+  pipeline_id?: string
+  experiment_id?: string
+  metric_name: string
+  step_index?: number
+  value: number
+}
+
 export const chartsApi = {
   getRunMetricsOverTime: async (params: {
     metric: string
@@ -126,5 +153,24 @@ export const chartsApi = {
     config?: Record<string, unknown>
   }): Promise<ChartArtifact> => {
     return apiClient.post('/charts/artifacts', body)
+  },
+
+  getAvailableMetrics: async (runIds?: string[]): Promise<AvailableMetricsResponse> => {
+    const params: Record<string, unknown> = {}
+    if (runIds && runIds.length > 0) params.run_ids = runIds.join(',')
+    return apiClient.get('/charts/available-metrics', { params })
+  },
+
+  getMetricSeries: async (params: {
+    run_ids: string[]
+    metric_name: string
+  }): Promise<MetricSeriesResponse[]> => {
+    return apiClient.get('/charts/metric-series', {
+      params: { run_ids: params.run_ids.join(','), metric_name: params.metric_name },
+    })
+  },
+
+  createMetricLog: async (body: MetricLogCreate): Promise<MetricLogPoint> => {
+    return apiClient.post('/charts/metric-logs', body)
   },
 }

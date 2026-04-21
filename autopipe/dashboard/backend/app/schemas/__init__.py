@@ -96,6 +96,7 @@ class RunCreate(RunBase):
 class RunUpdate(BaseModel):
     """Run update schema."""
     status: Optional[str] = Field(None, pattern="^(pending|running|success|failed|cancelled)$")
+    config: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
 
@@ -136,6 +137,71 @@ class RunFilters(BaseModel):
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
     created_by: Optional[str] = None
+
+
+# ==================== Run Comparison Schemas ====================
+
+class RunCompareRequest(BaseModel):
+    """Request to compare multiple runs."""
+    run_ids: List[str] = Field(..., min_length=2, max_length=10, description="List of run IDs to compare")
+
+
+class ParameterComparison(BaseModel):
+    """Parameter comparison between runs."""
+    value: Optional[Any] = None
+
+
+class ParameterComparisonRow(BaseModel):
+    """Row in parameter comparison table."""
+    name: str
+    values: Dict[str, Optional[Any]]  # run_id -> value
+    is_different: bool
+
+
+class MetricComparison(BaseModel):
+    """Metric comparison between runs."""
+    value: Optional[float] = None
+    delta_from_baseline: Optional[float] = None  # percentage difference
+
+
+class MetricComparisonRow(BaseModel):
+    """Row in metric comparison table."""
+    name: str
+    values: Dict[str, MetricComparison]
+    best_run_id: Optional[str] = None
+    higher_is_better: bool = True
+
+
+class RunSummaryForComparison(BaseModel):
+    """Summary of a run for comparison view."""
+    id: str
+    run_number: int
+    status: str
+    pipeline_name: Optional[str] = None
+    pipeline_id: str
+    experiment_id: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    config: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None
+
+
+class RunDiffSummary(BaseModel):
+    """Summary of differences between runs."""
+    total_params: int
+    different_params: int
+    total_metrics: int
+    best_metric_per_key: Dict[str, str]  # metric_name -> run_id
+
+
+class RunCompareResponse(BaseModel):
+    """Response for run comparison."""
+    runs: List[RunSummaryForComparison]
+    parameters: List[ParameterComparisonRow]
+    metrics: List[MetricComparisonRow]
+    diff_summary: RunDiffSummary
 
 
 # ==================== Step Schemas ====================
@@ -673,6 +739,39 @@ class DriftTrendResponse(BaseModel):
     """Response for GET /charts/drift-trend."""
     model_id: Optional[str] = None
     points: List[DriftTrendPoint]
+
+
+# ==================== Metric Log Schemas ====================
+
+class MetricLogPoint(BaseModel):
+    """Single metric log entry."""
+    step_index: Optional[int] = None
+    value: float
+    recorded_at: str
+
+
+class MetricSeriesResponse(BaseModel):
+    """Response for GET /charts/metric-series."""
+    metric_name: str
+    run_id: str
+    run_number: int
+    points: List[MetricLogPoint]
+
+
+class AvailableMetricsResponse(BaseModel):
+    """Response for GET /charts/available-metrics."""
+    metrics: List[str]
+
+
+class MetricLogCreate(BaseModel):
+    """Request to log a single metric value."""
+    run_id: str
+    step_id: Optional[str] = None
+    pipeline_id: Optional[str] = None
+    experiment_id: Optional[str] = None
+    metric_name: str = Field(..., min_length=1, max_length=255)
+    step_index: Optional[int] = None
+    value: float
 
 
 # ==================== Chart Artifact Schemas ====================
