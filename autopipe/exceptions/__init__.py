@@ -59,6 +59,19 @@ class LLMError(AutoPipeError):
         self.model = model
 
 
+class PiAgentError(LLMError):
+    """Raised specifically when the pi coding agent fails."""
+
+    def __init__(
+        self,
+        step_name: str | None = None,
+        message: str = "",
+        details: dict | None = None,
+    ):
+        super().__init__(message=message, details=details)
+        self.step_name = step_name
+
+
 class RateLimitError(LLMError):
     """Raised when rate limit is exceeded."""
 

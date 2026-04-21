@@ -22,6 +22,9 @@ from .deep_learning import (
 # Evaluation steps
 from .evaluation import ModelEvaluatorStep
 
+# Pi coding agent step
+from .pi_coding import PiCodingStep
+
 # Cross-validation and splitting
 from .cross_validation import (
     CrossValidationStep,
@@ -90,4 +93,7 @@ __all__ = [
     
     # Evaluation
     "ModelEvaluatorStep",
+    
+    # Pi Coding
+    "PiCodingStep",
 ]
