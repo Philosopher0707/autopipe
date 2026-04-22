@@ -19,6 +19,9 @@ const DriftReport = lazy(() => import('@/pages/drift/DriftReport').then((module)
 const Workspace = lazy(() => import('@/pages/workspace/Workspace').then((module) => ({ default: module.Workspace })))
 const SettingsPage = lazy(() => import('@/pages/settings/Settings').then((module) => ({ default: module.SettingsPage })))
 const TeamPage = lazy(() => import('@/pages/settings/Team').then((module) => ({ default: module.TeamPage })))
+const ExplainabilityPage = lazy(() => import('@/pages/explainability/ExplainabilityPage').then((module) => ({ default: module.ExplainabilityPage })))
+const AutomlPage = lazy(() => import('@/pages/automl/AutoMLPage').then((module) => ({ default: module.AutoMLPage })))
+const FeatureEngineeringPage = lazy(() => import('@/pages/features/FeaturesPage').then((module) => ({ default: module.FeaturesPage })))
 
 function PageFallback() {
   return (
@@ -212,6 +215,33 @@ export function AppRoutes() {
         element={
           <ProtectedLayout>
             <DriftReport />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/explainability"
+        element={
+          <ProtectedLayout>
+            <ExplainabilityPage />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/automl"
+        element={
+          <ProtectedLayout>
+            <AutomlPage />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/features"
+        element={
+          <ProtectedLayout>
+            <FeatureEngineeringPage />
           </ProtectedLayout>
         }
       />

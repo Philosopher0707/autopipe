@@ -112,7 +112,7 @@ function StatsTable({ stats, title }: { stats: FeatureStats[]; title: string }) 
 }
 
 export function FeaturesPage() {
-  const [pipelineId, setPipelineId] = useState('default-pipeline')
+  const pipelineId = 'default-pipeline'
   const [activeTab, setActiveTab] = useState('builder')
   const [steps, setSteps] = useState<TransformStep[]>([
     { name: 'impute_median', type: 'imputer', params: { strategy: 'median' }, enabled: true },

@@ -28,7 +28,7 @@ const STATE_COLORS: Record<string, string> = {
 }
 
 export function AutoMLPage() {
-  const [experimentId, setExperimentId] = useState('default')
+  const experimentId = 'default'
   const [selectedTrial, setSelectedTrial] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState('trials')
 
@@ -42,7 +42,7 @@ export function AutoMLPage() {
     queryFn: () => automlApi.getVisualizations(experimentId),
   })
 
-  const { data: historyData } = useQuery({
+  const { data: _historyData } = useQuery({
     queryKey: ['automl', 'trial-history', selectedTrial],
     queryFn: () => automlApi.getTrialHistory(selectedTrial!),
     enabled: selectedTrial !== null,
@@ -57,8 +57,6 @@ export function AutoMLPage() {
     () => [...paramImportance].sort((a, b) => b.importance - a.importance),
     [paramImportance],
   )
-
-  const isLoading = trialsLoading || vizLoading
 
   return (
     <div className="space-y-6">
@@ -217,7 +215,7 @@ export function AutoMLPage() {
                       type="monotone"
                       dataKey="intermediate_value"
                       stroke="#3b82f6"
-                      dot={(props: Record<string, unknown>) => {
+                      dot={(props: any) => {
                         const pruned = props.payload?.pruned as boolean | undefined
                         return (
                           <circle
