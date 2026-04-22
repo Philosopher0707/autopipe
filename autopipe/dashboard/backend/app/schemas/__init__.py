@@ -894,6 +894,24 @@ class AutomlTrialsResponse(BaseModel):
     trials: List[TrialPoint]
 
 
+class TrialDetailResponse(BaseModel):
+    """Response for GET /trials/{id}."""
+    trial: TrialPoint
+
+
+class TrialHistoryPoint(BaseModel):
+    """Single point in a trial's optimization history."""
+    step: int
+    value: float
+    timestamp: datetime
+
+
+class TrialHistoryResponse(BaseModel):
+    """Response for GET /trials/{id}/history."""
+    trial_id: str
+    history: List[TrialHistoryPoint]
+
+
 class ParamImportancePoint(BaseModel):
     """Parameter importance for radar chart."""
     param: str
