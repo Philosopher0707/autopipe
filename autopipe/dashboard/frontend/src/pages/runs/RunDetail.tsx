@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 import type { PipelineRun, Step } from '@/types'
+import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
 
 export function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
@@ -248,6 +249,10 @@ export function RunDetail() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {runId && (
+        <TrainingMetricsChart runId={runId} />
       )}
 
       <Card>

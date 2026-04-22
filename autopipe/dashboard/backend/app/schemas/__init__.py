@@ -805,3 +805,21 @@ class ChartArtifactResponse(BaseModel):
 class ChartArtifactList(PaginatedResponse):
     """Chart artifact list response."""
     items: List[ChartArtifactResponse]
+
+
+# ==================== Training Metrics Schemas ====================
+
+class TrainingEpochPoint(BaseModel):
+    """Single epoch of training/validation metrics."""
+    epoch: int
+    loss: Optional[float] = None
+    val_loss: Optional[float] = None
+    accuracy: Optional[float] = None
+    val_accuracy: Optional[float] = None
+
+
+class TrainingMetricsTraceResponse(BaseModel):
+    """Response for GET /charts/training-metrics-trace."""
+    run_id: str
+    run_number: int
+    points: List[TrainingEpochPoint]

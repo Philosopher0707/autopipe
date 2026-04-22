@@ -32,6 +32,8 @@ from app.schemas import (
     RunMetricsOverTimeResponse,
     StepDurationPoint,
     StepDurationsResponse,
+    TrainingEpochPoint,
+    TrainingMetricsTraceResponse,
 )
 
 router = APIRouter()
@@ -86,6 +88,76 @@ async def get_run_metrics_over_time(
             )
 
     return RunMetricsOverTimeResponse(metric=metric, points=points)
+
+
+# ---------------------------------------------------------------------------
+# GET /charts/training-metrics-trace
+# ---------------------------------------------------------------------------
+
+@router.get("/training-metrics-trace", response_model=TrainingMetricsTraceResponse)
+async def get_training_metrics_trace(
+    run_id: str = Query(..., description="Run ID to fetch training metrics for"),
+    db: AsyncSession = Depends(get_db),
+):
+    run_result = await db.execute(select(Run).where(Run.id == run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    metric_names = ["loss", "val_loss", "accuracy", "val_accuracy"]
+    log_result = await db.execute(
+        select(MetricLog)
+        .where(MetricLog.run_id == run_id, MetricLog.metric_name.in_(metric_names))
+        .order_by(MetricLog.step_index.nullsfirst(), MetricLog.recorded_at)
+    )
+    logs = log_result.scalars().all()
+
+    epochs: Dict[int, Dict[str, float]] = {}
+    for log in logs:
+        epoch = log.step_index if log.step_index is not None else 0
+        if epoch not in epochs:
+            epochs[epoch] = {}
+        epochs[epoch][log.metric_name] = log.value
+
+    if not epochs:
+        # Fallback: attempt to extract from ChartArtifact data
+        artifact_result = await db.execute(
+            select(ChartArtifact)
+            .where(ChartArtifact.run_id == run_id, ChartArtifact.chart_type == "line")
+            .order_by(ChartArtifact.created_at.desc())
+        )
+        artifacts = artifact_result.scalars().all()
+        for artifact in artifacts:
+            points = artifact.data.get("points", []) if artifact.data else []
+            for row in points:
+                if not isinstance(row, dict):
+                    continue
+                epoch = row.get("epoch")
+                if epoch is None:
+                    continue
+                e = int(epoch)
+                if e not in epochs:
+                    epochs[e] = {}
+                for key in metric_names:
+                    if key in row and _is_numeric(row[key]):
+                        epochs[e][key] = float(row[key])
+
+    points = [
+        TrainingEpochPoint(
+            epoch=epoch,
+            loss=values.get("loss"),
+            val_loss=values.get("val_loss"),
+            accuracy=values.get("accuracy"),
+            val_accuracy=values.get("val_accuracy"),
+        )
+        for epoch, values in sorted(epochs.items())
+    ]
+
+    return TrainingMetricsTraceResponse(
+        run_id=run_id,
+        run_number=run.run_number or 0,
+        points=points,
+    )
 
 
 # ---------------------------------------------------------------------------

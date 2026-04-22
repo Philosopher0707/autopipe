@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.models import (
     User, UserRole, Pipeline, Run, RunStatus, Step, StepStatus,
     Experiment, Model, ModelVersion, ModelStage, DriftReport, DriftAlert,
-    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact,
+    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact, MetricLog,
 )
 from sqlalchemy import select
 
@@ -616,6 +616,54 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
     print(f"  ✓ Created {created} chart artifacts")
 
 
+async def seed_metric_logs(db: AsyncSession) -> None:
+    """Create sample metric logs with training curves for successful runs."""
+    existing = await db.scalar(select(sa_func.count(MetricLog.id)))
+    if existing and existing > 0:
+        print(f"  ✓ Metric logs already exist ({existing}), skipping")
+        return
+
+    import random
+    from datetime import datetime, timezone
+
+    result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(10))
+    runs = list(result.scalars().all())
+    if not runs:
+        print("  ⚠ No successful runs found, skipping metric logs")
+        return
+
+    created = 0
+    for run in runs:
+        base_time = run.started_at or datetime.now(timezone.utc)
+        for epoch in range(1, 11):
+            timestamp = base_time + timedelta(minutes=epoch)
+            loss = round(0.5 * (0.9 ** epoch) + random.uniform(0, 0.02), 4)
+            val_loss = round(0.55 * (0.88 ** epoch) + random.uniform(0, 0.03), 4)
+            accuracy = round(min(0.99, 0.6 + 0.04 * epoch + random.uniform(0, 0.01)), 4)
+            val_accuracy = round(min(0.98, 0.58 + 0.038 * epoch + random.uniform(0, 0.015)), 4)
+
+            for metric_name, value in [
+                ("loss", loss),
+                ("val_loss", val_loss),
+                ("accuracy", accuracy),
+                ("val_accuracy", val_accuracy),
+            ]:
+                db.add(MetricLog(
+                    id=str(uuid.uuid4()),
+                    run_id=run.id,
+                    pipeline_id=run.pipeline_id,
+                    experiment_id=run.experiment_id,
+                    metric_name=metric_name,
+                    step_index=epoch,
+                    value=value,
+                    recorded_at=timestamp,
+                ))
+                created += 1
+
+    await db.commit()
+    print(f"  ✓ Created {created} metric logs")
+
+
 async def main() -> None:
     """Run all seeders."""
     print("\n🌱 Seeding database with initial data...")
@@ -653,7 +701,10 @@ async def main() -> None:
 
         # Seed chart artifacts
         await seed_chart_artifacts(db)
-    
+
+        # Seed metric logs (training curves)
+        await seed_metric_logs(db)
+
     print("=" * 50)
     print("✅ Database seeded successfully!")
     print("\n📋 Default credentials:")

@@ -89,6 +89,20 @@ export interface MetricLogCreate {
   value: number
 }
 
+export interface TrainingEpochPoint {
+  epoch: number
+  loss: number | null
+  val_loss: number | null
+  accuracy: number | null
+  val_accuracy: number | null
+}
+
+export interface TrainingMetricsTraceResponse {
+  run_id: string
+  run_number: number
+  points: TrainingEpochPoint[]
+}
+
 export const chartsApi = {
   getRunMetricsOverTime: async (params: {
     metric: string
@@ -172,5 +186,9 @@ export const chartsApi = {
 
   createMetricLog: async (body: MetricLogCreate): Promise<MetricLogPoint> => {
     return apiClient.post('/charts/metric-logs', body)
+  },
+
+  getTrainingMetricsTrace: async (runId: string): Promise<TrainingMetricsTraceResponse> => {
+    return apiClient.get('/charts/training-metrics-trace', { params: { run_id: runId } })
   },
 }
