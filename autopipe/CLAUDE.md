@@ -1,5 +1,21 @@
 # CLAUDE.md
 
+## Karpathy Principles for AutoPipe
+
+**Think Before Coding.** State assumptions about which subsystem you're touching (core / backend / frontend). The codebase has THREE independent subsystems sharing concepts but not code. If a change spans all three, clarify scope first.
+
+**Simplicity First.** A new pipeline step is ~20-50 lines. A new backend endpoint is ~30 lines. A new frontend page is a lazy-loaded component. If you're writing 200 lines, simplify.
+
+**Surgical Changes.** Touch only what you must. Core changes stay in `autopipe/`. Backend changes stay in `autopipe/dashboard/backend/`. Frontend changes stay in `autopipe/dashboard/frontend/`. Match existing style (4-space indent, 100-char lines, snake_case, strict mypy). Do NOT refactor adjacent code or "improve" formatting you didn't touch.
+
+**Goal-Driven Execution.** Every task needs verifiable success criteria:
+- "Add a step" → "Step class + unit test + pytest passes"
+- "Fix backend bug" → "Repro test → passes → full backend suite passes"
+- "Add dashboard feature" → "API endpoint + frontend page + integration test"
+- "Refactor" → "All tests pass before AND after"
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Environment Setup
@@ -29,7 +45,7 @@ cd autopipe/dashboard/backend
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload  # Dev server
 .venv/bin/python -m app.seed                                                     # Seed database
-.venv/bin/python -m pytest tests/ -v                                            # Run 48 tests
+.venv/bin/python -m pytest tests/ -v                                            # Run 80 tests
 ```
 - API docs: `http://localhost:8765/api/v1/docs`
 - Default credentials: `admin` / `admin123`
@@ -78,6 +94,7 @@ Three independent subsystems sharing data concepts but not code:
   - `asyncio.run_coroutine_threadsafe()` bridges sync thread → async event loop for WebSocket broadcasts
   - Pipeline config must have `"steps"` key to trigger actual execution; otherwise runs stay PENDING
 - `GET /experiments/{id}/compare?metric=X` — compares runs by metric, returns run IDs with metric values and params
+- `GET /charts/training-metrics-trace?run_id={id}` — queries `MetricLog` for `loss`/`val_loss`/`accuracy`/`val_accuracy` grouped by `step_index` as epoch; falls back to `ChartArtifact.data.points` if no logs; returns `TrainingMetricsTraceResponse`
 - `count_drifted_features()` helper in `dashboard.py` deduplicates drift-counting logic across `/overview` and `/counts` endpoints
 - DriftReport queries use column-level selects (`select(DriftReport.drift_score, DriftReport.feature_drifts)`) instead of full ORM loads
 
@@ -90,13 +107,14 @@ Three independent subsystems sharing data concepts but not code:
 - WebSocket client (`wsClient` singleton in `src/api/endpoints/websocket.ts`): auto-reconnect with exponential backoff, channel-based pub/sub; `disconnect()` sets `reconnectAttempts = maxReconnectAttempts` to prevent reconnect after intentional close
 - RunDetail page uses WebSocket for real-time log streaming, step/status updates; falls back to 3s HTTP polling when WS disconnected; uses `wsConnectedRef` (ref) not state to avoid render loops; `apiLogs` effect skips when WS connected
 - Vite proxy for `/api` includes `ws: true` to forward WebSocket connections (no separate `/ws` proxy needed)
+- `TrainingMetricsChart` in `src/components/charts/TrainingMetricsChart.tsx` — tabbed Recharts `LineChart` for loss/accuracy curves; queries `GET /charts/training-metrics-trace`; Loss tab shows Train (red) + Validation (blue); Accuracy tab shows Train (green) + Validation (purple); conditionally renders only when `points.length > 0` and metrics exist
 - `getStatusBgColor()` in `src/utils/helpers.ts` is the single source of truth for status badge colors — always use it, never inline color ternaries
 - `useMemo` for derived data: bestRun, run status counts, metricName computed from runs array
 - `useMutation.data` preferred over separate state for mutation results (e.g., compare in ExperimentDetail)
 - Conditional query `enabled` flags to avoid unnecessary fetches (e.g., `pipelinesData` only when trials dialog open)
 
 ### Seeding
-`python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts. Experiments must be seeded BEFORE runs for linking to work.
+`python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts, `MetricLog` training curves (10 epochs of loss/val_loss/accuracy/val_accuracy for each successful run). Experiments must be seeded BEFORE runs for linking to work.
 
 ### Docker & Deployment
 - `docker-compose.yml` at `autopipe/dashboard/`: backend (port 8765, context `./backend`), frontend (nginx on :3000), Postgres, Redis
@@ -105,8 +123,30 @@ Three independent subsystems sharing data concepts but not code:
 - DB session (`app/db/session.py`) auto-detects SQLite vs Postgres and uses appropriate async driver (aiosqlite vs asyncpg)
 - Backend `requirements.txt` includes both `aiosqlite` (dev/SQLite) and `asyncpg`+`psycopg2-binary` (Docker/Postgres)
 - `/dashboard/health` endpoint performs real DB connectivity check (`select(1)`) and autopipe_core import check; no fake Redis check
-- 52 backend tests (including 11 auth tests covering OAuth2 form login, disabled users, expired tokens)
+- 80 backend tests (including 11 auth tests + 25 security tests covering password hashing, rate limiting, file security, security headers)
 - 34 frontend tests
+
+### Workspace Panels
+The `/workspace` route provides a multi-panel layout with 14 panel types for run analysis and visualization:
+- `line-plot`, `bar-chart`, `scatter-plot` — Metric visualization via Recharts
+- `param-importance` — Parameter comparison table
+- `metric-summary` — Best-run metric cards
+- `confusion-matrix` — Classification confusion matrix (from run config)
+- `run-table` — Sortable/filterable runs table
+- `run-comparison` — Multi-run comparison with parameter diffs and metric sparklines (`POST /runs/compare`)
+- `histogram` — Metric distribution histogram (`GET /charts/available-metrics`)
+- `parallel-coords` — Parallel coordinates for hyperparameter visualization
+- `media-viewer` — Image gallery from run config media
+- `dataframe-table` — Data preview table from run config
+- `text-log` — Log tail viewer (`GET /runs/{id}/logs?tail=N`)
+
+Panel renderers receive `{ panel }` prop with `PanelLayout` type (id, type, title, config, state). Each panel uses `PanelWrapper` for consistent chrome, loading skeletons, and error boundaries. Panel state is persisted via Zustand store.
+
+### Security (Backend)
+- `app/core/security.py` — `SimpleRateLimiter` (in-memory), rate-limit decorator for login/register endpoints, bcrypt password hashing with legacy SHA256 fallback for existing seeds
+- `app/core/security_headers.py` — `SecurityHeadersMiddleware` adds CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- `app/core/file_security.py` — Path traversal prevention, mime type validation, safe file serving utilities
+- Tests in `tests/test_security.py` (25 tests covering all three modules)
 
 ### CI (GitHub Actions)
 - `test` job: 3 OS × 4 Python versions, ruff/black/mypy/bandit, pytest with coverage
