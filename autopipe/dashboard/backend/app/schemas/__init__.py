@@ -971,3 +971,28 @@ class FeatureTransformsResponse(BaseModel):
     pipeline: List[TransformStep]
     before: List[FeatureStats]
     after: List[FeatureStats]
+
+
+class FeatureExtractRequest(BaseModel):
+    """Request for POST /features/extract."""
+    pipeline_id: str
+    data: List[Dict[str, Any]]
+    transforms: Optional[List[TransformStep]] = None
+
+
+class FeatureExtractResponse(BaseModel):
+    """Response for POST /features/extract."""
+    pipeline_id: str
+    before_count: int
+    after_count: int
+    before: List[FeatureStats]
+    after: List[FeatureStats]
+    sample_values: Dict[str, List[Any]]
+
+
+class FeaturePreviewResponse(BaseModel):
+    """Response for GET /features/preview/{pipeline_id}."""
+    pipeline_id: str
+    pipeline: List[TransformStep]
+    before: List[FeatureStats]
+    after: List[FeatureStats]
