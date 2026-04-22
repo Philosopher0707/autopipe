@@ -1,11 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
   GitBranch,
   Box,
   AlertTriangle,
   FlaskConical,
+  Cpu,
 } from 'lucide-react'
-import { Skeleton } from '@/components/ui'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
+import { Card, CardContent, CardTitle, Skeleton } from '@/components/ui'
 import { useQuery } from '@tanstack/react-query'
 import { dashboardApi, runsApi } from '@/api/endpoints'
 import type { ActivityLog, PipelineRun } from '@/types'
@@ -68,6 +79,25 @@ export function Dashboard() {
     initialData: [],
   })
 
+  const { data: resourcesData } = useQuery({
+    queryKey: ['dashboard', 'resources'],
+    queryFn: () => dashboardApi.getResources(24),
+    refetchInterval: 60000,
+  })
+
+  const resourceChartData = useMemo(() => {
+    if (!resourcesData?.points) return []
+    return resourcesData.points.map((p) => ({
+      time: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      CPU: p.cpu_percent,
+      Memory: p.memory_percent,
+      GPU: p.gpu_percent ?? 0,
+    }))
+  }, [resourcesData])
+
+  const latestCpu = resourcesData?.points?.at(-1)?.cpu_percent
+  const latestMem = resourcesData?.points?.at(-1)?.memory_percent
+
   // Handle hydration mismatch for client-only rendering
   useEffect(() => {
     setMounted(true)
@@ -125,7 +155,37 @@ export function Dashboard() {
           color="bg-purple-500"
           subtext={`${stats?.experiments.total_trials ?? 0} trials today`}
         />
+        <StatCard
+          title="System"
+          value={latestCpu != null ? `${latestCpu.toFixed(0)}%` : '--'}
+          icon={Cpu}
+          color="bg-cyan-500"
+          subtext={`Memory: ${latestMem != null ? `${latestMem.toFixed(0)}%` : '--'}`}
+        />
       </div>
+
+      {/* Resource Usage */}
+      {resourceChartData.length > 0 && (
+        <Card>
+          <CardContent className="p-6">
+            <CardTitle className="text-lg mb-4">Resource Usage (24h)</CardTitle>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={resourceChartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Area type="monotone" dataKey="CPU" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="Memory" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="GPU" stackId="1" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

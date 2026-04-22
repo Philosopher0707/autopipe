@@ -23,6 +23,7 @@ from app.db.session import get_db
 from app.schemas import (
     ActivityFeed, ActivityItem, DashboardStats, DriftStats, ExperimentStats,
     HealthStatus, ModelStats, PipelineStats, SidebarCounts, SystemHealth,
+    ResourceUsageResponse, ResourceUsagePoint,
 )
 
 router = APIRouter()
@@ -424,3 +425,26 @@ async def get_dashboard_metrics(
     ]
 
     return {"data": data_points}
+
+
+@router.get("/resources", response_model=ResourceUsageResponse)
+async def get_resource_usage(hours: int = 24, db: AsyncSession = Depends(get_db)):
+    """Get system resource usage for the last N hours (default 24).
+
+    Returns seeded data. Will use psutil for real metrics when available.
+    """
+    import random
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    points = []
+    for i in range(min(hours * 4, 288)):  # 4 points/hour, max 288
+        ts = now - timedelta(minutes=15 * i)
+        points.append(ResourceUsagePoint(
+            timestamp=ts,
+            cpu_percent=round(random.uniform(10, 85), 1),
+            memory_percent=round(random.uniform(40, 75), 1),
+            gpu_percent=round(random.uniform(0, 95), 1) if i % 3 == 0 else None,
+        ))
+    points.reverse()
+    return ResourceUsageResponse(points=points)

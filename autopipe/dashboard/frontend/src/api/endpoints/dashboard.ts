@@ -2,6 +2,7 @@ import { apiClient } from '../client'
 import type {
   DashboardStats,
   ActivityLog,
+  ResourceUsageResponse,
 } from '@/types'
 
 export const dashboardApi = {
@@ -44,5 +45,10 @@ export const dashboardApi = {
     end?: string
   }): Promise<{ data: Array<{ timestamp: string; value: number }> }> => {
     return apiClient.get('/dashboard/metrics', { params })
+  },
+
+  /** GET /api/v1/dashboard/resources */
+  getResources: async (hours = 24): Promise<ResourceUsageResponse> => {
+    return apiClient.get<ResourceUsageResponse>('/dashboard/resources', { params: { hours } })
   },
 }

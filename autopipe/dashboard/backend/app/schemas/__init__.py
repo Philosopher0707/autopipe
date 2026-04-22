@@ -1063,3 +1063,18 @@ class ExperimentArtifactsResponse(BaseModel):
     """Response for GET /experiments/{id}/artifacts."""
     experiment_id: str
     artifacts: List[ExperimentArtifact]
+
+
+# ==================== System Resource Schemas ====================
+
+class ResourceUsagePoint(BaseModel):
+    """Single resource usage measurement."""
+    timestamp: datetime
+    cpu_percent: float
+    memory_percent: float
+    gpu_percent: Optional[float] = None
+
+
+class ResourceUsageResponse(BaseModel):
+    """Response for GET /dashboard/resources."""
+    points: List[ResourceUsagePoint]
