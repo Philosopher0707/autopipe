@@ -328,3 +328,81 @@ export interface FeaturePreviewResponse {
   before: FeatureStats[]
   after: FeatureStats[]
 }
+
+// Training Config Types
+export interface TrainingConfigResponse {
+  run_id: string
+  architecture?: string
+  optimizer?: string
+  learning_rate?: number
+  weight_decay?: number
+  batch_size?: number
+  epochs?: number
+  early_stopping?: Record<string, unknown>
+  lr_scheduler?: Record<string, unknown>
+  amp?: boolean
+  gradient_clip?: number
+}
+
+// Checkpoint Types
+export interface Checkpoint {
+  id: string
+  epoch: number
+  val_loss: number
+  val_accuracy: number
+  file_path: string
+  is_best: boolean
+  restored: boolean
+  promoted: boolean
+  created_at: string
+}
+
+export interface CheckpointsResponse {
+  run_id: string
+  checkpoints: Checkpoint[]
+}
+
+// Experiment Artifact Types
+export interface ExperimentArtifact {
+  id: string
+  artifact_type: 'image' | 'figure' | 'csv' | 'json' | 'other'
+  title: string
+  file_path: string
+  file_size: number
+  created_at: string
+}
+
+export interface ExperimentArtifactsResponse {
+  experiment_id: string
+  artifacts: ExperimentArtifact[]
+}
+
+// Pipeline Validation Types
+export interface PipelineValidateRequest {
+  name?: string
+  steps?: Record<string, unknown>[]
+  config?: Record<string, unknown>
+}
+
+export interface ValidationError {
+  step_index?: number
+  field: string
+  message: string
+}
+
+export interface PipelineValidateResponse {
+  valid: boolean
+  errors: ValidationError[]
+}
+
+// System Resource Types
+export interface ResourceUsagePoint {
+  timestamp: string
+  cpu_percent: number
+  memory_percent: number
+  gpu_percent?: number
+}
+
+export interface ResourceUsageResponse {
+  points: ResourceUsagePoint[]
+}

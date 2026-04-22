@@ -129,6 +129,23 @@ class RunList(PaginatedResponse):
     items: List[RunResponse]
 
 
+# ==================== Training Config Schemas ====================
+
+class TrainingConfigResponse(BaseModel):
+    """Response for GET /runs/{id}/config."""
+    run_id: str
+    architecture: Optional[str] = None
+    optimizer: Optional[str] = None
+    learning_rate: Optional[float] = None
+    weight_decay: Optional[float] = None
+    batch_size: Optional[int] = None
+    epochs: Optional[int] = None
+    early_stopping: Optional[Dict[str, Any]] = None
+    lr_scheduler: Optional[Dict[str, Any]] = None
+    amp: Optional[bool] = None
+    gradient_clip: Optional[float] = None
+
+
 class RunFilters(BaseModel):
     """Run filter parameters."""
     status: Optional[str] = None

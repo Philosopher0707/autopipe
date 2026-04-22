@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { PipelineRun, Step, PaginatedResponse } from '@/types'
+import type { PipelineRun, Step, PaginatedResponse, TrainingConfigResponse, CheckpointsResponse } from '@/types'
 
 export interface RunLogsResponse {
   logs: Array<{
@@ -136,5 +136,13 @@ export const runsApi = {
     data: { message: string }
   ): Promise<{ message: string }> => {
     return apiClient.post(`/runs/${runId}/steps/${stepId}/logs`, data)
+  },
+
+  getConfig: async (id: string): Promise<TrainingConfigResponse> => {
+    return apiClient.get<TrainingConfigResponse>(`/runs/${id}/config`)
+  },
+
+  getCheckpoints: async (id: string): Promise<CheckpointsResponse> => {
+    return apiClient.get<CheckpointsResponse>(`/runs/${id}/checkpoints`)
   },
 }

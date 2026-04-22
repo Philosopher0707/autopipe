@@ -5,7 +5,7 @@ import { Card, CardContent, CardTitle, Badge, Button } from '@/components/ui'
 import { chartsApi, runsApi } from '@/api/endpoints'
 import { wsClient } from '@/api/endpoints/websocket'
 import { ChartArtifactList } from '@/components/charts/ChartRenderer'
-import { Clock, Terminal, BarChart3, ArrowLeft } from 'lucide-react'
+import { Clock, Terminal, BarChart3, ArrowLeft, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -19,6 +19,7 @@ export function RunDetail() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'logs' | 'metrics'>('logs')
   const [logs, setLogs] = useState<string[]>([])
+  const [configOpen, setConfigOpen] = useState(false)
   const wsConnectedRef = useRef(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -53,6 +54,12 @@ export function RunDetail() {
   const { data: chartArtifactsData } = useQuery({
     queryKey: ['charts', 'artifacts', 'run', runId],
     queryFn: () => chartsApi.listArtifacts({ run_id: runId!, page_size: 50 }),
+    enabled: !!runId,
+  })
+
+  const { data: trainingConfig } = useQuery({
+    queryKey: ['runs', runId, 'config'],
+    queryFn: () => runsApi.getConfig(runId!),
     enabled: !!runId,
   })
 
@@ -228,6 +235,70 @@ export function RunDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {trainingConfig && (
+        <Card>
+          <CardContent className="p-6">
+            <button
+              className="flex items-center gap-2 w-full text-left"
+              onClick={() => setConfigOpen(!configOpen)}
+            >
+              <Settings2 className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-lg">Training Config</CardTitle>
+              {configOpen ? (
+                <ChevronDown className="w-4 h-4 ml-auto text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
+              )}
+            </button>
+            {configOpen && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+                {[
+                  { label: 'Architecture', value: trainingConfig.architecture },
+                  { label: 'Optimizer', value: trainingConfig.optimizer },
+                  { label: 'Learning Rate', value: trainingConfig.learning_rate?.toString() },
+                  { label: 'Weight Decay', value: trainingConfig.weight_decay?.toString() },
+                  { label: 'Batch Size', value: trainingConfig.batch_size?.toString() },
+                  { label: 'Epochs', value: trainingConfig.epochs?.toString() },
+                  { label: 'AMP', value: trainingConfig.amp != null ? (trainingConfig.amp ? 'Yes' : 'No') : undefined },
+                  { label: 'Gradient Clip', value: trainingConfig.gradient_clip?.toString() },
+                ]
+                  .filter((r) => r.value != null)
+                  .map((r) => (
+                    <div key={r.label} className="bg-muted/50 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground">{r.label}</p>
+                      <p className="text-sm font-mono font-medium">{r.value}</p>
+                    </div>
+                  ))}
+                {trainingConfig.early_stopping && (
+                  <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
+                    <p className="text-xs text-muted-foreground mb-1">Early Stopping</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(trainingConfig.early_stopping).map(([k, v]) => (
+                        <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
+                          {k}: {String(v)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {trainingConfig.lr_scheduler && (
+                  <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
+                    <p className="text-xs text-muted-foreground mb-1">LR Scheduler</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(trainingConfig.lr_scheduler).map(([k, v]) => (
+                        <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
+                          {k}: {String(v)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {stepDurations && stepDurations.steps.length > 0 && (
         <Card>

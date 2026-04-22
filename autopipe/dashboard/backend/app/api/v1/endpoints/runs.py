@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
-from app.schemas import RunResponse, RunUpdate, RunList
+from app.schemas import RunResponse, RunUpdate, RunList, TrainingConfigResponse
 from app.schemas import (
     RunCompareRequest,
     RunCompareResponse,
@@ -135,6 +135,35 @@ async def get_run(
         created_by=run.created_by,
         created_at=run.created_at,
         pipeline_name=pipeline.name if pipeline else "Unknown",
+    )
+
+
+@router.get("/{run_id}/config", response_model=TrainingConfigResponse)
+async def get_run_config(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get structured training config for a run."""
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found",
+        )
+    cfg = run.config or {}
+    return TrainingConfigResponse(
+        run_id=run.id,
+        architecture=cfg.get("architecture"),
+        optimizer=cfg.get("optimizer"),
+        learning_rate=cfg.get("learning_rate"),
+        weight_decay=cfg.get("weight_decay"),
+        batch_size=cfg.get("batch_size"),
+        epochs=cfg.get("epochs"),
+        early_stopping=cfg.get("early_stopping"),
+        lr_scheduler=cfg.get("lr_scheduler"),
+        amp=cfg.get("amp"),
+        gradient_clip=cfg.get("gradient_clip"),
     )
 
 
