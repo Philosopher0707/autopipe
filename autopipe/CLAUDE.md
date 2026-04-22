@@ -97,9 +97,13 @@ Three independent subsystems sharing data concepts but not code:
 - `GET /charts/training-metrics-trace?run_id={id}` — queries `MetricLog` for `loss`/`val_loss`/`accuracy`/`val_accuracy` grouped by `step_index` as epoch; falls back to `ChartArtifact.data.points` if no logs; returns `TrainingMetricsTraceResponse`
 - `count_drifted_features()` helper in `dashboard.py` deduplicates drift-counting logic across `/overview` and `/counts` endpoints
 - DriftReport queries use column-level selects (`select(DriftReport.drift_score, DriftReport.feature_drifts)`) instead of full ORM loads
+- `normalize_feature_drifts()` lives in `app/utils/drift_utils.py` — shared by both `drift.py` and `charts.py`; do NOT duplicate inline
+- **Explainability API** (`/api/v1/explainability/`): `POST /shap` and `POST /lime` accept `model_id` + `data` payload, return `feature_importance` arrays
+- **AutoML API** (`/api/v1/trials/`): `GET /trials` (list), `GET /trials/{id}` (detail), `GET /trials/{id}/history` (optimization history); return trial records with `number`, `state`, `value`, `params` JSON, `datetime`
+- **Features API** (`/api/v1/features/`): `POST /features/extract` (apply transforms, return before/after stats + sample values), `GET /features/preview/{pipeline_id}` (preview pipeline stats)
 
 ### Frontend
-- API clients in `src/api/endpoints/` (one file per domain: pipelines, runs, experiments, models, drift, charts, websocket)
+- API clients in `src/api/endpoints/` (one file per domain: pipelines, runs, experiments, models, drift, charts, websocket, automl, features)
 - TanStack Query with 5-min stale time, 2 retries
 - Auth state via Zustand with `persist` middleware (localStorage)
 - Component library in `src/components/ui/` (shadcn/ui-inspired with Radix primitives)
@@ -112,6 +116,9 @@ Three independent subsystems sharing data concepts but not code:
 - `useMemo` for derived data: bestRun, run status counts, metricName computed from runs array
 - `useMutation.data` preferred over separate state for mutation results (e.g., compare in ExperimentDetail)
 - Conditional query `enabled` flags to avoid unnecessary fetches (e.g., `pipelinesData` only when trials dialog open)
+- **AutoMLPage** (`/automl`) — tabbed: trial history table, param importance bar chart (Recharts), Pareto front scatter plot, pruning history line chart; uses `automlApi` client
+- **FeaturesPage** (`/features`) — tabbed: transform pipeline builder with +Add Step buttons, before/after feature stats tables, feature distribution histogram (Recharts); uses `featuresApi` client
+- **ExplainabilityPage** (`/explainability`) — tabbed: SHAP beeswarm scatter, LIME force bar chart, permutation importance bar chart
 
 ### Seeding
 `python -m app.seed` creates: 4 users, 6 pipelines, 15 runs with steps, 3 experiments (linked to runs), models with versions, drift reports with alerts, chart artifacts, `MetricLog` training curves (10 epochs of loss/val_loss/accuracy/val_accuracy for each successful run). Experiments must be seeded BEFORE runs for linking to work.
@@ -123,7 +130,7 @@ Three independent subsystems sharing data concepts but not code:
 - DB session (`app/db/session.py`) auto-detects SQLite vs Postgres and uses appropriate async driver (aiosqlite vs asyncpg)
 - Backend `requirements.txt` includes both `aiosqlite` (dev/SQLite) and `asyncpg`+`psycopg2-binary` (Docker/Postgres)
 - `/dashboard/health` endpoint performs real DB connectivity check (`select(1)`) and autopipe_core import check; no fake Redis check
-- 80 backend tests (including 11 auth tests + 25 security tests covering password hashing, rate limiting, file security, security headers)
+- 82 backend tests (including 11 auth tests + 25 security tests covering password hashing, rate limiting, file security, security headers; 1 known failure: `test_secure_upload_path_prevents_traversal`)
 - 34 frontend tests
 
 ### Workspace Panels
