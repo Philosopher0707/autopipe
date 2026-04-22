@@ -40,7 +40,7 @@ export function ExperimentDetail() {
   const { experimentId } = useParams<{ experimentId: string }>()
   const navigate = useNavigate()
   const isNew = !experimentId
-  const [activeTab, setActiveTab] = useState<'overview' | 'runs' | 'compare'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'runs' | 'compare' | 'artifacts'>('overview')
   const [form, setForm] = useState<ExperimentFormState>(DEFAULT_FORM)
   const [formError, setFormError] = useState<string | null>(null)
   const [showTrials, setShowTrials] = useState(false)
@@ -90,6 +90,12 @@ export function ExperimentDetail() {
     queryKey: ['charts', 'artifacts', 'experiment', experimentId],
     queryFn: () => chartsApi.listArtifacts({ experiment_id: experimentId!, page_size: 50 }),
     enabled: !!experimentId,
+  })
+
+  const { data: artifactsData } = useQuery({
+    queryKey: ['experiments', experimentId, 'artifacts'],
+    queryFn: () => experimentsApi.getArtifacts(experimentId!),
+    enabled: !!experimentId && activeTab === 'artifacts',
   })
 
   const { data: pipelinesData } = useQuery({
@@ -307,7 +313,7 @@ export function ExperimentDetail() {
 
       <div className="border-b">
         <div className="flex gap-1">
-          {(['overview', 'runs', 'compare'] as const).map((tab) => (
+          {(['overview', 'runs', 'compare', 'artifacts'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -464,6 +470,55 @@ export function ExperimentDetail() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {activeTab === 'artifacts' && (
+        <div>
+          {artifactsData && artifactsData.artifacts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {artifactsData.artifacts.map((art) => (
+                <Card key={art.id}>
+                  <CardContent className="p-4">
+                    {art.artifact_type === 'image' || art.artifact_type === 'figure' ? (
+                      <div className="aspect-video bg-muted rounded-md flex items-center justify-center mb-3 overflow-hidden">
+                        <img
+                          src={art.file_path}
+                          alt={art.title}
+                          className="max-w-full max-h-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none'
+                            const parent = (e.target as HTMLImageElement).parentElement
+                            if (parent) parent.innerHTML = `<span class="text-xs text-muted-foreground">${art.artifact_type.toUpperCase()}</span>`
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="aspect-video bg-muted rounded-md flex items-center justify-center mb-3">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {art.artifact_type.toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium truncate">{art.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {art.artifact_type} · {(art.file_size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <a
+                      href={art.file_path}
+                      className="mt-2 inline-block text-xs text-primary hover:underline"
+                    >
+                      Download
+                    </a>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground py-8">No artifacts</p>
+          )}
+        </div>
       )}
 
       {failedRuns > 0 && (

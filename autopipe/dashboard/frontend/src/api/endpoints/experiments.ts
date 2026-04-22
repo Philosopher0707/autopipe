@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Experiment, PaginatedResponse, PipelineRun } from '@/types'
+import type { Experiment, PaginatedResponse, PipelineRun, ExperimentArtifactsResponse } from '@/types'
 
 export interface ExperimentDetail extends Experiment {
   runs: PipelineRun[]
@@ -76,5 +76,9 @@ export const experimentsApi = {
     return apiClient.get<ExperimentComparison>(`/experiments/${experimentId}/compare`, {
       params: metric ? { metric } : undefined,
     })
+  },
+
+  getArtifacts: async (experimentId: string): Promise<ExperimentArtifactsResponse> => {
+    return apiClient.get<ExperimentArtifactsResponse>(`/experiments/${experimentId}/artifacts`)
   },
 }

@@ -1045,3 +1045,21 @@ class FeaturePreviewResponse(BaseModel):
     pipeline: List[TransformStep]
     before: List[FeatureStats]
     after: List[FeatureStats]
+
+
+# ==================== Experiment Artifacts Schemas ====================
+
+class ExperimentArtifact(BaseModel):
+    """Single experiment artifact."""
+    id: str
+    artifact_type: str  # image, figure, csv, json, other
+    title: str
+    file_path: str
+    file_size: int
+    created_at: Optional[datetime] = None
+
+
+class ExperimentArtifactsResponse(BaseModel):
+    """Response for GET /experiments/{id}/artifacts."""
+    experiment_id: str
+    artifacts: List[ExperimentArtifact]

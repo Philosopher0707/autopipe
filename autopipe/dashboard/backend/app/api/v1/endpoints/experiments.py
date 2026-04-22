@@ -16,6 +16,7 @@ from app.db.session import get_db
 from app.schemas import (
     ExperimentCreate, ExperimentUpdate, ExperimentResponse, ExperimentList,
     TrialLaunchRequest, TrialLaunchResponse, RunResponse,
+    ExperimentArtifactsResponse, ExperimentArtifact,
 )
 
 router = APIRouter()
@@ -386,6 +387,35 @@ def _serialize_run(run: Run, pipeline_name: str | None = None) -> RunResponse:
         created_at=run.created_at,
         pipeline_name=pipeline_name,
     )
+
+
+@router.get("/{experiment_id}/artifacts", response_model=ExperimentArtifactsResponse)
+async def get_experiment_artifacts(
+    experiment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get artifacts for an experiment. Returns seeded mock data."""
+    result = await db.execute(select(Experiment).where(Experiment.id == experiment_id))
+    experiment = result.scalar_one_or_none()
+    if not experiment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Experiment {experiment_id} not found",
+        )
+    types = ["image", "figure", "csv", "json"]
+    titles = ["Confusion Matrix", "ROC Curve", "Feature Importance", "Training Loss Curve", "Prediction Distribution", "Residual Plot"]
+    artifacts = []
+    for i, (t, title) in enumerate(zip(types * 2, titles)):
+        ext = {"image": "png", "figure": "svg", "csv": "csv", "json": "json"}[t]
+        artifacts.append(ExperimentArtifact(
+            id=f"art-{experiment_id[:8]}-{i}",
+            artifact_type=t,
+            title=title,
+            file_path=f"/artifacts/{experiment_id[:8]}/{title.lower().replace(' ', '_')}.{ext}",
+            file_size=random.randint(1024, 5_242_880),
+            created_at=experiment.created_at,
+        ))
+    return ExperimentArtifactsResponse(experiment_id=experiment_id, artifacts=artifacts)
 
 
 @router.post("/{experiment_id}/trials", response_model=TrialLaunchResponse)
