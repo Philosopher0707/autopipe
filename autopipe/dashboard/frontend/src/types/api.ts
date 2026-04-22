@@ -193,3 +193,138 @@ export interface ApiError {
   detail: string
   status_code: number
 }
+
+// Explainability Types
+export interface ShapValuePoint {
+  feature: string
+  value: number
+  impact: number
+  base_value: number
+}
+
+export interface LimeExplanationPoint {
+  feature: string
+  weight: number
+}
+
+export interface PermutationImportancePoint {
+  feature: string
+  importance: number
+  std: number
+}
+
+export interface ExplainabilityResponse {
+  run_id: string
+  shap_values: ShapValuePoint[]
+  lime_explanation: LimeExplanationPoint[]
+  permutation_importance: PermutationImportancePoint[]
+}
+
+// AutoML / Optuna Types
+export interface TrialPoint {
+  number: number
+  state: string
+  value?: number
+  values?: number[]
+  params: Record<string, unknown>
+  duration_seconds?: number
+  started_at?: string
+  completed_at?: string
+}
+
+export interface AutomlTrialsResponse {
+  experiment_id: string
+  trials: TrialPoint[]
+}
+
+export interface ParamImportancePoint {
+  param: string
+  importance: number
+}
+
+export interface ParetoFrontPoint {
+  trial_number: number
+  objective_1: number
+  objective_2: number
+  params: Record<string, unknown>
+}
+
+export interface PruningHistoryPoint {
+  trial_number: number
+  step: number
+  intermediate_value: number
+  pruned: boolean
+}
+
+export interface AutomlVisualizationsResponse {
+  experiment_id: string
+  param_importance: ParamImportancePoint[]
+  pareto_front: ParetoFrontPoint[]
+  pruning_history: PruningHistoryPoint[]
+  parallel_coords_data: Record<string, unknown>[]
+}
+
+// Feature Engineering Types
+export interface TransformStep {
+  name: string
+  type: string
+  params: Record<string, unknown>
+  enabled: boolean
+}
+
+export interface FeatureStats {
+  name: string
+  dtype: string
+  nulls: number
+  mean?: number
+  std?: number
+  min?: number
+  max?: number
+  unique?: number
+}
+
+export interface FeatureTransformsResponse {
+  run_id: string
+  pipeline: TransformStep[]
+  before: FeatureStats[]
+  after: FeatureStats[]
+}
+
+// AutoML Trial Detail / History Types
+export interface TrialDetailResponse {
+  trial: TrialPoint
+}
+
+export interface TrialHistoryPoint {
+  step: number
+  value: number
+  timestamp: string
+}
+
+export interface TrialHistoryResponse {
+  trial_id: string
+  history: TrialHistoryPoint[]
+}
+
+// Feature Engineering Extract / Preview Types
+export interface FeatureExtractRequest {
+  pipeline_id: string
+  data: Record<string, unknown>[]
+  transforms?: TransformStep[]
+}
+
+export interface FeatureExtractResponse {
+  pipeline_id: string
+  before_count: number
+  after_count: number
+  before: FeatureStats[]
+  after: FeatureStats[]
+  sample_values: Record<string, unknown[]>
+}
+
+export interface FeaturePreviewResponse {
+  pipeline_id: string
+  pipeline: TransformStep[]
+  before: FeatureStats[]
+  after: FeatureStats[]
+}
