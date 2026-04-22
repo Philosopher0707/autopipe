@@ -104,7 +104,8 @@ async def get_training_metrics_trace(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
 
-    metric_names = ["loss", "val_loss", "accuracy", "val_accuracy"]
+    metric_names = ["loss", "val_loss", "accuracy", "val_accuracy",
+                    "train/loss", "train/epoch_loss", "train/accuracy", "train/epoch_accuracy"]
     log_result = await db.execute(
         select(MetricLog)
         .where(MetricLog.run_id == run_id, MetricLog.metric_name.in_(metric_names))
@@ -112,12 +113,21 @@ async def get_training_metrics_trace(
     )
     logs = log_result.scalars().all()
 
+    # Normalize prefixed metric names to standard fields
+    metric_alias_map = {
+        "train/epoch_loss": "loss",
+        "train/loss": "loss",
+        "train/epoch_accuracy": "accuracy",
+        "train/accuracy": "accuracy",
+    }
+
     epochs: Dict[int, Dict[str, float]] = {}
     for log in logs:
         epoch = log.step_index if log.step_index is not None else 0
         if epoch not in epochs:
             epochs[epoch] = {}
-        epochs[epoch][log.metric_name] = log.value
+        field_name = metric_alias_map.get(log.metric_name, log.metric_name)
+        epochs[epoch][field_name] = log.value
 
     if not epochs:
         # Fallback: attempt to extract from ChartArtifact data
@@ -140,7 +150,8 @@ async def get_training_metrics_trace(
                     epochs[e] = {}
                 for key in metric_names:
                     if key in row and _is_numeric(row[key]):
-                        epochs[e][key] = float(row[key])
+                        field_name = metric_alias_map.get(key, key)
+                        epochs[e][field_name] = float(row[key])
 
     points = [
         TrainingEpochPoint(

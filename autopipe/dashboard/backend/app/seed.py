@@ -633,7 +633,7 @@ async def seed_metric_logs(db: AsyncSession) -> None:
         return
 
     created = 0
-    for run in runs:
+    for idx, run in enumerate(runs):
         base_time = run.started_at or datetime.now(timezone.utc)
         for epoch in range(1, 11):
             timestamp = base_time + timedelta(minutes=epoch)
@@ -642,12 +642,23 @@ async def seed_metric_logs(db: AsyncSession) -> None:
             accuracy = round(min(0.99, 0.6 + 0.04 * epoch + random.uniform(0, 0.01)), 4)
             val_accuracy = round(min(0.98, 0.58 + 0.038 * epoch + random.uniform(0, 0.015)), 4)
 
-            for metric_name, value in [
-                ("loss", loss),
-                ("val_loss", val_loss),
-                ("accuracy", accuracy),
-                ("val_accuracy", val_accuracy),
-            ]:
+            # Alternate between standard names and prefixed names per run
+            if idx % 2 == 0:
+                metric_pairs = [
+                    ("loss", loss),
+                    ("val_loss", val_loss),
+                    ("accuracy", accuracy),
+                    ("val_accuracy", val_accuracy),
+                ]
+            else:
+                metric_pairs = [
+                    ("train/epoch_loss", loss),
+                    ("val_loss", val_loss),
+                    ("train/epoch_accuracy", accuracy),
+                    ("val_accuracy", val_accuracy),
+                ]
+
+            for metric_name, value in metric_pairs:
                 db.add(MetricLog(
                     id=str(uuid.uuid4()),
                     run_id=run.id,

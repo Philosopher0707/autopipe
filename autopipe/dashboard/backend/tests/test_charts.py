@@ -89,6 +89,40 @@ async def test_training_metrics_trace(client: AsyncClient, seed_pipeline):
     assert "val_accuracy" in first
 
 
+async def test_training_metrics_trace_prefixed(client: AsyncClient, seed_pipeline):
+    """GET /charts/training-metrics-trace normalizes train/* metric names."""
+    run_resp = await client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
+    assert run_resp.status_code == 201
+    run_id = run_resp.json()["id"]
+
+    # Log metrics with train/ prefixed names
+    for epoch in range(1, 4):
+        for metric_name, value in [
+            ("train/epoch_loss", 0.5 / epoch),
+            ("val_loss", 0.55 / epoch),
+            ("train/epoch_accuracy", 0.6 + 0.1 * epoch),
+            ("val_accuracy", 0.58 + 0.09 * epoch),
+        ]:
+            log_resp = await client.post("/api/v1/charts/metric-logs", json={
+                "run_id": run_id,
+                "metric_name": metric_name,
+                "step_index": epoch,
+                "value": round(value, 4),
+            })
+            assert log_resp.status_code == 201
+
+    resp = await client.get("/api/v1/charts/training-metrics-trace", params={"run_id": run_id})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["run_id"] == run_id
+    assert len(data["points"]) == 3
+    first = data["points"][0]
+    assert first["loss"] is not None
+    assert first["val_loss"] is not None
+    assert first["accuracy"] is not None
+    assert first["val_accuracy"] is not None
+
+
 async def test_training_metrics_trace_404(client: AsyncClient):
     """GET /charts/training-metrics-trace returns 404 for unknown run."""
     resp = await client.get("/api/v1/charts/training-metrics-trace", params={
