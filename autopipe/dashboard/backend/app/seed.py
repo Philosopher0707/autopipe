@@ -624,7 +624,7 @@ async def seed_metric_logs(db: AsyncSession) -> None:
         return
 
     import random
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(10))
     runs = list(result.scalars().all())
