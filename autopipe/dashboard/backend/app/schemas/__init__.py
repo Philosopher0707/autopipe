@@ -823,3 +823,133 @@ class TrainingMetricsTraceResponse(BaseModel):
     run_id: str
     run_number: int
     points: List[TrainingEpochPoint]
+
+
+# ==================== Explainability Schemas ====================
+
+class ShapValuePoint(BaseModel):
+    """Single SHAP value for a feature."""
+    feature: str
+    value: float
+    impact: float
+    base_value: float
+
+
+class LimeExplanationPoint(BaseModel):
+    """Single LIME explanation weight for a feature."""
+    feature: str
+    weight: float
+
+
+class PermutationImportancePoint(BaseModel):
+    """Permutation importance for a feature."""
+    feature: str
+    importance: float
+    std: float
+
+
+class ExplainabilityRequest(BaseModel):
+    """Request for POST /explainability/shap and /lime."""
+    model_id: str
+    data: List[Dict[str, Any]]
+
+
+class ShapResponse(BaseModel):
+    """Response for POST /explainability/shap."""
+    model_id: str
+    feature_importance: List[ShapValuePoint]
+
+
+class LimeResponse(BaseModel):
+    """Response for POST /explainability/lime."""
+    model_id: str
+    feature_importance: List[LimeExplanationPoint]
+
+
+class ExplainabilityResponse(BaseModel):
+    """Response for GET /charts/explainability."""
+    run_id: str
+    shap_values: List[ShapValuePoint]
+    lime_explanation: List[LimeExplanationPoint]
+    permutation_importance: List[PermutationImportancePoint]
+
+
+# ==================== AutoML / Optuna Schemas ====================
+
+class TrialPoint(BaseModel):
+    """Single Optuna trial result."""
+    number: int
+    state: str
+    value: Optional[float] = None
+    values: Optional[List[float]] = None
+    params: Dict[str, Any]
+    duration_seconds: Optional[float] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class AutomlTrialsResponse(BaseModel):
+    """Response for GET /charts/automl-trials."""
+    experiment_id: str
+    trials: List[TrialPoint]
+
+
+class ParamImportancePoint(BaseModel):
+    """Parameter importance for radar chart."""
+    param: str
+    importance: float
+
+
+class ParetoFrontPoint(BaseModel):
+    """Single point on Pareto front."""
+    trial_number: int
+    objective_1: float
+    objective_2: float
+    params: Dict[str, Any]
+
+
+class PruningHistoryPoint(BaseModel):
+    """Pruning event for a trial."""
+    trial_number: int
+    step: int
+    intermediate_value: float
+    pruned: bool
+
+
+class AutomlVisualizationsResponse(BaseModel):
+    """Response for GET /charts/automl-visualizations."""
+    experiment_id: str
+    param_importance: List[ParamImportancePoint]
+    pareto_front: List[ParetoFrontPoint]
+    pruning_history: List[PruningHistoryPoint]
+    parallel_coords_data: List[Dict[str, Any]]
+
+
+# ==================== Feature Engineering Schemas ====================
+
+class TransformStep(BaseModel):
+    """Single transform in a feature engineering pipeline."""
+    name: str
+    type: str
+    params: Dict[str, Any]
+    enabled: bool = True
+
+
+class FeatureStats(BaseModel):
+    """Statistics for a single feature."""
+    name: str
+    dtype: str
+    nulls: int
+    mean: Optional[float] = None
+    std: Optional[float] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    unique: Optional[int] = None
+
+
+class FeatureTransformsResponse(BaseModel):
+    """Response for GET /charts/feature-transforms."""
+    run_id: str
+    pipeline: List[TransformStep]
+    before: List[FeatureStats]
+    after: List[FeatureStats]
