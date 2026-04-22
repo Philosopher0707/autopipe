@@ -17,7 +17,7 @@ export function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'logs' | 'metrics'>('logs')
+  const [activeTab, setActiveTab] = useState<'logs' | 'metrics' | 'checkpoints'>('logs')
   const [logs, setLogs] = useState<string[]>([])
   const [configOpen, setConfigOpen] = useState(false)
   const wsConnectedRef = useRef(false)
@@ -61,6 +61,12 @@ export function RunDetail() {
     queryKey: ['runs', runId, 'config'],
     queryFn: () => runsApi.getConfig(runId!),
     enabled: !!runId,
+  })
+
+  const { data: checkpointsData } = useQuery({
+    queryKey: ['runs', runId, 'checkpoints'],
+    queryFn: () => runsApi.getCheckpoints(runId!),
+    enabled: !!runId && activeTab === 'checkpoints',
   })
 
   useEffect(() => {
@@ -351,6 +357,16 @@ export function RunDetail() {
               >
                 Metrics
               </button>
+              <button
+                onClick={() => setActiveTab('checkpoints')}
+                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  activeTab === 'checkpoints'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted hover:bg-muted/80'
+                }`}
+              >
+                Checkpoints
+              </button>
             </div>
           </div>
 
@@ -366,6 +382,39 @@ export function RunDetail() {
                 ))
               )}
               <div ref={logsEndRef} />
+            </div>
+          ) : activeTab === 'checkpoints' ? (
+            <div className="overflow-x-auto">
+              {checkpointsData && checkpointsData.checkpoints.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="pb-2 pr-4">Epoch</th>
+                      <th className="pb-2 pr-4">Val Loss</th>
+                      <th className="pb-2 pr-4">Val Accuracy</th>
+                      <th className="pb-2 pr-4">Path</th>
+                      <th className="pb-2 pr-4">Best</th>
+                      <th className="pb-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {checkpointsData.checkpoints.map((cp) => (
+                      <tr key={cp.id} className="border-b hover:bg-muted/50">
+                        <td className="py-2 pr-4 font-mono">{cp.epoch}</td>
+                        <td className="py-2 pr-4 font-mono">{cp.val_loss.toFixed(4)}</td>
+                        <td className="py-2 pr-4 font-mono">{cp.val_accuracy.toFixed(4)}</td>
+                        <td className="py-2 pr-4 text-xs text-muted-foreground truncate max-w-[200px]">{cp.file_path}</td>
+                        <td className="py-2 pr-4">{cp.is_best ? '⭐' : ''}</td>
+                        <td className="py-2">
+                          <a href={cp.file_path} className="text-xs text-primary hover:underline">Download</a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-muted-foreground text-center py-4">No checkpoints</p>
+              )}
             </div>
           ) : (
             <div className="p-8">

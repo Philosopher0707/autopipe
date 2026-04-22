@@ -146,6 +146,38 @@ class TrainingConfigResponse(BaseModel):
     gradient_clip: Optional[float] = None
 
 
+class CheckpointBase(BaseModel):
+    """Base checkpoint schema."""
+    epoch: int
+    val_loss: float
+    val_accuracy: float
+    file_path: str
+    is_best: bool = False
+
+
+class CheckpointResponse(CheckpointBase):
+    """Checkpoint API response."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    run_id: str
+    restored: bool = False
+    promoted: bool = False
+    created_at: Optional[datetime] = None
+
+
+class CheckpointsResponse(BaseModel):
+    """Response for GET /runs/{id}/checkpoints."""
+    run_id: str
+    checkpoints: List[CheckpointResponse]
+
+
+class CheckpointPromoteRequest(BaseModel):
+    """Request to mark a checkpoint as restored or promoted."""
+    restored: Optional[bool] = None
+    promoted: Optional[bool] = None
+
+
 class RunFilters(BaseModel):
     """Run filter parameters."""
     status: Optional[str] = None

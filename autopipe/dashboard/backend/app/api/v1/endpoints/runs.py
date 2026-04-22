@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
-from app.schemas import RunResponse, RunUpdate, RunList, TrainingConfigResponse
+from app.schemas import RunResponse, RunUpdate, RunList, TrainingConfigResponse, CheckpointsResponse, CheckpointPromoteRequest
 from app.schemas import (
     RunCompareRequest,
     RunCompareResponse,
@@ -430,6 +430,59 @@ async def compare_runs(
     }
     
     return comparison
+
+
+@router.get("/{run_id}/checkpoints", response_model=CheckpointsResponse)
+async def get_run_checkpoints(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get saved checkpoints for a run. Returns seeded mock data until checkpoint model is added."""
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found",
+        )
+    # Mock checkpoints derived from run config or defaults
+    epochs = (run.config or {}).get("epochs", 10) if isinstance(run.config, dict) else 10
+    checkpoints = []
+    for i in range(1, epochs + 1):
+        loss = max(0.01, 1.0 - i * 0.08 + 0.02 * ((-1) ** i))
+        acc = min(0.99, 0.5 + i * 0.045)
+        checkpoints.append({
+            "id": f"ckpt-{run_id[:8]}-{i}",
+            "run_id": run_id,
+            "epoch": i,
+            "val_loss": round(loss, 4),
+            "val_accuracy": round(acc, 4),
+            "file_path": f"/checkpoints/{run_id[:8]}/epoch_{i}.pt",
+            "is_best": i == epochs,
+            "restored": False,
+            "promoted": False,
+            "created_at": run.completed_at,
+        })
+    return CheckpointsResponse(run_id=run_id, checkpoints=checkpoints)
+
+
+@router.patch("/{run_id}/checkpoints/{checkpoint_id}", response_model=dict)
+async def promote_checkpoint(
+    run_id: str,
+    checkpoint_id: str,
+    body: CheckpointPromoteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a checkpoint as restored or promoted. Stub — returns ack."""
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
+    return {
+        "run_id": run_id,
+        "checkpoint_id": checkpoint_id,
+        "restored": body.restored,
+        "promoted": body.promoted,
+    }
 
 
 @router.post("/compare")
