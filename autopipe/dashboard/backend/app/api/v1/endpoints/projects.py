@@ -1,16 +1,37 @@
 """Project management endpoints."""
 
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Project
+from app.db.models import Project, Run
 from app.db.session import get_db
 from app.schemas import ProjectCreate, ProjectList, ProjectResponse, ProjectUpdate
 
 router = APIRouter()
+
+
+def _project_response(
+    project: Project,
+    run_count: int = 0,
+    last_run_at: Optional[datetime] = None,
+) -> ProjectResponse:
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        status=project.status,
+        tags=project.tags,
+        starred=project.starred,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        created_by=project.created_by,
+        run_count=run_count,
+        last_run_at=last_run_at,
+    )
 
 
 @router.get("", response_model=ProjectList)
@@ -40,12 +61,33 @@ async def list_projects(
     result = await db.execute(query)
     items = result.scalars().all()
 
+    project_ids = [p.id for p in items]
+    run_stats = {}
+    if project_ids:
+        stats_result = await db.execute(
+            select(Run.project_id, func.count(Run.id).label("run_count"), func.max(Run.completed_at).label("last_run_at"))
+            .where(Run.project_id.in_(project_ids))
+            .group_by(Run.project_id)
+        )
+        for row in stats_result.all():
+            run_stats[row.project_id] = {
+                "run_count": row.run_count,
+                "last_run_at": row.last_run_at,
+            }
+
     return ProjectList(
         total=total,
         page=(skip // limit) + 1,
         page_size=limit,
         pages=(total + limit - 1) // limit,
-        items=[ProjectResponse.model_validate(p) for p in items],
+        items=[
+            _project_response(
+                p,
+                run_count=run_stats.get(p.id, {}).get("run_count", 0),
+                last_run_at=run_stats.get(p.id, {}).get("last_run_at"),
+            )
+            for p in items
+        ],
     )
 
 
@@ -65,7 +107,7 @@ async def create_project(
     db.add(project)
     await db.commit()
     await db.refresh(project)
-    return ProjectResponse.model_validate(project)
+    return _project_response(project)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -78,7 +120,15 @@ async def get_project(
     project = result.scalars().first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return ProjectResponse.model_validate(project)
+
+    stats_result = await db.execute(
+        select(func.count(Run.id).label("run_count"), func.max(Run.completed_at).label("last_run_at"))
+        .where(Run.project_id == project_id)
+    )
+    row = stats_result.one_or_none()
+    run_count = row.run_count if row else 0
+    last_run_at = row.last_run_at if row else None
+    return _project_response(project, run_count=run_count, last_run_at=last_run_at)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
