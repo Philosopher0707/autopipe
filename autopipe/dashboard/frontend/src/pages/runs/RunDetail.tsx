@@ -71,8 +71,8 @@ export function RunDetail() {
   const { data: logsData } = useQuery({
     queryKey: ['runs', runId, 'logs'],
     queryFn: () => runsApi.getLogs(runId!),
-    enabled: !!runId && activeTab === 'logs' && !wsConnectedRef.current,
-    refetchInterval: run?.status === 'running' && !wsConnectedRef.current ? 3000 : false,
+    enabled: !!runId && activeTab === 'logs',
+    refetchInterval: run?.status === 'running' ? 3000 : false,
   })
 
   const steps = stepsData?.items || []
@@ -116,12 +116,12 @@ export function RunDetail() {
   })
 
   useEffect(() => {
-    if (!wsConnectedRef.current) {
+    if (apiLogs.length > 0 && logs.length === 0) {
       setLogs(
         apiLogs.map((entry) => `[${entry.level}] ${entry.step ? `(${entry.step}) ` : ''}${entry.message}`)
       )
     }
-  }, [apiLogs])
+  }, [apiLogs, logs.length])
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
