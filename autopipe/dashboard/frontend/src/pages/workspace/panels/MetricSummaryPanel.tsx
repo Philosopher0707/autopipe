@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Trophy, TrendingUp, TrendingDown } from 'lucide-react'
 import { runsApi } from '@/api/endpoints'
 import { PanelWrapper } from '../PanelWrapper'
+import { useWorkspace } from '../WorkspaceContext'
 import type { PanelLayout } from '../WorkspaceContext'
 
 interface MetricSummaryPanelProps {
@@ -20,10 +21,11 @@ interface MetricCard {
 
 export function MetricSummaryPanel({ panel }: MetricSummaryPanelProps) {
   const { runIds = [] } = panel.config
+  const { state } = useWorkspace()
 
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const metrics: MetricCard[] = useMemo(() => {

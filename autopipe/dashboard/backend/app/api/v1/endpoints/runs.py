@@ -33,6 +33,7 @@ async def list_runs(
     pipeline_id: Optional[str] = Query(None, description="Filter by pipeline"),
     status: Optional[str] = Query(None, description="Filter by status"),
     experiment_id: Optional[str] = Query(None, description="Filter by experiment"),
+    project_id: Optional[str] = Query(None, description="Filter by project"),
     search: Optional[str] = Query(None, description="Search by run ID or pipeline name"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -48,6 +49,8 @@ async def list_runs(
         query = query.where(Run.status == status)
     if experiment_id:
         query = query.where(Run.experiment_id == experiment_id)
+    if project_id:
+        query = query.where(Run.project_id == project_id)
     if search:
         search_filter = f"%{search}%"
         query = query.where(
@@ -87,6 +90,7 @@ async def list_runs(
             "created_by": r.created_by,
             "created_at": r.created_at,
             "pipeline_name": pipeline_names.get(r.pipeline_id, "Unknown"),
+            "project_id": r.project_id,
         }
         items.append(run_dict)
     
@@ -125,6 +129,7 @@ async def get_run(
     return RunResponse(
         id=run.id,
         pipeline_id=run.pipeline_id,
+        project_id=run.project_id,
         status=run.status,
         run_number=run.run_number,
         started_at=run.started_at,
@@ -240,6 +245,7 @@ async def update_run(
     return RunResponse(
         id=run.id,
         pipeline_id=run.pipeline_id,
+        project_id=run.project_id,
         status=run.status,
         run_number=run.run_number,
         started_at=run.started_at,

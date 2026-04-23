@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft, Play, GitBranch, Loader2,
@@ -7,7 +7,7 @@ import {
 import {
   Card, CardContent, CardHeader, CardTitle, Badge, Button, Skeleton,
 } from '@/components/ui'
-import { pipelinesApi } from '@/api/endpoints'
+import { pipelinesApi, projectsApi } from '@/api/endpoints'
 import { cn, formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
 
 type PipelineFormState = {
@@ -15,6 +15,7 @@ type PipelineFormState = {
   description: string
   tags: string
   configText: string
+  projectId: string
 }
 
 const DEFAULT_FORM: PipelineFormState = {
@@ -22,6 +23,7 @@ const DEFAULT_FORM: PipelineFormState = {
   description: '',
   tags: '',
   configText: '{\n  "steps": []\n}',
+  projectId: '',
 }
 
 function parseJsonConfig(configText: string): Record<string, unknown> | undefined {
@@ -41,10 +43,20 @@ function parseTags(tags: string): string[] | undefined {
 export function PipelineDetail() {
   const { pipelineId } = useParams<{ pipelineId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const isNew = !pipelineId
   const [activeTab, setActiveTab] = useState<'overview' | 'runs' | 'config'>('overview')
-  const [form, setForm] = useState<PipelineFormState>(DEFAULT_FORM)
+  const [form, setForm] = useState<PipelineFormState>(() => ({
+    ...DEFAULT_FORM,
+    projectId: searchParams.get('projectId') ?? '',
+  }))
   const [formError, setFormError] = useState<string | null>(null)
+
+  const { data: projectsData } = useQuery({
+    queryKey: ['projects', 'list'],
+    queryFn: () => projectsApi.list({ limit: 100 }),
+    enabled: isNew,
+  })
 
   const { data: pipeline, isLoading } = useQuery({
     queryKey: ['pipeline', pipelineId],
@@ -71,6 +83,7 @@ export function PipelineDetail() {
         description: form.description.trim() || undefined,
         tags: parseTags(form.tags),
         config,
+        project_id: form.projectId || undefined,
       })
     },
     onSuccess: (createdPipeline) => {
@@ -148,6 +161,20 @@ export function PipelineDetail() {
                   className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   placeholder="batch, nightly, feature-store"
                 />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Project</label>
+                <select
+                  value={form.projectId}
+                  onChange={(event) => setForm((current) => ({ ...current, projectId: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select a project...</option>
+                  {projectsData?.items?.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
               </div>
 
               <div>

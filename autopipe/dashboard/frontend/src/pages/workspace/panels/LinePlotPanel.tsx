@@ -38,9 +38,10 @@ export function LinePlotPanel({ panel }: LinePlotPanelProps) {
   })
 
   // Fetch run metadata for legend labels
+  const { state } = useWorkspace()
   const { data: runsData } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const runMap = useMemo(() => {

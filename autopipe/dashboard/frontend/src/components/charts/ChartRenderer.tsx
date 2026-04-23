@@ -3,7 +3,7 @@ import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
 } from 'recharts'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import { ChartCard } from '@/components/ui'
 import type { ChartArtifact } from '@/api/endpoints/charts'
 
 const PALETTE = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16']
@@ -208,16 +208,11 @@ export function ChartRenderer({ artifact }: ChartProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{artifact.title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className={artifact.chart_type === 'heatmap' ? undefined : 'h-64'}>
-          <Renderer artifact={artifact} />
-        </div>
-      </CardContent>
-    </Card>
+    <ChartCard title={artifact.title}>
+      <div className={artifact.chart_type === 'heatmap' ? undefined : 'h-64'}>
+        <Renderer artifact={artifact} />
+      </div>
+    </ChartCard>
   )
 }
 

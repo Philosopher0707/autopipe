@@ -29,6 +29,7 @@ def _serialize_run(run: Run, pipeline_name: Optional[str] = None) -> RunResponse
         id=run.id,
         pipeline_id=run.pipeline_id,
         experiment_id=run.experiment_id,
+        project_id=run.project_id,
         status=run.status,
         run_number=run.run_number,
         started_at=run.started_at,
@@ -163,6 +164,7 @@ async def create_pipeline(
         config=pipeline.config,
         tags=pipeline.tags,
         config_hash=pipeline.config_hash if hasattr(pipeline, 'config_hash') else None,
+        project_id=pipeline.project_id if hasattr(pipeline, 'project_id') else None,
     )
     
     db.add(db_pipeline)
@@ -301,6 +303,7 @@ async def trigger_run(
     # Create run
     run = Run(
         pipeline_id=pipeline_id,
+        project_id=pipeline.project_id,
         status=RunStatus.PENDING,
         run_number=max_run + 1,
         config=run_config,

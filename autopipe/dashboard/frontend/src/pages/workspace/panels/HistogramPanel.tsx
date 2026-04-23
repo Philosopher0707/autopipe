@@ -47,9 +47,10 @@ export function HistogramPanel({ panel }: HistogramPanelProps) {
     enabled: runIds.length > 0,
   })
 
+  const { state } = useWorkspace()
   const { data: runsData } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const histogramData = useMemo(() => {

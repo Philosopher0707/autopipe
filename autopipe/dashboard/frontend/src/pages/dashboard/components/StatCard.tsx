@@ -23,8 +23,10 @@ export function StatCard({
   color,
   status,
 }: StatCardProps) {
+  const accentBorder = color.replace('bg-', 'border-t-2 border-')
+
   return (
-    <Card className="hover:shadow-lg transition-shadow">
+    <Card className={cn('hover:shadow-lg transition-shadow', accentBorder)}>
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div className={cn('p-3 rounded-lg', color)}>

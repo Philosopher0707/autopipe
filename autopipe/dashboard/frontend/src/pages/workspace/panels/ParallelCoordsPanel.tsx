@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { runsApi } from '@/api/endpoints'
 import { PanelWrapper } from '../PanelWrapper'
+import { useWorkspace } from '../WorkspaceContext'
 import type { PanelLayout } from '../WorkspaceContext'
 
 interface ParallelCoordsPanelProps {
@@ -15,9 +16,10 @@ const RUN_COLORS = [
 
 export function ParallelCoordsPanel({ panel }: ParallelCoordsPanelProps) {
   const { runIds = [] } = panel.config
+  const { state } = useWorkspace()
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const filtered = useMemo(() => {

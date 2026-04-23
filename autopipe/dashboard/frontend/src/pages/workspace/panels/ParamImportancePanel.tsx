@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowRightLeft, ChevronDown, ChevronUp } from 'lucide-react'
 import { runsApi } from '@/api/endpoints'
 import { PanelWrapper } from '../PanelWrapper'
+import { useWorkspace } from '../WorkspaceContext'
 import type { PanelLayout } from '../WorkspaceContext'
 
 interface ParamImportancePanelProps {
@@ -21,9 +22,10 @@ export function ParamImportancePanel({ panel }: ParamImportancePanelProps) {
   const [showDiffOnly, setShowDiffOnly] = useState(true)
   const [expandedMetrics, setExpandedMetrics] = useState(true)
 
+  const { state } = useWorkspace()
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const diff = useMemo(() => {

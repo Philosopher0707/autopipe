@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   LayoutGrid,
   Plus,
@@ -17,9 +18,9 @@ import {
   Table,
   FileText,
 } from 'lucide-react'
-import { CardTitle, Skeleton } from '@/components/ui'
+import { CardTitle, Skeleton, StatusPill } from '@/components/ui'
 import { useQuery } from '@tanstack/react-query'
-import { runsApi } from '@/api/endpoints'
+import { runsApi, projectsApi } from '@/api/endpoints'
 import { WorkspaceProvider, useWorkspace, type PanelType } from './WorkspaceContext'
 import { PanelWrapper } from './PanelWrapper'
 import {
@@ -114,13 +115,34 @@ function WorkspaceToolbar() {
   const { state, dispatch, addPanel, resetLayout } = useWorkspace()
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [showRunPicker, setShowRunPicker] = useState(false)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
+
+  const { data: projectsData } = useQuery({
+    queryKey: ['projects', 'list'],
+    queryFn: () => projectsApi.list({ limit: 100 }),
+  })
 
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 50 }],
-    queryFn: () => runsApi.list({ page_size: 50 }),
+    queryKey: ['runs', 'list', { page_size: 50, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 50, project_id: state.selectedProjectId }),
   })
 
   const runs = runsData?.items ?? []
+
+  // Auto-select all runs when project changes and runs load
+  useEffect(() => {
+    if (state.selectedProjectId && runs.length > 0 && state.selectedRunIds.length === 0) {
+      const all = runs.map((r) => r.id)
+      dispatch({ type: 'SET_SELECTED_RUNS', runIds: all })
+      state.panels.forEach((p) => {
+        dispatch({
+          type: 'UPDATE_PANEL',
+          id: p.id,
+          partial: { config: { ...p.config, runIds: all } },
+        })
+      })
+    }
+  }, [state.selectedProjectId, runs])
 
   const toggleRun = (runId: string) => {
     const current = new Set(state.selectedRunIds)
@@ -195,6 +217,73 @@ function WorkspaceToolbar() {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
+        {/* Project Picker */}
+        <div className="relative">
+          <button
+            onClick={() => setShowProjectPicker(!showProjectPicker)}
+            className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border transition-colors ${
+              state.selectedProjectId
+                ? 'bg-primary/10 text-primary border-primary/20'
+                : 'border-border hover:bg-muted'
+            }`}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            {state.selectedProjectId
+              ? projectsData?.items?.find((p) => p.id === state.selectedProjectId)?.name ?? 'Project'
+              : 'All Projects'}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+
+          {showProjectPicker && (
+            <div className="absolute top-full left-0 mt-1 z-50 w-64 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1">
+              <div className="flex items-center justify-between px-2">
+                <span className="text-xs font-medium">Select Project</span>
+                {state.selectedProjectId && (
+                  <button
+                    onClick={() => {
+                      dispatch({ type: 'SET_SELECTED_PROJECT', projectId: undefined })
+                      setShowProjectPicker(false)
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                <button
+                  onClick={() => {
+                    dispatch({ type: 'SET_SELECTED_PROJECT', projectId: undefined })
+                    setShowProjectPicker(false)
+                  }}
+                  className={`flex items-center gap-2 w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${
+                    !state.selectedProjectId ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'
+                  }`}
+                >
+                  <span className="flex-1">All Projects</span>
+                </button>
+                {projectsData?.items?.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => {
+                      dispatch({ type: 'SET_SELECTED_PROJECT', projectId: project.id })
+                      setShowProjectPicker(false)
+                    }}
+                    className={`flex items-center gap-2 w-full text-left text-xs px-2 py-1.5 rounded transition-colors ${
+                      state.selectedProjectId === project.id
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'hover:bg-muted'
+                    }`}
+                  >
+                    <span className="flex-1 truncate">{project.name}</span>
+                    <StatusPill status={project.status} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Run Picker */}
         <div className="relative">
           <button
@@ -309,6 +398,16 @@ function WorkspaceToolbar() {
           )}
         </div>
 
+        {/* New Pipeline */}
+        <a
+          href={`/pipelines/new${state.selectedProjectId ? `?projectId=${state.selectedProjectId}` : ''}`}
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted text-muted-foreground transition-colors"
+          title="Create Pipeline"
+        >
+          <GitBranch className="w-3.5 h-3.5" />
+          New Pipeline
+        </a>
+
         {/* Reset */}
         <button
           onClick={resetLayout}
@@ -344,7 +443,19 @@ function WorkspaceGrid() {
 }
 
 function WorkspaceContent() {
-  const { state } = useWorkspace()
+  const { state, dispatch } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Handle ?projectId=xxx navigation from Projects page
+  useEffect(() => {
+    const projectId = searchParams.get('projectId')
+    if (projectId && projectId !== state.selectedProjectId) {
+      dispatch({ type: 'SET_SELECTED_PROJECT', projectId })
+      const next = new URLSearchParams(searchParams)
+      next.delete('projectId')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, state.selectedProjectId, dispatch, setSearchParams])
 
   return (
     <div className="p-6 space-y-4">

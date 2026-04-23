@@ -44,6 +44,7 @@ export interface WorkspaceState {
   isEditing: boolean
   selectedRunIds: string[]
   selectedExperimentId?: string
+  selectedProjectId?: string
 }
 
 // ─── Default Layout ──────────────────────────────────────────────
@@ -94,6 +95,7 @@ type WorkspaceAction =
   | { type: 'RESET_LAYOUT' }
   | { type: 'TOGGLE_EDIT' }
   | { type: 'SET_SELECTED_RUNS'; runIds: string[] }
+  | { type: 'SET_SELECTED_PROJECT'; projectId: string | undefined }
   | { type: 'LOAD_STATE'; state: WorkspaceState }
 
 // ─── Reducer ─────────────────────────────────────────────────────
@@ -128,6 +130,8 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, isEditing: !state.isEditing }
     case 'SET_SELECTED_RUNS':
       return { ...state, selectedRunIds: action.runIds }
+    case 'SET_SELECTED_PROJECT':
+      return { ...state, selectedProjectId: action.projectId, selectedRunIds: [] }
     case 'LOAD_STATE':
       return action.state
     default:
@@ -197,6 +201,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       isEditing: false,
       selectedRunIds: persisted?.selectedRunIds ?? [],
       selectedExperimentId: persisted?.selectedExperimentId,
+      selectedProjectId: persisted?.selectedProjectId,
     }
   })
 

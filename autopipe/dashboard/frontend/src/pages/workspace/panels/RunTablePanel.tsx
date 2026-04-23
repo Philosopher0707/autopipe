@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowUpDown, ArrowDown, ArrowUp } from 'lucide-react'
 import { runsApi } from '@/api/endpoints'
 import { PanelWrapper } from '../PanelWrapper'
+import { useWorkspace } from '../WorkspaceContext'
 import type { PanelLayout } from '../WorkspaceContext'
 
 interface RunTablePanelProps {
@@ -55,10 +56,11 @@ function MiniSparkline({ values, width = 60, height = 20 }: { values: number[]; 
 export function RunTablePanel({ panel }: RunTablePanelProps) {
   const { runIds = [] } = panel.config
   const [sort, setSort] = useState<SortState>({ key: 'run_number', dir: 'desc' })
+  const { state } = useWorkspace()
 
   const { data: runsData, isLoading } = useQuery({
-    queryKey: ['runs', 'list', { page_size: 100 }],
-    queryFn: () => runsApi.list({ page_size: 100 }),
+    queryKey: ['runs', 'list', { page_size: 100, project_id: state.selectedProjectId }],
+    queryFn: () => runsApi.list({ page_size: 100, project_id: state.selectedProjectId }),
   })
 
   const handleSort = (key: SortKey) => {

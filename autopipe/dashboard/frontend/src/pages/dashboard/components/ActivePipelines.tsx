@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Activity } from 'lucide-react'
-import { Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui'
-import { cn, getStatusBgColor, formatDuration } from '@/utils/helpers'
+import { Card, CardHeader, CardTitle, CardContent, StatusPill } from '@/components/ui'
+import { cn, formatDuration } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
 
 interface ActivePipelinesProps {
@@ -83,12 +83,7 @@ export function ActivePipelines({ runs }: ActivePipelinesProps) {
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <Badge className={getStatusBgColor(run.status)}>
-                      {run.status === 'running' && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />
-                      )}
-                      {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
-                    </Badge>
+                    <StatusPill status={run.status} />
                   </td>
                   <td className="py-3 px-4">
                     {run.status === 'running' && (
@@ -111,7 +106,7 @@ export function ActivePipelines({ runs }: ActivePipelinesProps) {
                       <span className="text-sm text-muted-foreground">Queued</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-sm text-muted-foreground">
+                  <td className="py-3 px-4 text-sm text-muted-foreground tabular-nums">
                     {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
                   </td>
                   <td className="py-3 px-4">

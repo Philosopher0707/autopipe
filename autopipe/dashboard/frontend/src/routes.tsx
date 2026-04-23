@@ -22,6 +22,8 @@ const TeamPage = lazy(() => import('@/pages/settings/Team').then((module) => ({ 
 const ExplainabilityPage = lazy(() => import('@/pages/explainability/ExplainabilityPage').then((module) => ({ default: module.ExplainabilityPage })))
 const AutomlPage = lazy(() => import('@/pages/automl/AutoMLPage').then((module) => ({ default: module.AutoMLPage })))
 const FeatureEngineeringPage = lazy(() => import('@/pages/features/FeaturesPage').then((module) => ({ default: module.FeaturesPage })))
+const ProjectsPage = lazy(() => import('@/pages/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })))
+const ProfilePage = lazy(() => import('@/pages/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })))
 
 function PageFallback() {
   return (
@@ -259,6 +261,24 @@ export function AppRoutes() {
         element={
           <ProtectedLayout>
             <TeamPage />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/projects"
+        element={
+          <ProtectedLayout>
+            <ProjectsPage />
+          </ProtectedLayout>
+        }
+      />
+
+      <Route
+        path="/profile"
+        element={
+          <ProtectedLayout>
+            <ProfilePage />
           </ProtectedLayout>
         }
       />

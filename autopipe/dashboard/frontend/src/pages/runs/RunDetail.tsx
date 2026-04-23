@@ -1,15 +1,46 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Card, CardContent, CardTitle, Badge, Button } from '@/components/ui'
+import {
+  Card,
+  CardContent,
+  CardTitle,
+  Button,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  StatusPill,
+  ChartCard,
+} from '@/components/ui'
 import { chartsApi, runsApi } from '@/api/endpoints'
 import { wsClient } from '@/api/endpoints/websocket'
 import { ChartArtifactList } from '@/components/charts/ChartRenderer'
-import { Clock, Terminal, BarChart3, ArrowLeft, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
+import { SyncCrosshairProvider } from '@/components/SyncCrosshairProvider'
+import { QueryBar } from '@/components/QueryBar'
+import { DataTable } from '@/components/DataTable'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Clock,
+  Terminal,
+  BarChart3,
+  ArrowLeft,
+  Settings2,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  SearchX,
+} from 'lucide-react'
+import {
+  BarChart,
+  Bar,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts'
-import { formatDate, formatDuration, getStatusBgColor } from '@/utils/helpers'
+import { formatDate, formatDuration } from '@/utils/helpers'
 import type { PipelineRun, Step } from '@/types'
 import { TrainingMetricsChart } from '@/components/charts/TrainingMetricsChart'
 
@@ -17,11 +48,13 @@ export function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'logs' | 'metrics' | 'checkpoints'>('logs')
+  const [activeTab, setActiveTab] = useState<'charts' | 'overview' | 'logs' | 'files' | 'artifacts'>('charts')
   const [logs, setLogs] = useState<string[]>([])
   const [configOpen, setConfigOpen] = useState(false)
   const wsConnectedRef = useRef(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
+
+  const [filters, setFilters] = useState<{ key: string; value: string }[]>([])
 
   const { data: run, isLoading } = useQuery<PipelineRun>({
     queryKey: ['runs', runId],
@@ -45,6 +78,19 @@ export function RunDetail() {
   const steps = stepsData?.items || []
   const apiLogs = logsData?.logs || []
 
+  const filteredSteps = useMemo(() => {
+    let result = [...steps]
+    const nameFilter = filters.find((f) => f.key === 'name')?.value ?? ''
+    const statusFilter = filters.find((f) => f.key === 'status')?.value ?? ''
+    if (nameFilter) {
+      result = result.filter((s) => s.name.toLowerCase().includes(nameFilter.toLowerCase()))
+    }
+    if (statusFilter) {
+      result = result.filter((s) => s.status === statusFilter)
+    }
+    return result
+  }, [steps, filters])
+
   const { data: stepDurations } = useQuery({
     queryKey: ['charts', 'step-durations', runId],
     queryFn: () => chartsApi.getStepDurations(runId!),
@@ -66,7 +112,7 @@ export function RunDetail() {
   const { data: checkpointsData } = useQuery({
     queryKey: ['runs', runId, 'checkpoints'],
     queryFn: () => runsApi.getCheckpoints(runId!),
-    enabled: !!runId && activeTab === 'checkpoints',
+    enabled: !!runId,
   })
 
   useEffect(() => {
@@ -115,6 +161,14 @@ export function RunDetail() {
     }
   }, [runId])
 
+  const paramHistogramData = useMemo(() => {
+    if (!run?.metrics) return []
+    return Object.entries(run.metrics).map(([key, value]) => ({
+      name: key,
+      value: typeof value === 'number' ? value : 0,
+    }))
+  }, [run?.metrics])
+
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -135,8 +189,11 @@ export function RunDetail() {
     )
   }
 
+  const statusOptions = ['pending', 'running', 'success', 'failed', 'cancelled', 'skipped']
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/runs')}>
@@ -147,9 +204,7 @@ export function RunDetail() {
             <h1 className="text-3xl font-bold text-foreground">
               Run #{run.run_number ?? runId?.slice(0, 8)}
             </h1>
-            <Badge className={getStatusBgColor(run.status)}>
-              {run.status}
-            </Badge>
+            <StatusPill status={run.status} />
           </div>
           <p className="text-muted-foreground mt-1">
             {run.pipeline_name || run.pipeline_id}
@@ -162,290 +217,283 @@ export function RunDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Duration</span>
-            </div>
-            <p className="text-lg font-semibold mt-1">
-              {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
-            </p>
-          </CardContent>
-        </Card>
+      {/* QueryBar */}
+      <QueryBar
+        filters={[
+          { key: 'name', label: 'Filter steps...', type: 'text' },
+          { key: 'status', label: 'Status', type: 'select', options: statusOptions },
+        ]}
+        values={filters}
+        onChange={setFilters}
+      />
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Created</span>
-            </div>
-            <p className="text-lg font-semibold mt-1">
-              {run.created_at ? formatDate(run.created_at) : '--'}
-            </p>
-          </CardContent>
-        </Card>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+        <TabsList>
+          <TabsTrigger value="charts">Charts</TabsTrigger>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+          <TabsTrigger value="artifacts">Artifacts</TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Started</span>
-            </div>
-            <p className="text-lg font-semibold mt-1">
-              {run.started_at ? formatDate(run.started_at) : '--'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Completed</span>
-            </div>
-            <p className="text-lg font-semibold mt-1">
-              {run.completed_at ? formatDate(run.completed_at) : '--'}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardContent className="p-6">
-          <CardTitle className="text-lg mb-4">Steps</CardTitle>
-          <div className="space-y-2">
-            {steps.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No steps recorded</p>
-            ) : steps.map((step: Step) => (
-              <div
-                key={step.id}
-                className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${
-                    step.status === 'success' ? 'bg-green-500' :
-                    step.status === 'failed' ? 'bg-red-500' :
-                    step.status === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-amber-500'
-                  }`}
-                  />
-                  <span className="font-medium">{step.name}</span>
-                  <span className="text-xs text-muted-foreground">{step.step_type}</span>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {step.duration_seconds ? formatDuration(step.duration_seconds) : '--'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {trainingConfig && (
-        <Card>
-          <CardContent className="p-6">
-            <button
-              className="flex items-center gap-2 w-full text-left"
-              onClick={() => setConfigOpen(!configOpen)}
-            >
-              <Settings2 className="w-4 h-4 text-muted-foreground" />
-              <CardTitle className="text-lg">Training Config</CardTitle>
-              {configOpen ? (
-                <ChevronDown className="w-4 h-4 ml-auto text-muted-foreground" />
-              ) : (
-                <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-              )}
-            </button>
-            {configOpen && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-                {[
-                  { label: 'Architecture', value: trainingConfig.architecture },
-                  { label: 'Optimizer', value: trainingConfig.optimizer },
-                  { label: 'Learning Rate', value: trainingConfig.learning_rate?.toString() },
-                  { label: 'Weight Decay', value: trainingConfig.weight_decay?.toString() },
-                  { label: 'Batch Size', value: trainingConfig.batch_size?.toString() },
-                  { label: 'Epochs', value: trainingConfig.epochs?.toString() },
-                  { label: 'AMP', value: trainingConfig.amp != null ? (trainingConfig.amp ? 'Yes' : 'No') : undefined },
-                  { label: 'Gradient Clip', value: trainingConfig.gradient_clip?.toString() },
-                ]
-                  .filter((r) => r.value != null)
-                  .map((r) => (
-                    <div key={r.label} className="bg-muted/50 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground">{r.label}</p>
-                      <p className="text-sm font-mono font-medium">{r.value}</p>
-                    </div>
-                  ))}
-                {trainingConfig.early_stopping && (
-                  <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
-                    <p className="text-xs text-muted-foreground mb-1">Early Stopping</p>
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(trainingConfig.early_stopping).map(([k, v]) => (
-                        <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
-                          {k}: {String(v)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {trainingConfig.lr_scheduler && (
-                  <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
-                    <p className="text-xs text-muted-foreground mb-1">LR Scheduler</p>
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(trainingConfig.lr_scheduler).map(([k, v]) => (
-                        <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
-                          {k}: {String(v)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+        <TabsContent value="charts" className="pt-4 space-y-6">
+          <SyncCrosshairProvider>
+            {runId && (
+              <TrainingMetricsChart runId={runId} />
             )}
-          </CardContent>
-        </Card>
-      )}
+            {stepDurations && stepDurations.steps.length > 0 && (
+              <ChartCard title="Step Durations">
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stepDurations.steps} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" fontSize={12} />
+                      <YAxis dataKey="name" type="category" width={120} fontSize={12} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                        formatter={(v: number) => [`${v.toFixed(1)}s`, 'Duration']}
+                      />
+                      <Bar dataKey="duration_seconds" fill="#3b82f6" name="Duration (s)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartCard>
+            )}
+          </SyncCrosshairProvider>
+        </TabsContent>
 
-      {stepDurations && stepDurations.steps.length > 0 && (
-        <Card>
-          <CardContent className="p-6">
-            <CardTitle className="text-lg mb-4">Step Durations</CardTitle>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stepDurations.steps} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" fontSize={12} />
-                  <YAxis dataKey="name" type="category" width={120} fontSize={12} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(v: number) => [`${v.toFixed(1)}s`, 'Duration']}
-                  />
-                  <Bar dataKey="duration_seconds" fill="#3b82f6" name="Duration (s)" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {runId && (
-        <TrainingMetricsChart runId={runId} />
-      )}
-
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <CardTitle className="text-lg">Execution Details</CardTitle>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveTab('logs')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  activeTab === 'logs'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted hover:bg-muted/80'
-                }`}
-              >
-                Logs
-              </button>
-              <button
-                onClick={() => setActiveTab('metrics')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  activeTab === 'metrics'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted hover:bg-muted/80'
-                }`}
-              >
-                Metrics
-              </button>
-              <button
-                onClick={() => setActiveTab('checkpoints')}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  activeTab === 'checkpoints'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted hover:bg-muted/80'
-                }`}
-              >
-                Checkpoints
-              </button>
-            </div>
+        <TabsContent value="overview" className="pt-4 space-y-6">
+          {/* Stat cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs">Duration</span>
+                </div>
+                <p className="text-lg font-semibold mt-1 tabular-nums">
+                  {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs">Created</span>
+                </div>
+                <p className="text-lg font-semibold mt-1 tabular-nums">
+                  {run.created_at ? formatDate(run.created_at) : '--'}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs">Started</span>
+                </div>
+                <p className="text-lg font-semibold mt-1 tabular-nums">
+                  {run.started_at ? formatDate(run.started_at) : '--'}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs">Completed</span>
+                </div>
+                <p className="text-lg font-semibold mt-1 tabular-nums">
+                  {run.completed_at ? formatDate(run.completed_at) : '--'}
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
-          {activeTab === 'logs' ? (
-            <div className="bg-slate-950 text-slate-50 rounded-lg p-4 font-mono text-sm h-96 overflow-auto">
-              {logs.length === 0 ? (
-                <span className="text-slate-500">No logs available...</span>
-              ) : (
-                logs.map((log, index) => (
-                  <div key={index} className="py-0.5">
-                    {log}
+          {/* Steps table */}
+          <ChartCard title="Steps">
+            {filteredSteps.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <SearchX className="w-6 h-6 mb-2 opacity-50" />
+                <p className="text-sm">No steps match your filters.</p>
+              </div>
+            ) : (
+              <DataTable
+                columns={[
+                  {
+                    key: 'name',
+                    header: 'Name',
+                    accessor: (s: Step) => s.name,
+                  },
+                  {
+                    key: 'type',
+                    header: 'Type',
+                    accessor: (s: Step) => s.step_type,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    accessor: (s: Step) => <StatusPill status={s.status} />,
+                  },
+                  {
+                    key: 'duration',
+                    header: 'Duration',
+                    accessor: (s: Step) => (s.duration_seconds ? formatDuration(s.duration_seconds) : '--'),
+                    align: 'right',
+                  },
+                ]}
+                data={filteredSteps}
+              />
+            )}
+          </ChartCard>
+
+          {/* Parameter histograms */}
+          {paramHistogramData.length > 0 && (
+            <ChartCard title="Parameters">
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={paramHistogramData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" fontSize={12} />
+                    <YAxis fontSize={12} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    />
+                    <Bar dataKey="value" name="Value">
+                      {paramHistogramData.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.value >= 0 ? '#22c55e' : '#ef4444'}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </ChartCard>
+          )}
+
+          {/* Training Config */}
+          {trainingConfig && (
+            <Card>
+              <CardContent className="p-6">
+                <button
+                  className="flex items-center gap-2 w-full text-left"
+                  onClick={() => setConfigOpen(!configOpen)}
+                >
+                  <Settings2 className="w-4 h-4 text-muted-foreground" />
+                  <CardTitle className="text-lg">Training Config</CardTitle>
+                  {configOpen ? (
+                    <ChevronDown className="w-4 h-4 ml-auto text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
+                  )}
+                </button>
+                {configOpen && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+                    {[
+                      { label: 'Architecture', value: trainingConfig.architecture },
+                      { label: 'Optimizer', value: trainingConfig.optimizer },
+                      { label: 'Learning Rate', value: trainingConfig.learning_rate?.toString() },
+                      { label: 'Weight Decay', value: trainingConfig.weight_decay?.toString() },
+                      { label: 'Batch Size', value: trainingConfig.batch_size?.toString() },
+                      { label: 'Epochs', value: trainingConfig.epochs?.toString() },
+                      { label: 'AMP', value: trainingConfig.amp != null ? (trainingConfig.amp ? 'Yes' : 'No') : undefined },
+                      { label: 'Gradient Clip', value: trainingConfig.gradient_clip?.toString() },
+                    ]
+                      .filter((r) => r.value != null)
+                      .map((r) => (
+                        <div key={r.label} className="bg-muted/50 rounded-lg p-3">
+                          <p className="text-xs text-muted-foreground">{r.label}</p>
+                          <p className="text-sm font-mono font-medium">{r.value}</p>
+                        </div>
+                      ))}
+                    {trainingConfig.early_stopping && (
+                      <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
+                        <p className="text-xs text-muted-foreground mb-1">Early Stopping</p>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(trainingConfig.early_stopping).map(([k, v]) => (
+                            <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
+                              {k}: {String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {trainingConfig.lr_scheduler && (
+                      <div className="bg-muted/50 rounded-lg p-3 col-span-2 md:col-span-3">
+                        <p className="text-xs text-muted-foreground mb-1">LR Scheduler</p>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(trainingConfig.lr_scheduler).map(([k, v]) => (
+                            <span key={k} className="text-xs font-mono bg-background px-2 py-0.5 rounded">
+                              {k}: {String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))
-              )}
-              <div ref={logsEndRef} />
-            </div>
-          ) : activeTab === 'checkpoints' ? (
-            <div className="overflow-x-auto">
-              {checkpointsData && checkpointsData.checkpoints.length > 0 ? (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 pr-4">Epoch</th>
-                      <th className="pb-2 pr-4">Val Loss</th>
-                      <th className="pb-2 pr-4">Val Accuracy</th>
-                      <th className="pb-2 pr-4">Path</th>
-                      <th className="pb-2 pr-4">Best</th>
-                      <th className="pb-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {checkpointsData.checkpoints.map((cp) => (
-                      <tr key={cp.id} className="border-b hover:bg-muted/50">
-                        <td className="py-2 pr-4 font-mono">{cp.epoch}</td>
-                        <td className="py-2 pr-4 font-mono">{cp.val_loss.toFixed(4)}</td>
-                        <td className="py-2 pr-4 font-mono">{cp.val_accuracy.toFixed(4)}</td>
-                        <td className="py-2 pr-4 text-xs text-muted-foreground truncate max-w-[200px]">{cp.file_path}</td>
-                        <td className="py-2 pr-4">{cp.is_best ? '⭐' : ''}</td>
-                        <td className="py-2">
-                          <a href={cp.file_path} className="text-xs text-primary hover:underline">Download</a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-muted-foreground text-center py-4">No checkpoints</p>
-              )}
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Checkpoints */}
+          {checkpointsData && checkpointsData.checkpoints.length > 0 && (
+            <ChartCard title="Checkpoints">
+              <DataTable
+                columns={[
+                  { key: 'epoch', header: 'Epoch', accessor: (c) => c.epoch, align: 'right' },
+                  { key: 'val_loss', header: 'Val Loss', accessor: (c) => c.val_loss.toFixed(4), align: 'right' },
+                  { key: 'val_accuracy', header: 'Val Accuracy', accessor: (c) => c.val_accuracy.toFixed(4), align: 'right' },
+                  { key: 'path', header: 'Path', accessor: (c) => <span className="text-xs text-muted-foreground truncate max-w-[200px] block">{c.file_path}</span> },
+                  { key: 'best', header: 'Best', accessor: (c) => (c.is_best ? '⭐' : '') },
+                ]}
+                data={checkpointsData.checkpoints}
+              />
+            </ChartCard>
+          )}
+        </TabsContent>
+
+        <TabsContent value="logs" className="pt-4">
+          <div className="bg-slate-950 text-slate-50 rounded-lg p-4 font-mono text-sm h-96 overflow-auto">
+            {logs.length === 0 ? (
+              <span className="text-slate-500">No logs available...</span>
+            ) : (
+              logs.map((log, index) => (
+                <div key={index} className="py-0.5">
+                  {log}
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="files" className="pt-4">
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <FileText className="w-10 h-10 mb-3 opacity-40" />
+            <p className="text-sm font-medium">No files attached</p>
+            <p className="text-xs mt-1">Files associated with this run will appear here.</p>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="artifacts" className="pt-4">
+          {chartArtifactsData && chartArtifactsData.items.length > 0 ? (
+            <div className="space-y-4">
+              <ChartArtifactList artifacts={chartArtifactsData.items} />
             </div>
           ) : (
-            <div className="p-8">
-              {run.metrics && Object.keys(run.metrics).length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {Object.entries(run.metrics).map(([key, value]) => (
-                    <div key={key} className="text-center p-4 bg-muted/50 rounded-lg">
-                      <div className="flex justify-center mb-2">
-                        <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-2xl font-bold text-primary">
-                        {typeof value === 'number' ? value.toFixed(4) : String(value)}
-                      </p>
-                      <p className="text-xs text-muted-foreground uppercase mt-1">{key}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center">No metrics recorded</p>
-              )}
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <BarChart3 className="w-10 h-10 mb-3 opacity-40" />
+              <p className="text-sm font-medium">No chart artifacts</p>
+              <p className="text-xs mt-1">Generated charts will appear here.</p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {chartArtifactsData && chartArtifactsData.items.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Generated Charts</h2>
-          <ChartArtifactList artifacts={chartArtifactsData.items} />
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

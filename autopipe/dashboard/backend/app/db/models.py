@@ -63,12 +63,14 @@ class Pipeline(Base):
     config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relationships
     runs: Mapped[List["Run"]] = relationship("Run", back_populates="pipeline", lazy="select")
+    project: Mapped[Optional["Project"]] = relationship("Project")
 
 
 # ------------------------------------------------------------------
@@ -101,6 +103,7 @@ class Run(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     pipeline_id: Mapped[str] = mapped_column(String, ForeignKey("pipelines.id"), nullable=False)
     experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
     status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.PENDING)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -306,6 +309,21 @@ class ActivityLog(Base):
     details: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class Project(Base):
+    """ML project container."""
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="active")  # active, archived
+    tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    starred: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 class ChartArtifact(Base):

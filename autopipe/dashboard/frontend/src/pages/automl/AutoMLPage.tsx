@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ResponsiveContainer,
@@ -15,8 +16,8 @@ import {
   Legend,
   Cell,
 } from 'recharts'
-import { Sparkles } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui'
+import { Sparkles, FlaskConical } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Tabs, TabsList, TabsTrigger, TabsContent, Button } from '@/components/ui'
 import { automlApi } from '@/api/endpoints'
 
 const STATE_COLORS: Record<string, string> = {
@@ -28,18 +29,22 @@ const STATE_COLORS: Record<string, string> = {
 }
 
 export function AutoMLPage() {
-  const experimentId = 'default'
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const experimentId = searchParams.get('experimentId') || ''
   const [selectedTrial, setSelectedTrial] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState('trials')
 
   const { data: trialsData, isLoading: trialsLoading } = useQuery({
     queryKey: ['automl', 'trials', experimentId],
     queryFn: () => automlApi.listTrials({ experiment_id: experimentId }),
+    enabled: !!experimentId,
   })
 
   const { data: vizData, isLoading: vizLoading } = useQuery({
     queryKey: ['automl', 'visualizations', experimentId],
     queryFn: () => automlApi.getVisualizations(experimentId),
+    enabled: !!experimentId,
   })
 
   const trials = trialsData?.trials ?? []
@@ -66,7 +71,23 @@ export function AutoMLPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {!experimentId && (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <FlaskConical className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold">No experiment selected</h3>
+            <p className="text-muted-foreground mt-1">
+              Select an experiment to view its trial history and visualizations.
+            </p>
+            <Button className="mt-4" onClick={() => navigate('/experiments')}>
+              Go to Experiments
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!!experimentId && (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="trials">Trial History</TabsTrigger>
           <TabsTrigger value="importance">Param Importance</TabsTrigger>
@@ -230,6 +251,7 @@ export function AutoMLPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   )
 }

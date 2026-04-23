@@ -54,6 +54,7 @@ export interface Pipeline {
   updated_at: string
   created_by?: string
   run_count?: number
+  project_id?: string
 }
 
 export interface PipelineRun {
@@ -393,6 +394,21 @@ export interface ValidationError {
 export interface PipelineValidateResponse {
   valid: boolean
   errors: ValidationError[]
+}
+
+// Project Types
+export interface Project {
+  id: string
+  name: string
+  description?: string
+  status: 'active' | 'archived'
+  tags?: string[]
+  starred: boolean
+  created_at: string
+  updated_at: string
+  created_by?: string
+  run_count?: number
+  last_run_at?: string | null
 }
 
 // System Resource Types

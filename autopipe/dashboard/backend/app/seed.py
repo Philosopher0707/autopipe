@@ -11,11 +11,69 @@ from app.core.config import settings
 from app.db.models import (
     User, UserRole, Pipeline, Run, RunStatus, Step, StepStatus,
     Experiment, Model, ModelVersion, ModelStage, DriftReport, DriftAlert,
-    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact, MetricLog,
+    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact, MetricLog, Project,
 )
 from sqlalchemy import select
 
 from app.db.session import engine, AsyncSessionLocal
+
+
+async def seed_projects(db: AsyncSession) -> list[Project]:
+    """Create sample projects."""
+    projects_data = [
+        {
+            "name": "Image Classification",
+            "description": "ResNet-50 on ImageNet subset",
+            "status": "active",
+            "tags": ["cv", "classification"],
+            "starred": True,
+        },
+        {
+            "name": "NLP Sentiment",
+            "description": "BERT fine-tuning for sentiment analysis",
+            "status": "active",
+            "tags": ["nlp", "bert"],
+            "starred": False,
+        },
+        {
+            "name": "Time Series Forecast",
+            "description": "LSTM for demand prediction",
+            "status": "active",
+            "tags": ["forecasting", "lstm"],
+            "starred": False,
+        },
+        {
+            "name": "Anomaly Detection",
+            "description": "Isolation forest on logs",
+            "status": "archived",
+            "tags": ["anomaly", "unsupervised"],
+            "starred": False,
+        },
+    ]
+
+    projects: list[Project] = []
+    created = 0
+    for data in projects_data:
+        result = await db.execute(select(Project).where(Project.name == data["name"]))
+        existing = result.scalars().first()
+        if existing:
+            projects.append(existing)
+        else:
+            project = Project(
+                id=str(uuid.uuid4()),
+                name=data["name"],
+                description=data["description"],
+                status=data["status"],
+                tags=data["tags"],
+                starred=data["starred"],
+            )
+            db.add(project)
+            projects.append(project)
+            created += 1
+
+    await db.commit()
+    print(f"  ✓ Created {created} projects, {len(projects_data) - created} already existed")
+    return projects
 
 
 async def seed_users(db: AsyncSession) -> None:
@@ -74,8 +132,8 @@ async def seed_users(db: AsyncSession) -> None:
     print(f"  ✓ Created {created} users, {len(users_data) - created} already existed")
 
 
-async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
-    """Create sample pipelines."""
+async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Project]) -> list[Pipeline]:
+    """Create sample pipelines linked to projects."""
     pipelines_data = [
         {
             "name": "customer_churn_training",
@@ -87,6 +145,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["production", "ml", "churn"],
             "created_by": users[1].id,
+            "project_index": 0,
         },
         {
             "name": "fraud_detection_pipeline",
@@ -97,6 +156,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["production", "fraud", "realtime"],
             "created_by": users[2].id,
+            "project_index": 1,
         },
         {
             "name": "recommendation_engine",
@@ -107,6 +167,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["staging", "recommendations"],
             "created_by": users[1].id,
+            "project_index": 2,
         },
         {
             "name": "data_preprocessing",
@@ -116,6 +177,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["utility", "data"],
             "created_by": users[0].id,
+            "project_index": 0,
         },
         {
             "name": "model_evaluation",
@@ -125,6 +187,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["evaluation", "testing"],
             "created_by": users[2].id,
+            "project_index": 1,
         },
         {
             "name": "hyperparam_tuning",
@@ -136,9 +199,10 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
             },
             "tags": ["optimization", "optuna"],
             "created_by": users[1].id,
+            "project_index": 3,
         },
     ]
-    
+
     pipelines = []
     created = 0
     for data in pipelines_data:
@@ -147,6 +211,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
         if existing:
             pipelines.append(existing)
         else:
+            project = projects[data["project_index"]] if data.get("project_index") is not None and data["project_index"] < len(projects) else None
             pipeline = Pipeline(
                 id=str(uuid.uuid4()),
                 name=data["name"],
@@ -155,6 +220,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User]) -> list[Pipeline]:
                 tags=data["tags"],
                 created_by=data["created_by"],
                 is_active=True,
+                project_id=project.id if project else None,
             )
             db.add(pipeline)
             pipelines.append(pipeline)
@@ -200,6 +266,7 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                 id=str(uuid.uuid4()),
                 pipeline_id=pipeline.id,
                 experiment_id=experiment_id,
+                project_id=pipeline.project_id,
                 run_number=i + 1,
                 status=status,
                 started_at=started,
@@ -207,6 +274,7 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                 duration_seconds=duration,
                 config={"override": f"run_{i}"},
                 metrics={
+                    "loss": round(random.uniform(0.05, 0.35), 4),
                     "accuracy": round(random.uniform(0.85, 0.97), 4),
                     "f1": round(random.uniform(0.83, 0.95), 4),
                     "precision": round(random.uniform(0.82, 0.96), 4),
@@ -683,14 +751,17 @@ async def main() -> None:
     async with AsyncSessionLocal() as db:
         # Seed users first
         await seed_users(db)
-        
+
         # Get users for references
         from sqlalchemy import select
         result = await db.execute(select(User))
         users = list(result.scalars().all())
-        
+
+        # Seed projects
+        projects = await seed_projects(db)
+
         # Seed pipelines
-        pipelines = await seed_pipelines(db, users)
+        pipelines = await seed_pipelines(db, users, projects)
 
         # Seed experiments before runs so runs can link to them
         experiments = await seed_experiments(db, users)
@@ -700,13 +771,13 @@ async def main() -> None:
 
         # Seed models
         await seed_models(db, users)
-        
+
         # Seed drift data
         await seed_drift_reports(db)
-        
+
         # Seed dashboard metrics
         await seed_dashboard_metrics(db)
-        
+
         # Seed activity logs
         await seed_activity_logs(db, users)
 

@@ -46,7 +46,7 @@ class PipelineBase(BaseModel):
 
 class PipelineCreate(PipelineBase):
     """Pipeline creation schema."""
-    pass
+    project_id: Optional[str] = None
 
 
 class PipelineUpdate(BaseModel):
@@ -117,6 +117,7 @@ class RunInDB(RunBase):
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     pipeline_name: Optional[str] = None  # Populated from relationship
+    project_id: Optional[str] = None
 
 
 class RunResponse(RunInDB):
@@ -1081,6 +1082,53 @@ class ExperimentArtifactsResponse(BaseModel):
     """Response for GET /experiments/{id}/artifacts."""
     experiment_id: str
     artifacts: List[ExperimentArtifact]
+
+
+# ==================== Project Schemas ====================
+
+class ProjectBase(BaseModel):
+    """Base project schema."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    status: Optional[str] = Field(default="active", pattern="^(active|archived)$")
+    tags: Optional[List[str]] = None
+    starred: Optional[bool] = False
+
+
+class ProjectCreate(ProjectBase):
+    """Project creation schema."""
+    pass
+
+
+class ProjectUpdate(BaseModel):
+    """Project update schema."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    status: Optional[str] = Field(None, pattern="^(active|archived)$")
+    tags: Optional[List[str]] = None
+    starred: Optional[bool] = None
+
+
+class ProjectInDB(ProjectBase):
+    """Project database schema."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    created_by: Optional[str] = None
+    run_count: int = 0
+    last_run_at: Optional[datetime] = None
+
+
+class ProjectResponse(ProjectInDB):
+    """Project API response."""
+    pass
+
+
+class ProjectList(PaginatedResponse):
+    """Project list response."""
+    items: List[ProjectResponse]
 
 
 # ==================== System Resource Schemas ====================
