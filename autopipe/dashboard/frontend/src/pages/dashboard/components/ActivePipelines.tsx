@@ -110,7 +110,10 @@ export function ActivePipelines({ runs }: ActivePipelinesProps) {
                     {run.duration_seconds ? formatDuration(run.duration_seconds) : '--'}
                   </td>
                   <td className="py-3 px-4">
-                    <button className="text-sm text-primary hover:underline">
+                    <button
+                      className="text-sm text-primary hover:underline"
+                      onClick={() => navigate(`/runs/${run.id}`)}
+                    >
                       {run.status === 'running' ? 'Logs' : 'View'}
                     </button>
                   </td>
