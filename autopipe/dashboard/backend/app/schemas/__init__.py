@@ -61,6 +61,7 @@ class PipelineInDB(PipelineBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    project_id: Optional[str] = None
     is_active: bool = True
     config_hash: Optional[str] = None
     created_at: datetime
