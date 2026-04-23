@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   FlaskConical,
   Cpu,
+  FolderOpen,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -156,6 +157,13 @@ export function Dashboard() {
           subtext={`${stats?.experiments.total_trials ?? 0} trials today`}
         />
         <StatCard
+          title="Projects"
+          value={stats?.projects?.total ?? 0}
+          icon={FolderOpen}
+          color="bg-indigo-500"
+          subtext={`${stats?.projects?.active ?? 0} with active runs`}
+        />
+        <StatCard
           title="System"
           value={latestCpu != null ? `${latestCpu.toFixed(0)}%` : '--'}
           icon={Cpu}
@@ -177,9 +185,9 @@ export function Dashboard() {
                   <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Legend />
-                  <Area type="monotone" dataKey="CPU" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
-                  <Area type="monotone" dataKey="Memory" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} />
-                  <Area type="monotone" dataKey="GPU" stackId="1" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="CPU" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} />
+                  <Area type="monotone" dataKey="Memory" stroke="#22c55e" fill="#22c55e" fillOpacity={0.15} />
+                  <Area type="monotone" dataKey="GPU" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

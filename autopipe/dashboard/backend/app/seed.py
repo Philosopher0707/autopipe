@@ -279,6 +279,9 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                     "f1": round(random.uniform(0.83, 0.95), 4),
                     "precision": round(random.uniform(0.82, 0.96), 4),
                     "recall": round(random.uniform(0.80, 0.94), 4),
+                    "cpu_percent": round(random.uniform(15, 85), 1),
+                    "memory_percent": round(random.uniform(30, 75), 1),
+                    "gpu_percent": round(random.uniform(10, 95), 1) if random.random() > 0.3 else None,
                 } if status == RunStatus.SUCCESS else None,
                 error_message="Connection timeout after 30s" if status == RunStatus.FAILED else None,
             )

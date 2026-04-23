@@ -48,7 +48,9 @@ export const dashboardApi = {
   },
 
   /** GET /api/v1/dashboard/resources */
-  getResources: async (hours = 24): Promise<ResourceUsageResponse> => {
-    return apiClient.get<ResourceUsageResponse>('/dashboard/resources', { params: { hours } })
+  getResources: async (hours = 24, project_id?: string): Promise<ResourceUsageResponse> => {
+    return apiClient.get<ResourceUsageResponse>('/dashboard/resources', {
+      params: { hours, project_id },
+    })
   },
 }

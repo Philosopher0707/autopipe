@@ -26,6 +26,11 @@ export interface DashboardStats {
     completed_today: number
     total_trials: number
   }
+  projects: {
+    total: number
+    active: number
+    recent_runs: number
+  }
 }
 
 export interface ActivityLog {
@@ -61,6 +66,8 @@ export interface PipelineRun {
   id: string
   pipeline_id: string
   experiment_id?: string
+  project_id?: string
+  project_name?: string
   status: RunStatus
   run_number: number
   started_at?: string

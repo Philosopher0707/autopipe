@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { CardTitle, Skeleton, StatusPill } from '@/components/ui'
 import { useQuery } from '@tanstack/react-query'
-import { runsApi, projectsApi } from '@/api/endpoints'
+import { runsApi, projectsApi, dashboardApi } from '@/api/endpoints'
 import { WorkspaceProvider, useWorkspace, type PanelType } from './WorkspaceContext'
 import { PanelWrapper } from './PanelWrapper'
 import {
@@ -442,6 +442,58 @@ function WorkspaceGrid() {
   )
 }
 
+function ProjectMetrics({ projectId }: { projectId: string }) {
+  const { data: project } = useQuery({
+    queryKey: ['projects', projectId],
+    queryFn: () => projectsApi.getById(projectId),
+    enabled: !!projectId,
+  })
+
+  const { data: runsData } = useQuery({
+    queryKey: ['runs', 'list', { project_id: projectId, page_size: 1 }],
+    queryFn: () => runsApi.list({ project_id: projectId, page_size: 100 }),
+    enabled: !!projectId,
+  })
+
+  const { data: resourcesData } = useQuery({
+    queryKey: ['dashboard', 'resources', projectId],
+    queryFn: () => dashboardApi.getResources(24, projectId),
+    enabled: !!projectId,
+  })
+
+  const runs = runsData?.items ?? []
+  const successCount = runs.filter((r) => r.status === 'success').length
+  const successRate = runs.length > 0 ? Math.round((successCount / runs.length) * 100) : 0
+
+  const latestCpu = resourcesData?.points?.at(-1)?.cpu_percent
+  const latestMem = resourcesData?.points?.at(-1)?.memory_percent
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div className="bg-card border border-border/50 rounded-lg p-4">
+        <p className="text-xs text-muted-foreground uppercase">Project</p>
+        <p className="text-lg font-semibold truncate">{project?.name || 'Loading...'}</p>
+        <p className="text-xs text-muted-foreground">{project?.run_count ?? 0} runs · {project?.status}</p>
+      </div>
+      <div className="bg-card border border-border/50 rounded-lg p-4">
+        <p className="text-xs text-muted-foreground uppercase">Runs</p>
+        <p className="text-lg font-semibold">{runs.length}</p>
+        <p className="text-xs text-muted-foreground">{successRate}% success</p>
+      </div>
+      <div className="bg-card border border-border/50 rounded-lg p-4">
+        <p className="text-xs text-muted-foreground uppercase">CPU</p>
+        <p className="text-lg font-semibold">{latestCpu != null ? `${latestCpu.toFixed(0)}%` : '--'}</p>
+        <p className="text-xs text-muted-foreground">avg last 24h</p>
+      </div>
+      <div className="bg-card border border-border/50 rounded-lg p-4">
+        <p className="text-xs text-muted-foreground uppercase">Memory</p>
+        <p className="text-lg font-semibold">{latestMem != null ? `${latestMem.toFixed(0)}%` : '--'}</p>
+        <p className="text-xs text-muted-foreground">avg last 24h</p>
+      </div>
+    </div>
+  )
+}
+
 function WorkspaceContent() {
   const { state, dispatch } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -460,6 +512,7 @@ function WorkspaceContent() {
   return (
     <div className="p-6 space-y-4">
       <WorkspaceToolbar />
+      {state.selectedProjectId && <ProjectMetrics projectId={state.selectedProjectId} />}
       <WorkspaceGrid />
 
       {state.panels.length === 0 && (

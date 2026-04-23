@@ -612,12 +612,20 @@ class ExperimentStats(BaseModel):
     total_trials: int = 0
 
 
+class ProjectStats(BaseModel):
+    """Project-related dashboard statistics."""
+    total: int = 0
+    active: int = 0
+    recent_runs: int = 0
+
+
 class DashboardStats(BaseModel):
     """Dashboard statistics overview."""
     pipelines: PipelineStats = Field(default_factory=PipelineStats)
     models: ModelStats = Field(default_factory=ModelStats)
     drift: DriftStats = Field(default_factory=DriftStats)
     experiments: ExperimentStats = Field(default_factory=ExperimentStats)
+    projects: ProjectStats = Field(default_factory=ProjectStats)
 
 
 class ActivityItem(BaseModel):

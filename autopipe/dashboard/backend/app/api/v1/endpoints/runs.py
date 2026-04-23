@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import ActivityLog, Pipeline, Run, RunStatus, Step
+from app.db.models import ActivityLog, Pipeline, Project, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
 from app.schemas import RunResponse, RunUpdate, RunList, TrainingConfigResponse, CheckpointsResponse, CheckpointPromoteRequest
@@ -74,7 +74,16 @@ async def list_runs(
         select(Pipeline.id, Pipeline.name).where(Pipeline.id.in_(pipeline_ids))
     )
     pipeline_names = {id: name for id, name in pipeline_result.fetchall()}
-    
+
+    # Get project names
+    project_ids = set(r.project_id for r in runs if r.project_id)
+    project_names = {}
+    if project_ids:
+        project_result = await db.execute(
+            select(Project.id, Project.name).where(Project.id.in_(project_ids))
+        )
+        project_names = {id: name for id, name in project_result.fetchall()}
+
     items = []
     for r in runs:
         run_dict = {
@@ -91,6 +100,7 @@ async def list_runs(
             "created_at": r.created_at,
             "pipeline_name": pipeline_names.get(r.pipeline_id, "Unknown"),
             "project_id": r.project_id,
+            "project_name": project_names.get(r.project_id) if r.project_id else None,
         }
         items.append(run_dict)
     

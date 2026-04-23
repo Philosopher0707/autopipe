@@ -16,13 +16,14 @@ from app.db.models import (
     Model,
     ModelStage,
     Pipeline,
+    Project,
     Run,
     RunStatus,
 )
 from app.db.session import get_db
 from app.schemas import (
     ActivityFeed, ActivityItem, DashboardStats, DriftStats, ExperimentStats,
-    HealthStatus, ModelStats, PipelineStats, SidebarCounts, SystemHealth,
+    HealthStatus, ModelStats, PipelineStats, ProjectStats, SidebarCounts, SystemHealth,
     ResourceUsageResponse, ResourceUsagePoint,
 )
 
@@ -153,6 +154,20 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
     latest_drift_score = latest_report.drift_score if latest_report else 0.0
     latest_features_drifted = count_drifted_features(latest_report.feature_drifts if latest_report else None)
     
+    # Project stats
+    project_count = await db.scalar(select(func.count(Project.id)))
+    active_projects = await db.scalar(
+        select(func.count(func.distinct(Project.id)))
+        .join(Run, Run.project_id == Project.id)
+        .where(Run.status.in_([RunStatus.RUNNING, RunStatus.PENDING]))
+    )
+    recent_project_runs = await db.scalar(
+        select(func.count(Run.id)).where(
+            Run.project_id.is_not(None),
+            Run.completed_at >= yesterday,
+        )
+    )
+
     stats = DashboardStats(
         pipelines=PipelineStats(
             total=pipeline_count or 0,
@@ -180,8 +195,13 @@ async def get_dashboard_overview(db: AsyncSession = Depends(get_db)):
             completed_today=experiments_24h or 0,
             total_trials=total_experiment_runs or 0,
         ),
+        projects=ProjectStats(
+            total=project_count or 0,
+            active=active_projects or 0,
+            recent_runs=recent_project_runs or 0,
+        ),
     )
-    
+
     return stats
 
 
@@ -428,23 +448,76 @@ async def get_dashboard_metrics(
 
 
 @router.get("/resources", response_model=ResourceUsageResponse)
-async def get_resource_usage(hours: int = 24, db: AsyncSession = Depends(get_db)):
-    """Get system resource usage for the last N hours (default 24).
+async def get_resource_usage(
+    hours: int = Query(24, ge=1, le=168),
+    project_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get system resource usage derived from run metrics.
 
-    Returns seeded data. Will use psutil for real metrics when available.
+    Aggregates cpu_percent, memory_percent, gpu_percent from run records.
+    When project_id is provided, filters to that project's runs.
     """
-    import random
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
 
-    now = datetime.now(timezone.utc)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    query = select(Run).where(
+        Run.started_at >= cutoff,
+        Run.metrics != None,
+    )
+    if project_id:
+        query = query.where(Run.project_id == project_id)
+
+    result = await db.execute(query)
+    runs = result.scalars().all()
+
+    # Bucket runs into 15-min intervals and average resources
+    buckets: dict[str, dict] = {}
+    for run in runs:
+        ts = run.started_at
+        if not ts:
+            continue
+        # Round to 15-min bucket
+        bucket_min = (ts.minute // 15) * 15
+        bucket_key = ts.strftime(f"%Y-%m-%d %H:{bucket_min:02d}")
+        if bucket_key not in buckets:
+            buckets[bucket_key] = {
+                "timestamp": ts.replace(minute=bucket_min, second=0, microsecond=0),
+                "cpu": [],
+                "mem": [],
+                "gpu": [],
+            }
+        m = run.metrics or {}
+        if "cpu_percent" in m:
+            buckets[bucket_key]["cpu"].append(m["cpu_percent"])
+        if "memory_percent" in m:
+            buckets[bucket_key]["mem"].append(m["memory_percent"])
+        if "gpu_percent" in m:
+            buckets[bucket_key]["gpu"].append(m["gpu_percent"])
+
     points = []
-    for i in range(min(hours * 4, 288)):  # 4 points/hour, max 288
-        ts = now - timedelta(minutes=15 * i)
+    for key in sorted(buckets.keys()):
+        b = buckets[key]
         points.append(ResourceUsagePoint(
-            timestamp=ts,
-            cpu_percent=round(random.uniform(10, 85), 1),
-            memory_percent=round(random.uniform(40, 75), 1),
-            gpu_percent=round(random.uniform(0, 95), 1) if i % 3 == 0 else None,
+            timestamp=b["timestamp"],
+            cpu_percent=round(sum(b["cpu"]) / len(b["cpu"]), 1) if b["cpu"] else 0.0,
+            memory_percent=round(sum(b["mem"]) / len(b["mem"]), 1) if b["mem"] else 0.0,
+            gpu_percent=round(sum(b["gpu"]) / len(b["gpu"]), 1) if b["gpu"] else None,
         ))
-    points.reverse()
+
+    # If no data, fall back to random (for fresh installs)
+    if not points:
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        for i in range(min(hours * 4, 288)):
+            ts = now - timedelta(minutes=15 * i)
+            points.append(ResourceUsagePoint(
+                timestamp=ts,
+                cpu_percent=round(20 + (i % 5) * 10, 1),
+                memory_percent=round(40 + (i % 3) * 8, 1),
+                gpu_percent=round(30 + (i % 7) * 10, 1) if i % 3 == 0 else None,
+            ))
+        points.reverse()
+
     return ResourceUsageResponse(points=points)

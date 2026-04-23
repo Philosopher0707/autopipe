@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, Activity } from 'lucide-react'
+import { ArrowRight, Activity, FolderOpen } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent, StatusPill } from '@/components/ui'
 import { cn, formatDuration } from '@/utils/helpers'
 import type { PipelineRun } from '@/types'
@@ -32,6 +32,9 @@ export function ActivePipelines({ runs }: ActivePipelinesProps) {
               <tr className="border-b border-border">
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">
                   Pipeline
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">
+                  Project
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground uppercase">
                   Status
@@ -81,6 +84,19 @@ export function ActivePipelines({ runs }: ActivePipelinesProps) {
                         <p className="text-xs text-muted-foreground">Run #{run.run_number || run.id.slice(0, 8)}</p>
                       </div>
                     </div>
+                  </td>
+                  <td className="py-3 px-4">
+                    {run.project_id ? (
+                      <button
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                        onClick={() => navigate(`/workspace?projectId=${run.project_id}`)}
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        {run.project_name || run.project_id.slice(0, 8)}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     <StatusPill status={run.status} />
