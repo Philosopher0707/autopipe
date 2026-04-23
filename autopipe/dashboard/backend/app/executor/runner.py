@@ -25,6 +25,11 @@ from app.core.config import settings
 from app.db.models import Run, RunStatus, Step, StepStatus
 from app.executor.registry import register_run, unregister_run, cancel_run as _cancel_signal
 
+try:
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
+
 logger = logging.getLogger(__name__)
 
 # Ensure autopipe is importable — add project root to sys.path
@@ -330,6 +335,18 @@ def _run_pipeline_in_thread(run_id: str, pipeline_config: dict, initial_inputs: 
                     if core_step.metrics:
                         for k, v in core_step.metrics.items():
                             run_metrics[f"{step_name}_{k}" if k != step_name else k] = v
+
+                # Capture genuine system resource usage
+                if psutil:
+                    run_metrics["cpu_percent"] = round(psutil.cpu_percent(interval=0.1), 1)
+                    run_metrics["memory_percent"] = round(psutil.virtual_memory().percent, 1)
+                    try:
+                        gpus = psutil._psplatform.cuda_devices() if hasattr(psutil._psplatform, "cuda_devices") else []
+                        if gpus:
+                            run_metrics["gpu_percent"] = round(gpus[0].utilization, 1)
+                    except Exception:
+                        pass
+
                 _update_run_status(db, run_id, RunStatus.SUCCESS, metrics=run_metrics or None)
 
         logger.info(f"Run {run_id} {'cancelled' if cancelled else 'failed' if run_failed else 'completed successfully'}")
