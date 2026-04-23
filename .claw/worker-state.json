@@ -1,0 +1,16 @@
+{
+  "worker_id": "worker_69de3574_1",
+  "status": "spawning",
+  "is_ready": false,
+  "trust_gate_cleared": false,
+  "prompt_in_flight": false,
+  "last_event": {
+    "seq": 1,
+    "kind": "spawning",
+    "status": "spawning",
+    "detail": "worker created",
+    "timestamp": 1776170356
+  },
+  "updated_at": 1776170356,
+  "seconds_since_update": 0
+}

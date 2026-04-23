@@ -1,0 +1,26 @@
+{
+    "hooks": [
+        {
+            "name": "session-start",
+            "event": "SessionStart",
+            "script": "scripts/hooks/session-start.js"
+        },
+        {
+            "name": "post-edit-ruff",
+            "event": "PostToolUse",
+            "filter": { "tool": "Edit", "fileGlob": "**/*.py" },
+            "script": "scripts/hooks/post-edit-ruff.js"
+        },
+        {
+            "name": "post-edit-mypy",
+            "event": "PostToolUse",
+            "filter": { "tool": "Edit", "fileGlob": "**/*.py" },
+            "script": "scripts/hooks/post-edit-mypy.js"
+        },
+        {
+            "name": "suggest-compact",
+            "event": "ContextCompaction",
+            "script": "scripts/hooks/suggest-compact.js"
+        }
+    ]
+}

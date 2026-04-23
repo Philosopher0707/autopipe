@@ -12,6 +12,9 @@ import {
   LogOut,
   Menu,
   X,
+  Brain,
+  Sparkles,
+  Wrench,
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { useUIStore, useAuthStore } from '@/stores'
@@ -113,6 +116,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <SidebarItem to="/experiments" icon={<FlaskConical className="w-5 h-5" />} label="Experiments" badge={counts?.experiments_total ?? 0} />
           <SidebarItem to="/models" icon={<Box className="w-5 h-5" />} label="Model Registry" badge={counts?.models_total ?? 0} />
           <SidebarItem to="/drift" icon={<AlertTriangle className="w-5 h-5" />} label="Drift Monitor" badge={counts?.drift_features_drifted ?? 0} />
+          <SidebarItem to="/explainability" icon={<Brain className="w-5 h-5" />} label="Explainability" />
+          <SidebarItem to="/automl" icon={<Sparkles className="w-5 h-5" />} label="AutoML" />
+          <SidebarItem to="/features" icon={<Wrench className="w-5 h-5" />} label="Features" />
 
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-6 px-3">
             System

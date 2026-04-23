@@ -1,8 +1,8 @@
 """Search spaces for hyperparameter tuning."""
 
-from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Union
 
 
 class SearchStrategy(Enum):
@@ -19,7 +19,7 @@ class SearchParameter:
     """Base class for search parameters."""
     name: str
     param_type: str
-    
+
     def to_dict(self) -> Dict:
         return {"name": self.name, "type": self.param_type}
 
@@ -31,7 +31,7 @@ class Continuous:
     low: float
     high: float
     log_scale: bool = False
-    
+
     def to_dict(self) -> Dict:
         return {
             "name": self.name,
@@ -48,7 +48,7 @@ class Discrete:
     name: str
     low: int
     high: int
-    
+
     def to_dict(self) -> Dict:
         return {
             "name": self.name,
@@ -63,7 +63,7 @@ class Categorical:
     """Categorical parameter with choices."""
     name: str
     choices: List[Any]
-    
+
     def to_dict(self) -> Dict:
         return {
             "name": self.name,
@@ -74,14 +74,14 @@ class Categorical:
 
 class SearchSpace:
     """Define search space for hyperparameter optimization."""
-    
+
     def __init__(self):
         self.parameters: Dict[str, Any] = {}
-    
+
     def add(self, param: Union[Continuous, Discrete, Categorical]):
         """Add a parameter to the search space."""
         self.parameters[param.name] = param
-    
+
     def sample(self, strategy: SearchStrategy = SearchStrategy.RANDOM) -> Dict[str, Any]:
         """Sample a point from the search space."""
         import random

@@ -209,6 +209,65 @@ if results['drift_detected_count'] > 0:
     print(f"⚠️ Drift detected in {results['drift_ratio']:.1%} of features")
 ```
 
+## Live TUI Dashboard
+
+Real-time terminal dashboard for pipeline execution. Launch with `--tui`:
+
+```bash
+autopipe run pipeline.yaml --tui
+```
+
+Requires textual, rich, psutil (`pip install "autopipe[all]"`). 3-panel layout: pipeline overview + step list (left), step duration sparklines (center), host CPU/memory/disk (right). Key bindings: `q` quit, `p` pause/resume.
+
+## Eval Command
+
+LLM evaluation against configured models via promptfoo (Node.js) or direct Ollama fallback:
+
+```bash
+autopipe eval --config promptfoo/promptfooconfig.yaml
+autopipe eval --task pipeline-generation --model kimi
+autopipe eval --compare --output results.json
+```
+
+## Dashboard
+
+Full-stack monitoring UI for ML pipelines, experiments, and drift detection.
+
+**Stack:** FastAPI + SQLAlchemy 2.0 (async) + SQLite | React 18 + TypeScript + Vite + Tailwind + TanStack Query + Zustand + Recharts
+
+**Pages:**
+| Page | Route | Description |
+|------|-------|-------------|
+| Dashboard | `/` | Overview with stats, resource usage chart, pipeline performance, activity feed |
+| Pipelines | `/pipelines` | List, create, validate, and trigger pipeline runs |
+| Pipeline Detail | `/pipelines/:id` | Pipeline info, run history, config viewer, validation |
+| Runs | `/runs` | Paginated run list with status filters |
+| Run Detail | `/runs/:id` | Steps, logs, metrics charts, training config, checkpoints |
+| Experiments | `/experiments` | Experiment list with trial counts |
+| Experiment Detail | `/experiments/:id` | Runs comparison, metrics, artifacts viewer |
+| Models | `/models` | Model registry with version staging |
+| Drift | `/drift` | Drift reports, alerts, feature-level analysis |
+| AutoML | `/automl` | Trial history, param importance, Pareto front, pruning |
+| Features | `/features` | Feature extraction pipeline builder, stats, distributions |
+| Explainability | `/explainability` | SHAP, LIME, permutation importance visualizations |
+| Workspace | `/workspace` | Multi-panel analysis layout (14 panel types) |
+
+**Run the dashboard:**
+```bash
+# Backend (port 8765)
+cd autopipe/dashboard/backend
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload
+.venv/bin/python -m app.seed  # seed demo data
+
+# Frontend (port 3000, proxies /api → :8765)
+cd autopipe/dashboard/frontend
+pnpm install && pnpm dev
+```
+
+- API docs: `http://localhost:8765/api/v1/docs`
+- Default credentials: `admin` / `admin123`
+- Tests: 82 backend (pytest), 34 frontend (vitest)
+
 ## 🏗️ Architecture
 
 ```

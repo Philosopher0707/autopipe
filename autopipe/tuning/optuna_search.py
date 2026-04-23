@@ -1,12 +1,12 @@
 """Optuna-based hyperparameter search for AutoPipe."""
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import time
 from dataclasses import dataclass, field
-import numpy as np
+from typing import Any, Dict, List, Optional, Union
 
 from autopipe.core.step import Step
 from autopipe.exceptions import PipelineError
+
 from .search_space import SearchSpace
 
 
@@ -31,14 +31,14 @@ class OptunaPruner:
     min_resource: int = 1
     reduction_factor: float = 3.0
     pruner_type: str = "median"  # median, percentile, hyperband
-    
+
     def get_optuna_pruner(self):
         """Get Optuna pruner instance."""
         try:
             import optuna
         except ImportError:
             raise PipelineError("Optuna is required for hyperparameter tuning")
-        
+
         if self.pruner_type == "median":
             return optuna.pruners.MedianPruner(
                 n_startup_trials=self.n_startup_trials,
@@ -74,7 +74,7 @@ class OptunaSearchStep(Step):
     - Parallel coordinate plots
     - Hyperparameter importance analysis
     """
-    
+
     def __init__(
         self,
         name: str = "optuna_search",
@@ -132,14 +132,14 @@ class OptunaSearchStep(Step):
         self.n_jobs = n_jobs
         self.seed = seed
         self.show_progress_bar = show_progress_bar
-        
+
         self.evaluator_class = evaluator_class
         self.evaluator_kwargs = evaluator_kwargs or {}
-        
+
         self.study = None
         self.trial_results: List[TrialResult] = []
         self.best_trial = None
-        
+
     def _get_sampler(self, optuna):
         """Create Optuna sampler."""
         if self.sampler == "tpe":
@@ -175,21 +175,21 @@ class OptunaSearchStep(Step):
             )
         else:
             return optuna.samplers.TPESampler(seed=self.seed)
-    
+
     def _create_study(self, optuna):
         """Create or load Optuna study."""
         directions = [d.upper() for d in self.direction]
-        
+
         study_kwargs = {
             "study_name": self.study_name,
             "sampler": self._get_sampler(optuna),
             "pruner": self.pruner.get_optuna_pruner(),
         }
-        
+
         if self.storage:
             study_kwargs["storage"] = self.storage
             study_kwargs["load_if_exists"] = self.load_if_exists
-        
+
         # Multi-objective vs single-objective
         if len(directions) > 1:
             study_kwargs["directions"] = directions
@@ -197,13 +197,12 @@ class OptunaSearchStep(Step):
         else:
             study_kwargs["direction"] = directions[0]
             return optuna.create_study(**study_kwargs)
-    
+
     def _objective(self, trial, **context):
         """Objective function for Optuna."""
-        import optuna
-        
+
         start_time = time.time()
-        
+
         # Sample parameters from search space
         params = {}
         for name, distribution in self.search_space.parameters.items():
@@ -220,26 +219,26 @@ class OptunaSearchStep(Step):
                         params[name] = trial.suggest_int(name, distribution.low, distribution.high)
                     else:
                         params[name] = trial.suggest_float(name, distribution.low, distribution.high)
-        
+
         # Run evaluation
         evaluator = self.evaluator_class(**self.evaluator_kwargs)
         metrics = evaluator.evaluate(params, trial, **context)
-        
+
         # Record runtime
         runtime = time.time() - start_time
         trial.set_user_attr("runtime", runtime)
-        
+
         # Store metadata about parameters
         for key, value in metrics.items():
             if not isinstance(value, (int, float)):
                 trial.set_user_attr(f"{key}_str", str(value))
-        
+
         # Return objective values
         if len(self.objective) == 1:
             return metrics.get(self.objective[0], float('-inf') if self.direction[0] == "maximize" else float('inf'))
-        
+
         return tuple(metrics.get(obj, 0.0) for obj in self.objective)
-    
+
     def execute(
         self,
         train_data: Any,
@@ -251,17 +250,17 @@ class OptunaSearchStep(Step):
             import optuna
         except ImportError:
             raise PipelineError("Optuna is required for hyperparameter tuning. Install with: pip install optuna")
-        
+
         # Set verbosity
         optuna.logging.set_verbosity(optuna.logging.INFO)
-        
+
         # Create study
         self.study = self._create_study(optuna)
-        
+
         # Create objective wrapper
         def objective(trial):
             return self._objective(trial, train_data=train_data, val_data=val_data, context=context)
-        
+
         # Run optimization
         self.study.optimize(
             objective,
@@ -270,7 +269,7 @@ class OptunaSearchStep(Step):
             n_jobs=self.n_jobs,
             show_progress_bar=self.show_progress_bar,
         )
-        
+
         # Collect results
         self.trial_results = []
         for trial in self.study.trials:
@@ -288,7 +287,7 @@ class OptunaSearchStep(Step):
                     intermediate_values=list(trial.intermediate_values.values()),
                 )
                 self.trial_results.append(result)
-        
+
         # Store best trial
         if self.study.best_trial:
             self.best_trial = TrialResult(
@@ -298,7 +297,7 @@ class OptunaSearchStep(Step):
                 runtime=0,
                 state="COMPLETE",
             )
-        
+
         # Get importances if available
         importances = None
         if len(self.study.trials) > 10:
@@ -306,7 +305,7 @@ class OptunaSearchStep(Step):
                 importances = optuna.importance.get_param_importances(self.study)
             except Exception:
                 pass
-        
+
         # Prepare results
         results = {
             "study_name": self.study_name,
@@ -338,23 +337,23 @@ class OptunaSearchStep(Step):
                 for name, dist in self.search_space.parameters.items()
             },
         }
-        
+
         if context:
             context["hyperparameter_tuning"] = results
-        
+
         return results
-    
+
     def get_best_params(self) -> Optional[Dict[str, Any]]:
         """Get the best hyperparameters found."""
         return self.best_trial.params if self.best_trial else None
-    
+
     def get_trials_df(self) -> "pd.DataFrame":
         """Get all trials as a DataFrame."""
         try:
             import pandas as pd
         except ImportError:
             raise PipelineError("pandas required for DataFrame output")
-        
+
         rows = []
         for result in self.trial_results:
             row = {
@@ -365,9 +364,9 @@ class OptunaSearchStep(Step):
                 **result.params,
             }
             rows.append(row)
-        
+
         return pd.DataFrame(rows)
-    
+
     def plot_optimization_history(self):
         """Plot optimization history using Optuna visualizations."""
         try:
@@ -375,7 +374,7 @@ class OptunaSearchStep(Step):
             return vis.plot_optimization_history(self.study)
         except ImportError:
             raise PipelineError("Optuna visualization requires plotly")
-    
+
     def plot_parallel_coordinate(self):
         """Plot parallel coordinate visualization."""
         try:
@@ -383,7 +382,7 @@ class OptunaSearchStep(Step):
             return vis.plot_parallel_coordinate(self.study)
         except ImportError:
             raise PipelineError("Optuna visualization requires plotly")
-    
+
     def plot_param_importances(self):
         """Plot parameter importances."""
         try:

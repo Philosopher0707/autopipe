@@ -1,7 +1,9 @@
 """Tests for autopipe.config.load module."""
 
 import os
+
 import pytest
+
 from autopipe.config.load import Config
 
 

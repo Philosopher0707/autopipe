@@ -1,8 +1,9 @@
 """Tests for autopipe.core.steps builtin step implementations."""
 
 import pytest
-from autopipe.core.steps import PrintStep, DataLoaderStep, VisualizationStep
+
 from autopipe.core.step import Step
+from autopipe.core.steps import DataLoaderStep, PrintStep, VisualizationStep
 
 
 class TestPrintStep:

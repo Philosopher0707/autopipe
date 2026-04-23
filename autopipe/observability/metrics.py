@@ -1,14 +1,11 @@
 """Metrics collection for AutoPipe."""
-import time
-from typing import Any, Dict, Optional
-from dataclasses import dataclass, field
-from collections import defaultdict
-from pathlib import Path
 import json
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-from prometheus_client import Counter, Histogram, Gauge, start_http_server, CollectorRegistry
-
-from ..exceptions import ConfigurationError
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
 
 
 @dataclass
@@ -21,7 +18,7 @@ class PipelineMetrics:
     step_durations: Dict[str, float] = field(default_factory=dict)
     step_metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-    
+
     @property
     def duration_ms(self) -> Optional[float]:
         """Total pipeline duration in milliseconds."""
@@ -47,7 +44,7 @@ class MetricsCollector:
         self._registry = CollectorRegistry()
         self._metrics: Dict[str, PipelineMetrics] = {}
         self._initialized = False
-        
+
         if enabled and prometheus_port:
             self._init_prometheus()
 
@@ -55,7 +52,7 @@ class MetricsCollector:
         """Initialize Prometheus metrics."""
         if self._initialized:
             return
-            
+
         self._pipeline_runs = Counter(
             "autopipe_pipeline_runs_total",
             "Total pipeline runs",
@@ -86,10 +83,10 @@ class MetricsCollector:
             ["pipeline_name"],
             registry=self._registry,
         )
-        
+
         if self.prometheus_port:
             start_http_server(self.prometheus_port, registry=self._registry)
-        
+
         self._initialized = True
 
     def start_run(self, run_id: str, pipeline_name: str) -> PipelineMetrics:
@@ -100,10 +97,10 @@ class MetricsCollector:
             start_time=time.perf_counter(),
         )
         self._metrics[run_id] = metrics
-        
+
         if self.enabled and self._initialized:
             self._active_runs.labels(pipeline_name=pipeline_name).inc()
-        
+
         return metrics
 
     def end_run(
@@ -116,13 +113,13 @@ class MetricsCollector:
         metrics = self._metrics.get(run_id)
         if not metrics:
             return
-            
+
         metrics.end_time = time.perf_counter()
         if error:
             metrics.errors.append(error)
-        
+
         duration = metrics.duration_ms
-        
+
         if self.enabled and self._initialized:
             self._active_runs.labels(pipeline_name=metrics.pipeline_name).dec()
             self._pipeline_runs.labels(
@@ -132,7 +129,7 @@ class MetricsCollector:
                 self._pipeline_duration.labels(
                     pipeline_name=metrics.pipeline_name
                 ).observe(duration / 1000)
-        
+
         if self.export_json and self.json_path:
             self._export_to_json()
 
@@ -153,14 +150,14 @@ class MetricsCollector:
         metrics = self._metrics.get(run_id)
         if not metrics:
             return
-            
+
         step_data = metrics.step_metrics.get(step_name, {})
         start_time = step_data.get("start_time")
-        
+
         if start_time:
             duration = (time.perf_counter() - start_time) * 1000
             metrics.step_durations[step_name] = duration
-            
+
             if self.enabled and self._initialized:
                 self._step_duration.labels(
                     pipeline_name=metrics.pipeline_name, step_name=step_name
@@ -170,7 +167,7 @@ class MetricsCollector:
                     step_name=step_name,
                     status=status,
                 ).inc()
-        
+
         if error:
             step_data["error"] = error
 
@@ -191,7 +188,7 @@ class MetricsCollector:
         """Export all metrics to JSON file."""
         if not self.json_path:
             return
-            
+
         data = []
         for metrics in self._metrics.values():
             data.append({
@@ -204,7 +201,7 @@ class MetricsCollector:
                 "step_metrics": metrics.step_metrics,
                 "errors": metrics.errors,
             })
-        
+
         Path(self.json_path).parent.mkdir(parents=True, exist_ok=True)
         with open(self.json_path, "w") as f:
             json.dump(data, f, indent=2)

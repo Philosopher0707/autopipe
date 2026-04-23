@@ -1,9 +1,10 @@
 """Tests for autopipe.core.loader module."""
 
 import pytest
-from autopipe.core.loader import import_class, load_step_from_config, load_pipeline_from_config
-from autopipe.core.steps import PrintStep, DataLoaderStep, VisualizationStep
+
+from autopipe.core.loader import import_class, load_pipeline_from_config, load_step_from_config
 from autopipe.core.pipeline import Pipeline
+from autopipe.core.steps import PrintStep
 
 
 class TestImportClass:

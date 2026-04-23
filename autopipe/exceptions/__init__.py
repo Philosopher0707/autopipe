@@ -12,17 +12,14 @@ class AutoPipeError(Exception):
 
 class ConfigurationError(AutoPipeError):
     """Raised when there's a configuration error."""
-    pass
 
 
 class ValidationError(AutoPipeError):
     """Raised when validation fails."""
-    pass
 
 
 class PipelineError(AutoPipeError):
     """Raised when pipeline execution fails."""
-    pass
 
 
 class StepError(AutoPipeError):
@@ -36,12 +33,10 @@ class StepError(AutoPipeError):
 
 class DependencyError(PipelineError):
     """Raised when there's a dependency resolution error."""
-    pass
 
 
 class CircularDependencyError(DependencyError):
     """Raised when circular dependencies are detected."""
-    pass
 
 
 class LLMError(AutoPipeError):
@@ -82,19 +77,15 @@ class RateLimitError(LLMError):
 
 class AuthenticationError(LLMError):
     """Raised when authentication fails."""
-    pass
 
 
 class CacheError(AutoPipeError):
     """Raised when cache operations fail."""
-    pass
 
 
 class VisualizationError(AutoPipeError):
     """Raised when visualization fails."""
-    pass
 
 
 class DataLoadingError(AutoPipeError):
     """Raised when data loading fails."""
-    pass

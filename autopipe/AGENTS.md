@@ -13,6 +13,33 @@ From the repository root:
 - `cd autopipe/dashboard/backend && pip install -r requirements.txt && uvicorn app.main:app --reload` starts the dashboard API.
 - `cd autopipe/dashboard/frontend && pnpm install && pnpm dev` runs the dashboard UI locally.
 - `cd autopipe/dashboard/frontend && pnpm build && pnpm typecheck` verifies production build health.
+- `autopipe eval --compare` runs promptfoo LLM evaluations across your configured Ollama models (kimi, glm, minimax).
+- `autopipe eval --task pipeline-generation --provider ollama-kimi` runs a subset of evaluations.
+- `npx promptfoo@latest eval -c promptfoo/promptfooconfig.yaml` runs promptfoo directly via Node.js.
+
+## LLM Evaluation
+AutoPipe integrates **[promptfoo](https://promptfoo.dev)** to systematically compare the three configured Ollama models on pipeline-specific tasks:
+
+```bash
+# Full comparison across all 3 models (kimi, glm, minimax)
+autopipe eval --compare
+
+# Evaluate only pipeline-generation prompts
+autopipe eval --task pipeline-generation
+
+# Evaluate only kimi model
+autopipe eval --provider ollama-kimi
+
+# Output JSON for CI gates
+autopipe eval --compare --output results.json --verbose
+```
+
+Evaluation tasks include:
+- **pipeline-generation** — Generate valid AutoPipe YAML configs from natural language
+- **step-explanation** — Explain what pipeline steps do
+- **error-diagnosis** — Suggest fixes for common pipeline errors
+
+All results are summarized with pass/fail rates per model.
 
 ## Coding Style & Naming Conventions
 Use 4-space indentation in Python, explicit type hints, and `snake_case` for modules, functions, and variables; classes use `PascalCase`. Black enforces a 100-character line length, Ruff handles import order and lint rules, and mypy runs in strict mode. In the frontend, keep React components and page files in `PascalCase.tsx`, colocate API clients under `src/api/`, and use descriptive store names like `authStore.ts`.

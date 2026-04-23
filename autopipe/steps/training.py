@@ -7,12 +7,13 @@ This module provides training steps for:
 - Transfer learning support
 """
 
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
-import numpy as np
-import pandas as pd
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Union
+
+import numpy as np
+import pandas as pd
 
 from autopipe.core.step import Step
 
@@ -42,7 +43,7 @@ class SklearnTrainerStep(Step):
     Trains any sklearn-compatible estimator with optional cross-validation,
     hyperparameter tracking, and automatic metrics logging.
     """
-    
+
     def __init__(
         self,
         name: str = "sklearn_trainer",
@@ -67,20 +68,21 @@ class SklearnTrainerStep(Step):
         self.fit_params = fit_params or {}
         self.save_path = save_path
         self.n_jobs = n_jobs
-        
+
         self.model = None
         self.cv_results = {}
-        
+
     def run(self, **kwargs) -> Any:
         """Train model with optional cross-validation."""
         import logging
-        from sklearn.model_selection import cross_validate, StratifiedKFold, KFold
-        
+
+        from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
+
         logger = logging.getLogger(__name__)
-        
+
         # Extract data from inputs
         X_train, y_train = None, None
-        
+
         for key, value in kwargs.items():
             if isinstance(value, dict) and 'train' in value:
                 train_data = value.get('train')
@@ -96,56 +98,56 @@ class SklearnTrainerStep(Step):
             elif isinstance(value, np.ndarray):
                 if X_train is None:
                     X_train = value
-        
+
         if X_train is None or y_train is None:
             raise ValueError("SklearnTrainerStep requires training data (X) and target labels (y)")
-        
+
         logger.info(f"Training on {len(X_train)} samples")
-        
+
         # Initialize model
         if self.model_class is None:
             from sklearn.ensemble import RandomForestClassifier
             self.model = RandomForestClassifier(**self.model_params, random_state=42)
         else:
             self.model = self.model_class(**self.model_params)
-        
+
         # Cross-validation
         if self.use_cross_validation:
             logger.info(f"Running {self.cv_folds}-fold cross-validation...")
-            
+
             if self.cv_strategy == "stratified":
                 cv = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=42)
             else:
                 cv = KFold(n_splits=self.cv_folds, shuffle=True, random_state=42)
-            
+
             scoring = self.scoring if isinstance(self.scoring, list) else [self.scoring]
             self.cv_results = cross_validate(
                 self.model, X_train, y_train,
                 cv=cv, scoring=scoring, return_train_score=True, n_jobs=self.n_jobs
             )
-            
+
             for metric in scoring:
                 train_scores = self.cv_results.get(f'train_{metric}', [])
                 val_scores = self.cv_results.get(f'test_{metric}', [])
-                
+
                 self.log_metrics(
                     **{f"cv_train_{metric}_mean": np.mean(train_scores)},
                     **{f"cv_val_{metric}_mean": np.mean(val_scores)}
                 )
-        
+
         self.model.fit(X_train, y_train, **self.fit_params)
-        
+
         self.log_metrics(
             training_samples=len(X_train),
             n_features=X_train.shape[1],
             model_type=self.model.__class__.__name__
         )
-        
+
         if self.save_path:
             import joblib
             Path(self.save_path).parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(self.model, self.save_path)
-        
+
         return self.model
 
 
@@ -157,7 +159,7 @@ class _PyTorchTrainerStepStub(Step):
         This stub provides minimal functionality. Import from deep_learning module
         for full training support.
     """
-    
+
     def __init__(
         self,
         name: str = "pytorch_trainer",
@@ -167,7 +169,6 @@ class _PyTorchTrainerStepStub(Step):
         task_type: str = "classification",
         **kwargs
     ):
-        import warnings
         warnings.warn(
             "PyTorchTrainerStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.PyTorchTrainerStep for full training support.",
@@ -188,13 +189,13 @@ class _PyTorchTrainerStepStub(Step):
             import torch.nn as nn
         except ImportError:
             raise ImportError("PyTorch is required. Install with: pip install torch")
-        
+
         # Build model only (no training)
         if self.model_builder:
             self.model = self.model_builder()
         else:
             self.model = nn.Sequential(nn.Linear(10, 2))
-        
+
         return self.model
 
 
@@ -209,13 +210,12 @@ class _TensorFlowTrainerStepStub(Step):
         Use :class:`autopipe.steps.deep_learning.TensorFlowTrainerStep` instead.
         This stub provides minimal functionality.
     """
-    
+
     def __init__(
         self,
         name: str = "tensorflow_trainer",
         **kwargs
     ):
-        import warnings
         warnings.warn(
             "TensorFlowTrainerStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.TensorFlowTrainerStep for full training support.",
@@ -230,7 +230,7 @@ class _TensorFlowTrainerStepStub(Step):
             import tensorflow as tf
         except ImportError:
             raise ImportError("TensorFlow is required. Install with: pip install tensorflow")
-        
+
         # Placeholder
         self.model = tf.keras.Sequential([tf.keras.layers.Dense(2, input_shape=(10,))])
         return self.model
@@ -267,8 +267,8 @@ class HyperparameterTunerStep(Step):
         self.best_params_ = {}
 
     def run(self, **kwargs) -> Any:
-        from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
         from sklearn.ensemble import RandomForestClassifier
+        from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 
         X, y = None, None
         for value in kwargs.values():
@@ -311,7 +311,7 @@ class _TransferLearningStepStub(Step):
     .. deprecated::
         Use :class:`autopipe.steps.deep_learning.TransferLearningStep` instead.
     """
-    
+
     def __init__(
         self,
         name: str = "transfer_learning",
@@ -319,7 +319,6 @@ class _TransferLearningStepStub(Step):
         num_classes: int = 10,
         **kwargs
     ):
-        import warnings
         warnings.warn(
             "TransferLearningStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.TransferLearningStep for full support.",
@@ -335,7 +334,7 @@ class _TransferLearningStepStub(Step):
             import torchvision.models as models
         except ImportError:
             raise ImportError("torchvision is required")
-        
+
         self.model = getattr(models, self.base_model)(pretrained=True)
         return self.model
 

@@ -64,24 +64,32 @@ def __getattr__(name: str) -> Any:
     elif name == "Step":
         from .core import Step
         return Step
-    
+
     # Data processing
     elif name in ["DataLoaderStep", "DataValidatorStep", "DataPreprocessorStep",
                  "FeatureSelectionStep", "FeatureEngineeringStep"]:
-        from .steps.data import DataLoaderStep, DataValidatorStep, DataPreprocessorStep
-        from .steps.data import FeatureSelectionStep
         from .core.steps import FeatureEngineeringStep
+        from .steps.data import (
+            DataLoaderStep,
+            DataPreprocessorStep,
+            DataValidatorStep,
+            FeatureSelectionStep,
+        )
         module = sys.modules['autopipe.steps.data']
         return getattr(module, name)
     elif name == "DataSplitterStep":
         from .steps.cross_validation import DataSplitterStep
         return DataSplitterStep
-    
+
     # Training
     elif name in ["SklearnTrainerStep", "PyTorchTrainerStep", "TensorFlowTrainerStep",
                  "TransferLearningStep", "TrainingConfig"]:
+        from .steps.deep_learning import (
+            PyTorchTrainerStep,
+            TensorFlowTrainerStep,
+            TransferLearningStep,
+        )
         from .steps.training import SklearnTrainerStep, TrainingConfig
-        from .steps.deep_learning import PyTorchTrainerStep, TensorFlowTrainerStep, TransferLearningStep
         module_map = {
             "SklearnTrainerStep": sys.modules['autopipe.steps.training'],
             "PyTorchTrainerStep": sys.modules['autopipe.steps.deep_learning'],
@@ -90,20 +98,24 @@ def __getattr__(name: str) -> Any:
             "TrainingConfig": sys.modules['autopipe.steps.training'],
         }
         return getattr(module_map[name], name)
-    
+
     # Evaluation
     elif name in ["ModelEvaluatorStep", "ExplainabilityStep", "DriftDetectionStep", "EvaluationResult"]:
-        from .steps.evaluation import ModelEvaluatorStep, ExplainabilityStep, DriftDetectionStep
-        from .steps.evaluation import EvaluationResult
+        from .steps.evaluation import (
+            DriftDetectionStep,
+            EvaluationResult,
+            ExplainabilityStep,
+            ModelEvaluatorStep,
+        )
         module = sys.modules['autopipe.steps.evaluation']
         return getattr(module, name)
-    
+
     # Hyperparameter tuning
     elif name in ["HyperparameterTuner", "SearchStrategy", "continuous", "discrete", "categorical"]:
-        from .tuning import HyperparameterTuner, SearchStrategy, continuous, discrete, categorical
+        from .tuning import HyperparameterTuner, SearchStrategy, categorical, continuous, discrete
         module = sys.modules['autopipe.tuning']
         return getattr(module, name)
-    
+
     # Model registry
     elif name == "get_registry":
         from .registry import get_registry
@@ -111,12 +123,12 @@ def __getattr__(name: str) -> Any:
     elif name == "LocalModelRegistry":
         from .registry import LocalModelRegistry
         return LocalModelRegistry
-    
+
     # Visualization
     elif name == "ChartGenerator":
         from .visualization import ChartGenerator
         return ChartGenerator
-    
+
     # LLM
     elif name == "LLMClient":
         from .llm import LLMClient
@@ -136,7 +148,7 @@ def __getattr__(name: str) -> Any:
     elif name == "LLMFactory":
         from .llm import LLMFactory
         return LLMFactory
-    
+
     # Pi coding
     elif name == "PiCodingStep":
         from .steps.pi_coding import PiCodingStep
@@ -145,7 +157,7 @@ def __getattr__(name: str) -> Any:
         from .steps.pi_coding_models import PiCodingResult, PiToolCall, PiTurn
         module = sys.modules['autopipe.steps.pi_coding_models']
         return getattr(module, name)
-    
+
     # Utilities
     elif name == "Config":
         from .config import Config
@@ -160,17 +172,18 @@ def __getattr__(name: str) -> Any:
 # Direct imports for static analyzers (Python 3.7+)
 if sys.version_info >= (3, 7):
     try:
+        from .config import Config as _Config
         from .core import Pipeline as _Pipeline
         from .core import Step as _Step
-        from .visualization import ChartGenerator as _ChartGenerator
-        from .llm import LLMClient as _LLMClient, LLMFactory as _LLMFactory
-        from .config import Config as _Config
         from .core.runner import run as _run
+        from .llm import LLMClient as _LLMClient
+        from .llm import LLMFactory as _LLMFactory
         from .steps.pi_coding import PiCodingStep as _PiCodingStep
         from .steps.pi_coding_models import PiCodingResult as _PiCodingResult
         from .steps.pi_coding_models import PiToolCall as _PiToolCall
         from .steps.pi_coding_models import PiTurn as _PiTurn
-        
+        from .visualization import ChartGenerator as _ChartGenerator
+
         Pipeline = _Pipeline
         Step = _Step
         ChartGenerator = _ChartGenerator
@@ -182,7 +195,7 @@ if sys.version_info >= (3, 7):
         PiTurn = _PiTurn
         Config = _Config
         run = _run
-        
+
         del _Pipeline, _Step, _ChartGenerator, _LLMClient, _LLMFactory, _Config, _run
     except ImportError:
         pass

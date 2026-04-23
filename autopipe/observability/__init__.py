@@ -3,8 +3,8 @@ from .logging import configure_logging, get_logger
 from .metrics import (
     MetricsCollector,
     PipelineMetrics,
-    init_metrics,
     get_metrics_collector,
+    init_metrics,
 )
 
 __all__ = [

@@ -1,6 +1,7 @@
 """Security-related tests for the AutoPipe Dashboard backend."""
 
 import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -281,7 +282,7 @@ class TestFileSecurity:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Valid path
             path = get_secure_upload_path("valid.txt", tmpdir)
-            assert str(path).startswith(str(tmpdir))
+            assert str(path.resolve()).startswith(str(Path(tmpdir).resolve()))
             
             # Path traversal attempt should raise
             with pytest.raises(HTTPException) as exc:

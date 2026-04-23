@@ -36,14 +36,15 @@ class TestStepError:
 
     def test_step_error(self):
         """Test creating a step error."""
-        error = StepError("Step failed", step_name="my_step")
+        error = StepError(step_name="my_step", message="Step failed")
         assert error.step_name == "my_step"
-        assert error.message == "Step failed"
+        assert error.message == "[my_step] Step failed"
 
     def test_step_error_without_name(self):
         """Test step error without name."""
-        error = StepError("Step failed")
+        error = StepError(message="Step failed")
         assert error.step_name is None
+        assert error.message == "Step failed"
 
 
 class TestLLMError:
@@ -52,25 +53,26 @@ class TestLLMError:
     def test_llm_error(self):
         """Test creating an LLM error."""
         error = LLMError(
-            "API failed",
             provider="openai",
             model="gpt-4",
+            message="API failed",
             details={"status_code": 500}
         )
         assert error.provider == "openai"
         assert error.model == "gpt-4"
+        assert error.message == "API failed"
 
     def test_rate_limit_error(self):
         """Test rate limit error."""
         error = RateLimitError(
-            "Rate limit exceeded",
-            provider="openai"
+            provider="openai",
+            message="Rate limit exceeded"
         )
         assert isinstance(error, LLMError)
         assert "Rate limit" in error.message
 
     def test_authentication_error(self):
         """Test authentication error."""
-        error = AuthenticationError("Invalid API key")
+        error = AuthenticationError(message="Invalid API key")
         assert isinstance(error, LLMError)
         assert error.message == "Invalid API key"

@@ -1,7 +1,8 @@
 """Load pipeline configuration from YAML."""
 import importlib
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 from .pipeline import Pipeline
 from .step import Step
 
@@ -32,7 +33,7 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     step_type = step_config.get("type", "autopipe.core.steps.PrintStep")
     params = step_config.get("params", {})
     depends_on = step_config.get("depends_on", [])
-    
+
     # Built-in aliases for convenience
     builtin_map = {
         "print": "autopipe.core.steps.PrintStep",
@@ -44,26 +45,26 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     }
     if step_type in builtin_map:
         step_type = builtin_map[step_type]
-    
+
     # Import the class
     cls = import_class(step_type)
-    
+
     # Instantiate with params
     try:
         step = cls(name=name, depends_on=depends_on, **params)
     except TypeError as e:
         raise ValueError(f"Failed to instantiate {step_type} with params {params}: {e}")
-    
+
     return step
 
 def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
     """Create a Pipeline from a config dictionary."""
     pipeline_name = config.get("name", "default_pipeline")
     pipeline = Pipeline(pipeline_name)
-    
+
     steps = config.get("steps", [])
     for step_config in steps:
         step = load_step_from_config(step_config)
         pipeline.add_step(step)
-    
+
     return pipeline

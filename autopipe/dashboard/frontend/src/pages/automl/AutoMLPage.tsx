@@ -42,12 +42,6 @@ export function AutoMLPage() {
     queryFn: () => automlApi.getVisualizations(experimentId),
   })
 
-  const { data: _historyData } = useQuery({
-    queryKey: ['automl', 'trial-history', selectedTrial],
-    queryFn: () => automlApi.getTrialHistory(selectedTrial!),
-    enabled: selectedTrial !== null,
-  })
-
   const trials = trialsData?.trials ?? []
   const paramImportance = vizData?.param_importance ?? []
   const paretoFront = vizData?.pareto_front ?? []

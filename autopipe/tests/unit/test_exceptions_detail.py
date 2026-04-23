@@ -1,14 +1,13 @@
 """Tests for exception hierarchy details not covered by test_exceptions.py."""
 
-import pytest
 from autopipe.exceptions import (
-    AutoPipeError,
-    StepError,
-    LLMError,
-    RateLimitError,
     AuthenticationError,
+    AutoPipeError,
     CircularDependencyError,
+    LLMError,
     PipelineError,
+    RateLimitError,
+    StepError,
 )
 
 

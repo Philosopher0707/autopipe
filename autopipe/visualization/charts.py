@@ -1,27 +1,27 @@
 """Chart generation utilities."""
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-import os
-from typing import Any, Dict, List, Optional
 import logging
+import os
+from typing import Dict, List, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 class ChartGenerator:
     """Generate common ML charts."""
-    
+
     def __init__(self, output_dir: str = "./figures"):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
-        
+
     def _save_fig(self, filename: str):
         """Save current matplotlib figure."""
         path = os.path.join(self.output_dir, filename)
         plt.savefig(path, dpi=150, bbox_inches='tight')
         plt.close()
         logger.info(f"Saved figure to {path}")
-        
+
     def plot_metrics(self, metrics: Dict[str, List[float]], title: str = "Training Metrics"):
         """Plot training metrics over epochs."""
         fig, axes = plt.subplots(1, 1, figsize=(8, 5))
@@ -33,7 +33,7 @@ class ChartGenerator:
         axes.legend()
         axes.grid(True, alpha=0.3)
         self._save_fig(f"metrics_{title.lower().replace(' ', '_')}.png")
-        
+
     def plot_confusion_matrix(self, cm: np.ndarray, class_names: Optional[List[str]] = None):
         """Plot confusion matrix."""
         import seaborn as sns
@@ -46,7 +46,7 @@ class ChartGenerator:
             ax.set_xticklabels(class_names)
             ax.set_yticklabels(class_names)
         self._save_fig("confusion_matrix.png")
-        
+
     def plot_feature_importance(self, importance: Dict[str, float], top_n: int = 20):
         """Plot feature importance (e.g., from tree-based models)."""
         sorted_items = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:top_n]
@@ -60,7 +60,7 @@ class ChartGenerator:
         ax.set_xlabel('Importance')
         ax.set_title('Feature Importance')
         self._save_fig("feature_importance.png")
-        
+
     def plot_distribution(self, data: List[float], bins: int = 30, title: str = "Distribution"):
         """Plot histogram of data distribution."""
         fig, ax = plt.subplots(figsize=(8, 5))
@@ -70,7 +70,7 @@ class ChartGenerator:
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
         self._save_fig(f"distribution_{title.lower().replace(' ', '_')}.png")
-        
+
     def plot_scatter(self, x: List[float], y: List[float], xlabel: str = "X", ylabel: str = "Y", title: str = "Scatter Plot"):
         """Scatter plot."""
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -80,7 +80,7 @@ class ChartGenerator:
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
         self._save_fig(f"scatter_{title.lower().replace(' ', '_')}.png")
-        
+
     def plot_learning_curve(self, train_sizes: List[float], train_scores: List[float], val_scores: List[float]):
         """Plot learning curve."""
         fig, ax = plt.subplots(figsize=(8, 5))

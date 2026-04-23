@@ -399,16 +399,6 @@ class ModelInDB(ModelBase):
     version_count: int = 0
 
 
-class ModelResponse(ModelInDB):
-    """Model API response."""
-    versions: List["ModelVersionResponse"] = Field(default_factory=list)
-
-
-class ModelList(PaginatedResponse):
-    """Model list response."""
-    items: List[ModelResponse]
-
-
 # ==================== Model Version Schemas ====================
 
 class ModelVersionCreate(BaseModel):
@@ -430,8 +420,8 @@ class ModelVersionUpdate(BaseModel):
 
 class ModelVersionInDB(BaseModel):
     """Model version database schema."""
-    model_config = ConfigDict(from_attributes=True)
-    
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
     id: str
     model_id: str
     version: int
@@ -458,8 +448,20 @@ class ModelVersionList(BaseModel):
     total: int
 
 
+class ModelResponse(ModelInDB):
+    """Model API response."""
+    versions: List[ModelVersionResponse] = Field(default_factory=list)
+
+
+class ModelList(PaginatedResponse):
+    """Model list response."""
+    items: List[ModelResponse]
+
+
 class ModelComparisonRequest(BaseModel):
     """Model comparison request."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     version_a: int
     version_b: int
@@ -467,6 +469,8 @@ class ModelComparisonRequest(BaseModel):
 
 class ModelComparisonResponse(BaseModel):
     """Model comparison response."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_name: str
     version_a: int
     version_b: int
@@ -485,6 +489,8 @@ class ModelPromoteRequest(BaseModel):
 
 class DriftReportBase(BaseModel):
     """Base drift report schema."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: Optional[str] = None
     run_id: Optional[str] = None
     drift_score: float = Field(..., ge=0.0, le=1.0)
@@ -530,6 +536,8 @@ class FeatureDrift(BaseModel):
 
 class DriftDetectRequest(BaseModel):
     """Drift detection request."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: Optional[str] = None
     reference_data_path: Optional[str] = None
     current_data_path: Optional[str] = None
@@ -754,6 +762,8 @@ class ExperimentMetricTraceResponse(BaseModel):
 
 class ModelVersionMetricsResponse(BaseModel):
     """Response for GET /charts/model-version-metrics."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     model_name: str
     metrics: List[str]
@@ -786,6 +796,8 @@ class DriftTrendPoint(BaseModel):
 
 class DriftTrendResponse(BaseModel):
     """Response for GET /charts/drift-trend."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: Optional[str] = None
     points: List[DriftTrendPoint]
 
@@ -899,18 +911,24 @@ class PermutationImportancePoint(BaseModel):
 
 class ExplainabilityRequest(BaseModel):
     """Request for POST /explainability/shap and /lime."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     data: List[Dict[str, Any]]
 
 
 class ShapResponse(BaseModel):
     """Response for POST /explainability/shap."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     feature_importance: List[ShapValuePoint]
 
 
 class LimeResponse(BaseModel):
     """Response for POST /explainability/lime."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     feature_importance: List[LimeExplanationPoint]
 

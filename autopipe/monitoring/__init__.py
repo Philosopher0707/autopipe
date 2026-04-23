@@ -1,11 +1,11 @@
 """Autopipe Monitoring - Model and data monitoring."""
 
 from .drift_detection import (
+    DriftDashboardStep,
+    DriftReport,
+    PredictionDriftMonitorStep,
     StatisticalDriftDetectorStep,
     TargetDriftDetectorStep,
-    PredictionDriftMonitorStep,
-    DriftDashboardStep,
-    DriftReport
 )
 
 __all__ = [

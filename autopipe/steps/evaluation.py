@@ -4,10 +4,11 @@ Comprehensive model evaluation for ML/DL with
 extensive metrics, visualizations, and automated analysis.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
+
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field
 
 from autopipe.core.step import Step
 
@@ -33,7 +34,7 @@ class ModelEvaluatorStep(Step):
     Supports classification, regression, and multi-label tasks
     with extensive metrics and analysis.
     """
-    
+
     def __init__(
         self,
         task_type: str = "classification",
@@ -56,7 +57,7 @@ class ModelEvaluatorStep(Step):
         self.calibration_bins = calibration_bins
         self.error_analysis = error_analysis
         self.result = EvaluationResult()
-    
+
     def execute(
         self,
         model: Any,
@@ -67,9 +68,9 @@ class ModelEvaluatorStep(Step):
     ) -> EvaluationResult:
         """Execute model evaluation."""
         from sklearn import metrics as sklearn_metrics
-        
+
         context = context or {}
-        
+
         # Get predictions
         if self.task_type == "classification":
             if hasattr(model, "predict_proba") and self.calculate_proba:
@@ -82,7 +83,7 @@ class ModelEvaluatorStep(Step):
                 self.result.predictions = model.predict(X_test)
         else:
             self.result.predictions = model.predict(X_test)
-        
+
         # Calculate metrics based on task type
         if self.task_type == "classification":
             self._calculate_classification_metrics(y_test, sklearn_metrics)
@@ -90,31 +91,31 @@ class ModelEvaluatorStep(Step):
             self._calculate_regression_metrics(y_test, sklearn_metrics)
         elif self.task_type == "multilabel":
             self._calculate_multilabel_metrics(y_test, sklearn_metrics)
-        
+
         # Fairness analysis
         if groups is not None or self.fairness_groups:
             self._calculate_fairness_metrics(y_test, groups if groups is not None else X_test[self.fairness_groups])
-        
+
         # Calibration analysis
         if self.task_type == "classification" and self.calculate_proba:
             self._calculate_calibration(y_test)
-        
+
         # Error analysis
         if self.error_analysis:
             self._perform_error_analysis(y_test)
-        
+
         context["evaluation"] = {
             "metrics": self.result.metrics,
             "task_type": self.task_type,
         }
-        
+
         return self.result
-    
+
     def _calculate_classification_metrics(self, y_true, sklearn_metrics):
         y_pred = self.result.predictions
-        
+
         self.result.metrics["accuracy"] = sklearn_metrics.accuracy_score(y_true, y_pred)
-        
+
         try:
             self.result.metrics["precision"] = sklearn_metrics.precision_score(
                 y_true, y_pred, average="weighted", zero_division=0
@@ -127,19 +128,19 @@ class ModelEvaluatorStep(Step):
             )
         except ValueError:
             pass
-        
+
         try:
             self.result.confusion_matrix = sklearn_metrics.confusion_matrix(y_true, y_pred)
         except ValueError:
             pass
-        
+
         try:
             self.result.classification_report = sklearn_metrics.classification_report(
                 y_true, y_pred, zero_division=0
             )
         except ValueError:
             pass
-        
+
         if self.result.probabilities is not None:
             try:
                 if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
@@ -153,48 +154,48 @@ class ModelEvaluatorStep(Step):
                     )
             except ValueError:
                 pass
-        
+
         if self.result.probabilities is not None:
             try:
                 self.result.metrics["log_loss"] = sklearn_metrics.log_loss(y_true, self.result.probabilities)
             except ValueError:
                 pass
-        
+
         try:
             self.result.metrics["balanced_accuracy"] = sklearn_metrics.balanced_accuracy_score(y_true, y_pred)
         except ValueError:
             pass
-        
+
         try:
             self.result.metrics["mcc"] = sklearn_metrics.matthews_corrcoef(y_true, y_pred)
         except ValueError:
             pass
-        
+
         try:
             self.result.metrics["cohen_kappa"] = sklearn_metrics.cohen_kappa_score(y_true, y_pred)
         except ValueError:
             pass
-    
+
     def _calculate_regression_metrics(self, y_true, sklearn_metrics):
         y_pred = self.result.predictions
-        
+
         self.result.metrics["mse"] = sklearn_metrics.mean_squared_error(y_true, y_pred)
         self.result.metrics["rmse"] = np.sqrt(self.result.metrics["mse"])
         self.result.metrics["mae"] = sklearn_metrics.mean_absolute_error(y_true, y_pred)
         self.result.metrics["r2"] = sklearn_metrics.r2_score(y_true, y_pred)
-        
+
         try:
             self.result.metrics["mape"] = sklearn_metrics.mean_absolute_percentage_error(y_true, y_pred)
         except AttributeError:
             self.result.metrics["mape"] = np.mean(np.abs((y_true - y_pred) / (y_true + 1e-10))) * 100
-        
+
         self.result.metrics["explained_variance"] = sklearn_metrics.explained_variance_score(y_true, y_pred)
         self.result.metrics["median_ae"] = sklearn_metrics.median_absolute_error(y_true, y_pred)
         self.result.metrics["max_error"] = sklearn_metrics.max_error(y_true, y_pred)
-    
+
     def _calculate_multilabel_metrics(self, y_true, sklearn_metrics):
         y_pred = self.result.predictions
-        
+
         self.result.metrics["hamming_loss"] = sklearn_metrics.hamming_loss(y_true, y_pred)
         self.result.metrics["jaccard_score"] = sklearn_metrics.jaccard_score(
             y_true, y_pred, average="samples", zero_division=0
@@ -204,25 +205,25 @@ class ModelEvaluatorStep(Step):
         self.result.metrics["f1_weighted"] = sklearn_metrics.f1_score(
             y_true, y_pred, average="weighted", zero_division=0
         )
-    
+
     def _calculate_fairness_metrics(self, y_true, groups):
         y_pred = self.result.predictions
-        
+
         self.result.fairness_metrics = {}
         unique_groups = np.unique(groups)
-        
+
         for group in unique_groups:
             mask = groups == group
             group_y_true = y_true[mask]
             group_y_pred = y_pred[mask]
-            
+
             self.result.fairness_metrics[str(group)] = {
                 "count": int(np.sum(mask)),
                 "accuracy": float(np.mean(group_y_true == group_y_pred)),
             }
-            
+
             try:
-                from sklearn.metrics import precision_score, recall_score, f1_score
+                from sklearn.metrics import f1_score, precision_score, recall_score
                 self.result.fairness_metrics[str(group)]["precision"] = float(
                     precision_score(group_y_true, group_y_pred, zero_division=0)
                 )
@@ -234,30 +235,30 @@ class ModelEvaluatorStep(Step):
                 )
             except Exception:
                 pass
-    
+
     def _calculate_calibration(self, y_true):
         if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
             prob_pos = self.result.probabilities[:, 1]
         else:
             prob_pos = self.result.probabilities[np.arange(len(y_true)), y_true.astype(int)]
-        
+
         from sklearn.calibration import calibration_curve
         prob_true, prob_pred = calibration_curve(y_true, prob_pos, n_bins=self.calibration_bins, strategy='uniform')
-        
+
         bin_counts = np.histogram(prob_pos, bins=self.calibration_bins)[0]
         ece = np.sum(np.abs(prob_true - prob_pred) * bin_counts / len(prob_pos))
         self.result.calibration_error = float(ece)
         self.result.metrics["expected_calibration_error"] = float(ece)
-    
+
     def _perform_error_analysis(self, y_true):
         errors = y_true != self.result.predictions
-        
+
         self.result.error_analysis = {
             "error_rate": float(np.mean(errors)),
             "error_count": int(np.sum(errors)),
             "error_by_class": {}
         }
-        
+
         for cls in np.unique(y_true):
             cls_mask = y_true == cls
             cls_errors = errors[cls_mask]
@@ -269,7 +270,7 @@ class ModelEvaluatorStep(Step):
 
 class ExplainabilityStep(Step):
     """Model explainability using SHAP and LIME."""
-    
+
     def __init__(
         self,
         method: str = "shap",
@@ -282,7 +283,7 @@ class ExplainabilityStep(Step):
         self.num_features = num_features
         self.plot = plot
         self.explanations = {}
-    
+
     def execute(
         self,
         model: Any,
@@ -292,88 +293,88 @@ class ExplainabilityStep(Step):
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         context = context or {}
-        
+
         if self.method == "shap":
             self.explanations = self._shap_explanation(model, X, feature_names)
         elif self.method == "lime":
             self.explanations = self._lime_explanation(model, X, feature_names)
         elif self.method == "permutation":
             self.explanations = self._permutation_importance(model, X, y, feature_names)
-        
+
         context["explanations"] = self.explanations
         return self.explanations
-    
+
     def _shap_explanation(self, model, X, feature_names):
         try:
             import shap
         except ImportError:
             return {"error": "shap not installed"}
-        
+
         if isinstance(X, pd.DataFrame) and feature_names is None:
             feature_names = list(X.columns)
-        
+
         X_sample = X[:self.background_samples] if len(X) > self.background_samples else X
-        
+
         if hasattr(model, "predict_proba"):
             explainer = shap.KernelExplainer(model.predict_proba, X_sample)
             shap_values = explainer.shap_values(X[:min(50, len(X))])
         else:
             explainer = shap.KernelExplainer(model.predict, X_sample)
             shap_values = explainer.shap_values(X[:min(50, len(X))])
-        
+
         return {
             "shap_values": shap_values,
             "feature_names": feature_names,
             "expected_value": explainer.expected_value,
             "method": "shap"
         }
-    
+
     def _lime_explanation(self, model, X, feature_names):
         try:
             import lime
             from lime.lime_tabular import LimeTabularExplainer
         except ImportError:
             return {"error": "lime not installed"}
-        
+
         if isinstance(X, pd.DataFrame):
             X = X.values
-        
+
         explainer = LimeTabularExplainer(
             X[:self.background_samples],
             feature_names=feature_names or [f"feature_{i}" for i in range(X.shape[1])],
             class_names=['class_0', 'class_1'],
             discretize_continuous=True
         )
-        
+
         explanations = []
         for i in range(min(10, len(X))):
             exp = explainer.explain_instance(
-                X[i], 
+                X[i],
                 model.predict_proba if hasattr(model, "predict_proba") else model.predict,
                 num_features=self.num_features
             )
             explanations.append(exp.as_list())
-        
+
         return {
             "lime_explanations": explanations,
             "method": "lime"
         }
-    
+
     def _permutation_importance(self, model, X, y, feature_names):
         from sklearn.inspection import permutation_importance
-        
+
         result = permutation_importance(model, X, y, n_repeats=10, random_state=42)
-        
+
         if isinstance(X, pd.DataFrame) and feature_names is None:
             feature_names = list(X.columns)
         else:
             feature_names = feature_names or [f"feature_{i}" for i in range(X.shape[1])]
-        
+
         importance_dict = {
             name: {"importance": float(imp), "std": float(std)}
             for name, imp, std in zip(feature_names, result.importances_mean, result.importances_std)
         }
-        
+
         return {
             "importance": importance_dict,
             "method": "permutation_importance"
@@ -382,7 +383,7 @@ class ExplainabilityStep(Step):
 
 class DriftDetectionStep(Step):
     """Detect data and concept drift."""
-    
+
     def __init__(
         self,
         reference_data: Optional[np.ndarray] = None,
@@ -393,17 +394,17 @@ class DriftDetectionStep(Step):
         self.drift_threshold = drift_threshold
         self.methods = methods or ["ks_test", "wasserstein"]
         self.drift_results = {}
-    
+
     def execute(
         self,
         current_data: np.ndarray,
         context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         context = context or {}
-        
+
         if self.reference_data is None:
             raise ValueError("Reference data must be provided for drift detection")
-        
+
         for method in self.methods:
             if method == "ks_test":
                 self.drift_results["ks_test"] = self._ks_test(current_data)
@@ -411,79 +412,79 @@ class DriftDetectionStep(Step):
                 self.drift_results["wasserstein"] = self._wasserstein_distance(current_data)
             elif method == "psi":
                 self.drift_results["psi"] = self._population_stability_index(current_data)
-        
+
         overall_drift = any(
-            result.get("drift_detected", False) 
+            result.get("drift_detected", False)
             for result in self.drift_results.values()
         )
-        
+
         context["drift_detection"] = {
             "drift_detected": overall_drift,
             "results": self.drift_results
         }
-        
+
         return context["drift_detection"]
-    
+
     def _ks_test(self, current_data):
         from scipy.stats import ks_2samp
-        
+
         results = {}
         drift_detected = False
-        
+
         for i in range(self.reference_data.shape[1]):
             statistic, pvalue = ks_2samp(
                 self.reference_data[:, i],
                 current_data[:, i]
             )
-            
+
             results[f"feature_{i}"] = {
                 "statistic": float(statistic),
                 "pvalue": float(pvalue),
                 "drift": pvalue < self.drift_threshold
             }
-            
+
             if pvalue < self.drift_threshold:
                 drift_detected = True
-        
+
         return {
             "drift_detected": drift_detected,
             "per_feature": results
         }
-    
+
     def _wasserstein_distance(self, current_data):
         from scipy.stats import wasserstein_distance
-        
+
         results = {}
-        
+
         for i in range(self.reference_data.shape[1]):
             dist = wasserstein_distance(
                 self.reference_data[:, i],
                 current_data[:, i]
             )
-            
+
             results[f"feature_{i}"] = {
                 "distance": float(dist),
                 "drift": dist > 0.1
             }
-        
+
         return results
-    
+
     def _population_stability_index(self, current_data):
         """Calculate Population Stability Index."""
         results = {}
-        
+
         for i in range(self.reference_data.shape[1]):
             ref_hist, bins = np.histogram(self.reference_data[:, i], bins=10)
             curr_hist, _ = np.histogram(current_data[:, i], bins=bins)
-            
+
             ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
             curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
-            
+
             psi = np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10)))
-            
+
             results[f"feature_{i}"] = {
                 "psi": float(psi),
                 "drift": psi > 0.25
             }
-        
+
         return results

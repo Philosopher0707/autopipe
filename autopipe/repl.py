@@ -13,36 +13,23 @@ A production-grade interactive REPL (Read-Eval-Print Loop) for AutoPipe that pro
 from __future__ import annotations
 
 import ast
-import inspect
 import os
 import pathlib
 import re
-import shutil
 import sys
-import textwrap
-import traceback
-from abc import ABC, abstractmethod
-from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from importlib import import_module, reload
-from io import StringIO
-from typing import Any, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
 from prompt_toolkit.completion import Completer, Completion, PathCompleter
 from prompt_toolkit.document import Document
-from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import HTML, FormattedText
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
-from prompt_toolkit.shortcuts import confirm, message_dialog, progress_dialog
 from prompt_toolkit.styles import Style
 from pygments.lexers.python import PythonLexer
 from rich.console import Console
-from rich.highlighter import ReprHighlighter
 from rich.panel import Panel
 from rich.pretty import pretty_repr
 from rich.table import Table
@@ -53,7 +40,7 @@ try:
     from autopipe import Pipeline, Step, __version__
     from autopipe.core.pipeline import Pipeline as CorePipeline
     from autopipe.core.step import Step as CoreStep
-    from autopipe.core.steps import PrintStep, DataLoaderStep
+    from autopipe.core.steps import DataLoaderStep, PrintStep
     from autopipe.schemas.models import PipelineConfig, StepConfig
 except ImportError:
     # Fallback for development
@@ -76,7 +63,7 @@ _RESTRICTED_BUILTINS = {
     'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
     'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
     'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
-    
+
     # Safe built-in functions (NO getattr, setattr, type - prevents sandbox escape)
     'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr,
     'divmod': divmod, 'enumerate': enumerate, 'filter': filter, 'format': format,
@@ -85,7 +72,7 @@ _RESTRICTED_BUILTINS = {
     'ord': ord, 'pow': pow, 'print': print, 'range': range, 'repr': repr,
     'reversed': reversed, 'round': round,
     'slice': slice, 'sorted': sorted, 'sum': sum, 'zip': zip,
-    
+
     # Safe exceptions (allow raising common ones)
     'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
     'KeyError': KeyError, 'IndexError': IndexError, 'RuntimeError': RuntimeError,
@@ -95,29 +82,26 @@ _RESTRICTED_BUILTINS = {
 
 class CommandError(Exception):
     """Error raised for invalid commands."""
-    pass
 
 
 # AST-BASED SECURITY CHECKER - Prevents sandbox escapes via __class__ chains
-import ast
 
 class SecurityError(Exception):
     """Raised when potentially dangerous code patterns are detected."""
-    pass
 
 class _RestrictedASTChecker(ast.NodeVisitor):
     """
     AST visitor that blocks dangerous code patterns that could escape
     the restricted builtins sandbox, even via __class__ chains.
     """
-    
+
     # Node types that are never allowed
     BLOCKED_NODES = frozenset({
         ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
         ast.Lambda, ast.Yield, ast.YieldFrom, ast.Await,
         ast.Import, ast.ImportFrom, ast.TryStar,
     })
-    
+
     # Attribute names that start with __ or are dangerous
     BLOCKED_PREFIXES = ('__', '_io', '_thread', '_signal', '_pickle', '_socket')
     BLOCKED_ATTRS = frozenset({
@@ -125,30 +109,30 @@ class _RestrictedASTChecker(ast.NodeVisitor):
         '__func__', '__self__', '__class__', '__bases__', '__subclasses__',
         '__init__', '__new__', '__mro__', '__dict__', '__getattribute__',
     })
-    
+
     def visit(self, node: ast.AST) -> None:
         # Check node type
         node_type = type(node)
         if node_type in self.BLOCKED_NODES:
             raise SecurityError(f"'{node_type.__name__}' is not allowed")
-        
+
         # Check attribute access (e.g., obj.__class__, obj.__subclasses__)
         if isinstance(node, ast.Attribute):
             if node.attr in self.BLOCKED_ATTRS:
                 raise SecurityError(f"Attribute '.{node.attr}' access blocked")
             if node.attr.startswith('_'):
                 raise SecurityError(f"Attribute '.{node.attr}' access blocked")
-        
+
         # Check for __import__ calls
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id == '__import__':
                 raise SecurityError("'__import__' is not allowed")
-        
+
         # Check for forbidden subscript access on names
         if isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Name) and node.value.id == '__builtins__':
                 raise SecurityError("Direct '__builtins__' access blocked")
-        
+
         self.generic_visit(node)
 
 def _validate_ast(code: str) -> None:
@@ -160,7 +144,7 @@ def _validate_ast(code: str) -> None:
         tree = ast.parse(code)
     except SyntaxError as e:
         raise SecurityError(f"Syntax error: {e.msg} (line {e.lineno})")
-    
+
     checker = _RestrictedASTChecker()
     try:
         checker.visit(tree)
@@ -172,17 +156,15 @@ def _validate_ast(code: str) -> None:
 
 class ExecutionError(Exception):
     """Error raised during command execution."""
-    pass
 
 
 class ExitREPL(Exception):
     """Signal to exit the REPL."""
-    pass
 
 
 class CommandContext:
     """Context object passed to commands."""
-    def __init__(self, repl: 'AutoPipeREPL'):
+    def __init__(self, repl: AutoPipeREPL):
         self.repl = repl
         self.console = repl.console
         self.session = repl.session
@@ -292,7 +274,7 @@ class CommandRegistry:
 class AutoPipeCompleter(Completer):
     """Custom completer for the REPL."""
 
-    def __init__(self, repl: 'AutoPipeREPL'):
+    def __init__(self, repl: AutoPipeREPL):
         self.repl = repl
         self.path_completer = PathCompleter()
 
@@ -796,11 +778,11 @@ class AutoPipeREPL:
             try:
                 if hasattr(pipeline, 'run'):
                     result = pipeline.run()
-                    ctx.print(f"[green]✓[/green] Pipeline completed")
+                    ctx.print("[green]✓[/green] Pipeline completed")
                     self.variables[f'result_{target}'] = result
                     ctx.print(f"[dim]Result saved to: $result_{target}[/dim]")
                 else:
-                    ctx.print(f"[yellow]Pipeline object doesn't have a run method[/yellow]")
+                    ctx.print("[yellow]Pipeline object doesn't have a run method[/yellow]")
             except Exception as e:
                 ctx.print(f"[red]Pipeline failed: {e}[/red]")
                 ctx.print(Traceback())
@@ -1002,7 +984,7 @@ class AutoPipeREPL:
             return
 
         expr = ' '.join(args)
-        
+
         # Check for variable in pipelines or variables
         if expr.startswith('@') and expr[1:] in self.pipelines:
             ctx.print(pretty_repr(self.pipelines[expr[1:]]))
@@ -1137,19 +1119,19 @@ class AutoPipeREPL:
     def _cmd_test(self, ctx: CommandContext, args: List[str]) -> None:
         """Run a test/example pipeline."""
         ctx.print("[bold]Running test pipeline...[/bold]")
-        
+
         try:
             from autopipe.core.steps import PrintStep
             pipeline = Pipeline("test_pipeline")
             pipeline.add_step(PrintStep("step1", message="Hello from AutoPipe!"))
             pipeline.add_step(PrintStep("step2", message="Step 2 executing", depends_on=["step1"]))
-            
+
             result = pipeline.run()
             self.pipelines['test'] = pipeline
             self.variables['test_result'] = result
-            ctx.print(f"[green]✓[/green] Test completed successfully!")
-            ctx.print(f"[dim]Access pipeline with: @test[/dim]")
-            ctx.print(f"[dim]Access result with: $test_result[/dim]")
+            ctx.print("[green]✓[/green] Test completed successfully!")
+            ctx.print("[dim]Access pipeline with: @test[/dim]")
+            ctx.print("[dim]Access result with: $test_result[/dim]")
         except Exception as e:
             ctx.print(f"[yellow]Test pipeline not available: {e}[/yellow]")
             ctx.print("[dim]This is expected if AutoPipe modules aren't fully installed.[/dim]")
@@ -1157,34 +1139,35 @@ class AutoPipeREPL:
     def _cmd_models(self, ctx: CommandContext, args: List[str]) -> None:
         """List or select Ollama models."""
         action = args[0] if args else "list"
-        
+
         if action == "list":
             ctx.print("\n[bold]Ollama Models[/bold]\n")
-            
+
             try:
-                import requests
                 import os
+
+                import requests
                 base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1").replace("/v1", "")
                 response = requests.get(f"{base_url}/api/tags", timeout=5)
-                
+
                 if response.status_code == 200:
                     models_data = response.json().get("models", [])
                     current_model = os.getenv("OLLAMA_DEFAULT_MODEL", "Not set")
-                    
+
                     if models_data:
                         table = Table(title="Available Ollama Models")
                         table.add_column("#", style="dim", justify="right")
                         table.add_column("Model Name", style="cyan")
                         table.add_column("Size", style="green")
                         table.add_column("Current", style="yellow", justify="center")
-                        
+
                         for i, model in enumerate(models_data[:10], 1):
                             name = model.get("name", "unknown")
                             size = model.get("size", 0)
                             size_str = f"{size / 1e9:.1f} GB" if size else "N/A"
                             is_current = "★" if name == current_model else ""
                             table.add_row(str(i), name, size_str, is_current)
-                        
+
                         ctx.print(table)
                         ctx.print(f"\n[dim]Current: {current_model}[/dim]")
                         ctx.print("\n[dim]Use 'use <kimi|glm|minimax>' or 'models use <name>'[/dim]")
@@ -1195,16 +1178,16 @@ class AutoPipeREPL:
             except Exception as e:
                 ctx.print(f"[red]Could not connect to Ollama: {e}[/red]")
                 ctx.print("[dim]Ensure Ollama is running: ollama serve[/dim]")
-                
+
         elif action in ("use", "select"):
             if len(args) < 2:
                 ctx.print("[yellow]Usage: models use <kimi|glm|minimax|model_name>[/yellow]")
                 return
             self._cmd_use_model(ctx, args[1:])
-            
+
         elif action == "current":
             self._cmd_current_model(ctx, args[1:])
-            
+
         else:
             ctx.print(f"[yellow]Unknown models action: {action}[/yellow]")
             ctx.print("[dim]Try: models list, models use <model>, models current[/dim]")
@@ -1218,7 +1201,7 @@ class AutoPipeREPL:
             ctx.print("  [cyan]minimax[/cyan]   → [green]minimax-m2.7:cloud[/green] (Multi-modal capable)\n")
             ctx.print("[dim]Usage: use <kimi|glm|minimax> or use <any_model_name>[/dim]")
             return
-        
+
         alias = args[0].lower()
         alias_map = {
             "kimi": "kimi-k2.5:cloud",
@@ -1229,15 +1212,15 @@ class AutoPipeREPL:
             "m2.7": "minimax-m2.7:cloud",
             "m2_7": "minimax-m2.7:cloud",
         }
-        
+
         model_name = alias_map.get(alias, alias)
-        
+
         # Set the environment variable
         os.environ["OLLAMA_DEFAULT_MODEL"] = model_name
-        
+
         ctx.print(f"[green]✓[/green] Switched to model: [bold]{model_name}[/bold]")
-        ctx.print(f"[dim]   This will be used for new LLM steps[/dim]")
-        
+        ctx.print("[dim]   This will be used for new LLM steps[/dim]")
+
         # Also update .env file if it exists
         env_file = pathlib.Path(".env")
         if env_file.exists():
@@ -1247,25 +1230,25 @@ class AutoPipeREPL:
                     lines = content.split("\n")
                     new_lines = [f"OLLAMA_DEFAULT_MODEL={model_name}" if line.startswith("OLLAMA_DEFAULT_MODEL=") else line for line in lines]
                     env_file.write_text("\n".join(new_lines))
-                    ctx.print(f"[dim]   Also updated .env file[/dim]")
+                    ctx.print("[dim]   Also updated .env file[/dim]")
             except Exception:
                 pass
 
     def _cmd_current_model(self, ctx: CommandContext, args: List[str]) -> None:
         """Show current model configuration."""
         import os
-        
+
         ctx.print("\n[bold]Current Model Configuration[/bold]\n")
-        
+
         # Get current settings
         provider = os.getenv("DEFAULT_LLM_PROVIDER", "Not set")
         ollama_url = os.getenv("OLLAMA_BASE_URL", "Not set")
         current_model = os.getenv("OLLAMA_DEFAULT_MODEL", "Not set")
-        
+
         ctx.print(f"  [cyan]Default Provider:[/cyan]    {provider}")
         ctx.print(f"  [cyan]Ollama Base URL:[/cyan]     {ollama_url}")
         ctx.print(f"  [cyan]Current Model:[/cyan]       [green]{current_model}[/green]")
-        
+
         # Show available models
         try:
             import requests
@@ -1274,13 +1257,13 @@ class AutoPipeREPL:
             if response.status_code == 200:
                 models = [m.get("name") for m in response.json().get("models", [])]
                 if models:
-                    ctx.print(f"\n  [dim]Available models:[/dim]")
+                    ctx.print("\n  [dim]Available models:[/dim]")
                     for m in models:
                         marker = "  ★ " if m == current_model else "    "
                         ctx.print(f"{marker}[dim]{m}[/dim]")
         except Exception:
             pass
-        
+
         ctx.print("\n[dim]Change with: use <kimi|glm|minimax>[/dim]")
 
     # Utility methods

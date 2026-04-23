@@ -7,12 +7,10 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
 
-from autopipe.core.pipeline import Pipeline
-from autopipe.core.loader import load_pipeline_from_config
 from autopipe.config.load import Config
+from autopipe.core.loader import load_pipeline_from_config
+from autopipe.eval import eval_command as eval_cmd
 from autopipe.exceptions import AutoPipeError
 
 console = Console()
@@ -40,7 +38,7 @@ def cli(ctx: click.Context, verbose: bool, config: Optional[str]):
     ctx.ensure_object(dict)
     ctx.obj['verbose'] = verbose
     ctx.obj['config'] = config
-    
+
     if verbose:
         console.print("[dim]Verbose mode enabled[/dim]")
 
@@ -51,6 +49,7 @@ def cli(ctx: click.Context, verbose: bool, config: Optional[str]):
 @click.option('--cache/--no-cache', default=True, help='Enable/disable caching')
 @click.option('--parallel', '-p', is_flag=True, help='Run steps in parallel where possible')
 @click.option('--step', '-s', multiple=True, help='Run only specific steps')
+@click.option('--tui', is_flag=True, help='Launch live TUI dashboard instead of silent run')
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -59,45 +58,50 @@ def run(
     cache: bool,
     parallel: bool,
     step: tuple,
+    tui: bool,
 ):
     """Run a pipeline from a YAML file."""
+    import yaml
+
+    with open(pipeline_file, 'r') as f:
+        config_dict = yaml.safe_load(f)
+
+    pipeline = load_pipeline_from_config(config_dict)
+
+    if tui:
+        from autopipe.dashboard.tui import launch
+        launch(pipeline)
+        return
+
     print_banner()
-    
+
     try:
-        import yaml
-        
-        console.print(f"[bold blue]Loading pipeline:[/bold blue] {pipeline_file}")
-        
-        with open(pipeline_file, 'r') as f:
-            config_dict = yaml.safe_load(f)
-        
-        pipeline = load_pipeline_from_config(config_dict)
-        
+
         console.print(f"[bold green]Pipeline loaded:[/bold green] {pipeline.name}")
         console.print(f"[dim]Steps: {len(pipeline.steps)}[/dim]")
-        
+
         if step:
             console.print(f"[yellow]Running only steps: {', '.join(step)}[/yellow]")
-        
+
         console.print("\n[bold]Running pipeline...[/bold]\n")
-        
+
         results = pipeline.run()
-        
+
         console.print("\n[bold green]✓ Pipeline completed successfully![/bold green]")
-        
+
         # Display results table
         table = Table(title="Step Outputs")
         table.add_column("Step", style="cyan")
         table.add_column("Status", style="green")
         table.add_column("Output", style="white")
-        
+
         for name, output in results.items():
             status = "✓" if output is not None else "○"
             output_str = str(output)[:50] if output else "None"
             table.add_row(name, status, output_str)
-        
+
         console.print(table)
-        
+
     except AutoPipeError as e:
         console.print(f"[bold red]✗ Pipeline error: {e}[/bold red]")
         if ctx.obj.get('verbose'):
@@ -116,19 +120,19 @@ def run(
 def validate(pipeline_file: str):
     """Validate a pipeline configuration file."""
     print_banner()
-    
+
     try:
         import yaml
-        
+
         console.print(f"[bold blue]Validating:[/bold blue] {pipeline_file}")
-        
+
         with open(pipeline_file, 'r') as f:
             config_dict = yaml.safe_load(f)
-        
+
         # Validate with Pydantic
         from autopipe.schemas.models import PipelineConfig
         config = PipelineConfig.model_validate(config_dict)
-        
+
         # Validate step types can be imported
         for step_config in config.steps:
             from autopipe.core.loader import import_class
@@ -137,9 +141,9 @@ def validate(pipeline_file: str):
                 console.print(f"  [green]✓[/green] {step_config.name}: {step_config.type}")
             except ValueError as e:
                 console.print(f"  [red]✗[/red] {step_config.name}: {e}")
-        
+
         console.print("\n[bold green]✓ Pipeline configuration is valid![/bold green]")
-        
+
     except Exception as e:
         console.print(f"\n[bold red]✗ Validation failed: {e}[/bold red]")
         sys.exit(1)
@@ -152,22 +156,21 @@ def validate(pipeline_file: str):
 def status(providers: bool, cache: bool, metrics: bool):
     """Check system status and configuration."""
     print_banner()
-    
+
     # Show all if no specific option selected
     show_all = not any([providers, cache, metrics])
-    
+
     if show_all or providers:
         console.print("\n[bold]LLM Providers[/bold]")
-        
-        from autopipe.credentials.manager import get_credential_manager
-        
+
+
         provider_status = [
             ("OpenAI", "OPENAI_API_KEY"),
             ("Anthropic", "ANTHROPIC_API_KEY"),
             ("OpenRouter", "OPENROUTER_API_KEY"),
             ("Ollama", "OLLAMA_BASE_URL"),  # Ollama uses base_url for detection
         ]
-        
+
         for name, env_var in provider_status:
             if name == "Ollama":
                 # Check if Ollama is reachable
@@ -190,7 +193,7 @@ def status(providers: bool, cache: bool, metrics: bool):
                 console.print(f"  [green]✓[/green] {name}: Configured")
             else:
                 console.print(f"  [red]✗[/red] {name}: Not configured ({env_var})")
-    
+
     if show_all or cache:
         console.print("\n[bold]Cache[/bold]")
         cache_dir = Path("./.autopipe_cache")
@@ -198,8 +201,8 @@ def status(providers: bool, cache: bool, metrics: bool):
             size = sum(f.stat().st_size for f in cache_dir.glob("*") if f.is_file())
             console.print(f"  [green]✓[/green] Cache directory: {cache_dir} ({size / 1024:.1f} KB)")
         else:
-            console.print(f"  [dim]○ Cache directory not created yet[/dim]")
-    
+            console.print("  [dim]○ Cache directory not created yet[/dim]")
+
     if show_all or metrics:
         console.print("\n[bold]Metrics[/bold]")
         console.print("  [dim]○ Prometheus metrics disabled (enable with --metrics)[/dim]")
@@ -213,19 +216,19 @@ def clean(force: bool):
         if not click.confirm("This will remove all cached results. Continue?"):
             console.print("[dim]Cancelled.[/dim]")
             return
-    
+
     cache_dir = Path("./.autopipe_cache")
     if cache_dir.exists():
         import shutil
         shutil.rmtree(cache_dir)
         console.print(f"[green]✓ Removed cache directory: {cache_dir}[/green]")
-    
+
     figures_dir = Path("./figures")
     if figures_dir.exists():
         for f in figures_dir.glob("*.png"):
             f.unlink()
         console.print(f"[green]✓ Cleaned figures directory: {figures_dir}[/green]")
-    
+
     console.print("[bold green]✓ Cleanup complete![/bold green]")
 
 
@@ -234,7 +237,7 @@ def clean(force: bool):
 def create(name: str):
     """Create a new pipeline from a template."""
     print_banner()
-    
+
     template = f'''name: {name}
 description: A sample AutoPipe pipeline
 
@@ -266,15 +269,15 @@ steps:
 #   provider: ollama
 #   model: llama3.1  # or mistral, codellama, etc.
 '''
-    
+
     filename = f"{name}.yaml"
     if Path(filename).exists():
         console.print(f"[red]Error: {filename} already exists![/red]")
         sys.exit(1)
-    
+
     with open(filename, 'w') as f:
         f.write(template)
-    
+
     console.print(f"[green]✓ Created new pipeline: {filename}[/green]")
     console.print(f"\nEdit the file and run with: autopipe run {filename}")
 
@@ -282,7 +285,6 @@ steps:
 @cli.group()
 def models():
     """Manage LLM models and providers."""
-    pass
 
 
 @models.command(name="list")
@@ -290,12 +292,12 @@ def models():
 def models_list(provider: str):
     """List available models from the provider."""
     print_banner()
-    
+
     if provider == "ollama":
         from autopipe.config.load import Config
-        
+
         console.print("\n[bold]Ollama Models[/bold]\n")
-        
+
         # Try to fetch from Ollama server
         try:
             import requests
@@ -310,7 +312,7 @@ def models_list(provider: str):
                     table.add_column("Size", style="green")
                     table.add_column("Modified", style="blue")
                     table.add_column("Current", style="yellow")
-                    
+
                     current_model = os.getenv("OLLAMA_DEFAULT_MODEL", "")
                     for i, model in enumerate(models_data[:10], 1):
                         name = model.get("name", "unknown")
@@ -319,7 +321,7 @@ def models_list(provider: str):
                         modified = model.get("modified_at", "")[:10] if model.get("modified_at") else "N/A"
                         is_current = "★" if name == current_model else ""
                         table.add_row(str(i), name, size_str, modified, is_current)
-                    
+
                     console.print(table)
                     console.print(f"\n[dim]Current default: {current_model or 'Not set'}[/dim]")
                     console.print("\nUse [bold]autopipe models set <model_name>[/bold] to change default")
@@ -341,29 +343,30 @@ def models_list(provider: str):
 def models_set(model_name: str, provider: str, persist: bool):
     """Set the default model for a provider."""
     print_banner()
-    
+
     if provider == "ollama":
         # Validate the model is available
         try:
             import requests
+
             from autopipe.config.load import Config
             base = Config.OLLAMA_BASE_URL.replace("/v1", "")
             response = requests.get(f"{base}/api/tags", timeout=5)
-            
+
             available_models = []
             if response.status_code == 200:
                 available_models = [m.get("name") for m in response.json().get("models", [])]
-            
+
             if available_models and model_name not in available_models:
                 console.print(f"[red]Model '{model_name}' not found in Ollama.[/red]")
                 console.print(f"\n[dim]Available models: {', '.join(available_models)}[/dim]")
                 sys.exit(1)
-            
+
             # Set environment variable for current session
             os.environ["OLLAMA_DEFAULT_MODEL"] = model_name
-            
+
             console.print(f"[green]✓ Set default Ollama model: {model_name}[/green]")
-            
+
             # Optionally persist to .env file
             if persist:
                 env_file = Path(".env")
@@ -382,13 +385,13 @@ def models_set(model_name: str, provider: str, persist: bool):
                     else:
                         content += f"\nOLLAMA_DEFAULT_MODEL={model_name}\n"
                     env_file.write_text(content)
-                    console.print(f"[green]✓ Persisted to .env file[/green]")
+                    console.print("[green]✓ Persisted to .env file[/green]")
                 else:
                     env_file.write_text(f"OLLAMA_DEFAULT_MODEL={model_name}\n")
                     console.print(f"[green]✓ Created .env file with OLLAMA_DEFAULT_MODEL={model_name}[/green]")
             else:
                 console.print("[dim]Tip: Use --persist to save to .env file[/dim]")
-                
+
         except Exception as e:
             console.print(f"[yellow]Warning: Could not validate model: {e}[/yellow]")
             # Still set it anyway
@@ -401,28 +404,27 @@ def models_set(model_name: str, provider: str, persist: bool):
 def models_current():
     """Show the current default model configuration."""
     print_banner()
-    
-    from autopipe.config.load import Config
-    
+
+
     console.print("\n[bold]Current Model Configuration[/bold]\n")
-    
+
     # Show all provider configurations
     providers = [
         ("Default Provider", Config.DEFAULT_LLM_PROVIDER),
         ("Ollama Default Model", Config.OLLAMA_DEFAULT_MODEL),
         ("Ollama URL", Config.OLLAMA_BASE_URL),
     ]
-    
+
     if os.getenv("OPENAI_API_KEY"):
         providers.append(("OpenAI Model", "gpt-4o (default)"))
     if os.getenv("ANTHROPIC_API_KEY"):
         providers.append(("Anthropic Model", "claude-3-5-sonnet (default)"))
     if os.getenv("OPENROUTER_API_KEY"):
         providers.append(("OpenRouter Model", Config.DEFAULT_LLM_MODEL))
-    
+
     for name, value in providers:
         console.print(f"  [cyan]{name}:[/cyan] {value}")
-    
+
     # Try to fetch Ollama models
     try:
         import requests
@@ -432,7 +434,7 @@ def models_current():
             models = [m.get("name") for m in response.json().get("models", [])]
             current = os.getenv("OLLAMA_DEFAULT_MODEL", Config.OLLAMA_DEFAULT_MODEL)
             if models:
-                console.print(f"\n[bold]Available Ollama Models:[/bold]")
+                console.print("\n[bold]Available Ollama Models:[/bold]")
                 for m in models:
                     marker = "[yellow]★[/yellow]" if m == current else " "
                     console.print(f"  {marker} {m}")
@@ -454,9 +456,8 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
     • minimax - minimax-m2.7:cloud
     """
     print_banner()
-    
-    from autopipe.config.load import Config
-    
+
+
     # Map aliases to model names
     alias_map = {
         "kimi": "kimi-k2.5:cloud",
@@ -465,7 +466,7 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
         "minimax": "minimax-m2.7:cloud",
         "m2.7": "minimax-m2.7:cloud",
     }
-    
+
     # Determine which model to use
     model = None
     if kimi:
@@ -487,10 +488,10 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
         console.print("  autopipe models use --glm")
         console.print("  autopipe models set kimi-k2.5:cloud --persist")
         return
-    
+
     # Set the model
     os.environ["OLLAMA_DEFAULT_MODEL"] = model
-    
+
     # Update .env file if it exists
     env_file = Path(".env")
     if env_file.exists():
@@ -508,10 +509,14 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
             content += f"\nOLLAMA_DEFAULT_MODEL={model}\n"
         env_file.write_text(content)
         console.print(f"[green]✓ Set active model: {model}[/green]")
-        console.print(f"[dim]   Updated .env file[/dim]")
+        console.print("[dim]   Updated .env file[/dim]")
     else:
         console.print(f"[green]✓ Set active model: {model}[/green]")
-        console.print(f"[dim]   (Session only - create .env file to persist)[/dim]")
+        console.print("[dim]   (Session only - create .env file to persist)[/dim]")
+
+
+# Register eval subcommand
+cli.add_command(eval_cmd, name="eval")
 
 
 def main():

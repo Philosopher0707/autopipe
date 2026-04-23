@@ -47,6 +47,8 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "pygments>=2.16",
     "requests>=2.31",
+    "textual>=0.50",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -154,6 +156,8 @@ skip_glob = ["**/migrations/*", "**/__pycache__/*", ".venv*/**"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -173,7 +177,7 @@ ignore = [
     "UP015", # Redundant open modes
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "E402"]
 "test_*.py" = ["ARG001", "RUF012"]
 

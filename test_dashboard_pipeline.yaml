@@ -1,0 +1,20 @@
+name: test-dashboard
+description: Simple pipeline to test the TUI dashboard
+
+steps:
+  - name: load_data
+    type: print
+    params:
+      message: "Loading data..."
+
+  - name: process
+    type: print
+    depends_on: [load_data]
+    params:
+      message: "Processing data..."
+
+  - name: save
+    type: print
+    depends_on: [process]
+    params:
+      message: "Saving results..."

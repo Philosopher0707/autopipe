@@ -165,6 +165,37 @@ Panel renderers receive `{ panel }` prop with `PanelLayout` type (id, type, titl
 
 The backend dev server runs on **8765** (not 8000). The frontend Vite proxy targets `:8765`. Docker-compose also maps backend to 8765.
 
+## Live TUI Dashboard
+
+Textual-based terminal dashboard for real-time pipeline execution monitoring.
+
+```bash
+conda run -n pipeline autopipe run pipeline.yaml --tui
+```
+
+**3-panel layout (mirrors wandb_tui.py):**
+- **Left (width 30)** — InfoPanel with 4 stacked sections: Run Overview, Environment, Config, Summary
+- **Center (1fr)** — MetricsPanel with 3×2 grid of ASCII mini line charts: train/accuracy, train/loss, train/epoch_accuracy, train/epoch_loss, val/accuracy, val/loss
+- **Right (width 28)** — SystemPanel with 6 sparklines: CPU, GPU Utilization, GPU Temp, CPU Temp, CPU Power, Disk I/O
+
+**Key bindings:** `q` quit, `p` pause/resume
+
+**Metrics:** Since `PipelineState` has no live metric streams, metrics are simulated converging curves per step completion (same approach as wandb_tui `RunState.tick`). System metrics sampled via `psutil` every 2s.
+
+**Files:** `autopipe/dashboard/state.py` (PipelineState + metric/systat histories), `autopipe/dashboard/widgets.py` (sparkline, mini_chart_text, KVRow), `autopipe/dashboard/tui.py` (PipelineDashboard app), `autopipe/dashboard/__init__.py` (re-exports)
+
+## Eval Command
+
+`autopipe eval` — LLM evaluation via promptfoo or direct Ollama fallback.
+
+```bash
+autopipe eval --config promptfoo/promptfooconfig.yaml
+autopipe eval --task pipeline-generation --model kimi-k2.5:cloud
+autopipe eval --compare --output eval-results.json
+```
+
+Requires Node.js + promptfoo (or Ollama running for fallback). Provider aliases: `kimi-k2.5:cloud` → `ollama-kimi`, `glm-5.1:cloud` → `ollama-glm`, `minimax-m2.7:cloud` → `ollama-minimax`.
+
 ## Commit Style
 
 Conventional Commits: `feat`, `fix`, `feat(dashboard)`, `fix(frontend)`, `security`. Keep subjects specific to the changed surface.

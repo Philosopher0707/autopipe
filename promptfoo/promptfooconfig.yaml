@@ -1,0 +1,150 @@
+# promptfoo: AutoPipe LLM Evaluation Pipeline
+# Compares your 3 Ollama models on pipeline-related LLM tasks.
+#
+# Usage:
+#   npx promptfoo@0.103.0 eval -c promptfoo/promptfooconfig.yaml
+#   npx promptfoo@0.103.0 view -c promptfoo/promptfooconfig.yaml
+#
+# Or via AutoPipe CLI:
+#   autopipe eval --task pipeline-generation --provider ollama
+
+# ── Shared prompts ────────────────────────────────────────────────
+prompts:
+  - id: pipeline-generation
+    label: "Generate a YAML pipeline config"
+    raw: >
+      You are an ML pipeline engineer using AutoPipe.
+      Generate a valid AutoPipe YAML config for this task:
+      {{task_description}}
+
+      Rules:
+      - Name the pipeline in snake_case.
+      - Include at least 2 steps with explicit `depends_on`.
+      - Use `autopipe.steps.*` types for built-in steps.
+      - Include `params` for each step.
+      - Respond ONLY with the YAML, no markdown fences.
+
+  - id: step-explanation
+    label: "Explain a pipeline step"
+    raw: >
+      Explain what this AutoPipe step does and what params it accepts:
+      Step type: {{step_type}}
+      Current params: {{params}}
+
+      Keep it under 4 sentences. Be specific about data types and defaults.
+
+  - id: error-diagnosis
+    label: "Diagnose pipeline error"
+    raw: >
+      The following AutoPipe pipeline failed during execution:
+      Error: {{error_message}}
+      Step: {{step_name}}
+      Context: {{context}}
+
+      Suggest the most likely fix in 1-2 sentences.
+
+# ── Providers: your 3 Ollama cloud models ────────────────────────
+providers:
+  - ollama:chat:kimi-k2.5:cloud
+  - ollama:chat:glm-5.1:cloud
+  - ollama:chat:minimax-m2.7:cloud
+
+# ── Shared test config ────────────────────────────────────────────
+defaultTest:
+  options:
+    timeout: 60000
+    maxRetries: 1
+
+# ── Test suites ────────────────────────────────────────────────────
+tests:
+  # ── Suite 1: Pipeline YAML Generation ─────────────────────────
+  - description: "Generate a CSV → normalize → train pipeline"
+    prompt: pipeline-generation
+    vars:
+      task_description: >
+        Load a CSV file from data/input.csv, normalize numeric columns
+        with StandardScaler, then train an XGBoost classifier.
+    assert:
+      - type: contains
+        value: "normalize"
+      - type: contains
+        value: "train"
+      - type: contains
+        value: "depends_on"
+      - type: regex
+        value: "^name:\\s*\\w+"
+      - type: not-contains
+        value: "```"
+
+  - description: "Generate a text preprocessing pipeline"
+    prompt: pipeline-generation
+    vars:
+      task_description: >
+        Load raw text documents, tokenize with a custom tokenizer,
+        build a TF-IDF matrix, and run K-Means clustering with k=5.
+    assert:
+      - type: contains
+        value: "tfidf"
+      - type: contains
+        value: "kmeans"
+      - type: contains
+        value: "tokenize"
+
+  # ── Suite 2: Step Explanation ─────────────────────────────────
+  - description: "Explain Normalize step"
+    prompt: step-explanation
+    vars:
+      step_type: "autopipe.steps.preprocess.Normalize"
+      params: '{"method": "standard", "columns": ["age", "income"]}'
+    assert:
+      - type: contains
+        value: "standard"
+      - type: contains
+        value: "column"
+
+  - description: "Explain LoadCSV step"
+    prompt: step-explanation
+    vars:
+      step_type: "autopipe.steps.data.LoadCSV"
+      params: '{"path": "data.csv", "delimiter": ","}'
+    assert:
+      - type: contains
+        value: "CSV"
+      - type: contains
+        value: "delimiter"
+
+  # ── Suite 3: Error Diagnosis ──────────────────────────────────
+  - description: "Diagnose missing dependency error"
+    prompt: error-diagnosis
+    vars:
+      error_message: "Step 'normalize' failed: depends_on=['load'] not found in pipeline"
+      step_name: "normalize"
+      context: "Pipeline steps: [load_csv, normalize, train]"
+    assert:
+      - type: contains
+        value: "load_csv"
+      - type: contains
+        value: "depends_on"
+
+  - description: "Diagnose file not found error"
+    prompt: error-diagnosis
+    vars:
+      error_message: "FileNotFoundError: data/input.csv does not exist"
+      step_name: "load_csv"
+      context: "Working directory: /tmp/pipeline_run"
+    assert:
+      - type: contains
+        value: "path"
+      - type: contains
+        value: "exist"
+
+# ── Output ──────────────────────────────────────────────────────
+output:
+  format: markdown
+  table:
+    - provider
+    - prompt
+    - test
+    - pass/fail
+    - latency
+    - tokens

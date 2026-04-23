@@ -1,0 +1,12 @@
+{
+    "name": "autopipe-ecc",
+    "version": "1.0.0",
+    "description": "Everything Claude Code config for Autopipe — Python ML pipeline framework with LLM integration",
+    "author": "Autopipe Team",
+    "components": {
+        "agents": ["python-pipeline-reviewer", "frontend-reviewer", "security-scanner"],
+        "skills": ["tdd-python", "pipeline-patterns", "python-security"],
+        "rules": ["common/coding-style", "python/patterns", "python/testing", "ml-pipeline/config"],
+        "hooks": ["session-start", "post-edit-ruff", "post-edit-mypy", "suggest-compact"]
+    }
+}

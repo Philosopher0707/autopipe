@@ -1,4 +1,10 @@
 import { apiClient } from '../client'
+import type {
+  AutomlTrialsResponse,
+  AutomlVisualizationsResponse,
+  ExplainabilityResponse,
+  FeatureTransformsResponse,
+} from '@/types'
 
 export interface RunMetricsOverTimeResponse {
   metric: string
@@ -190,5 +196,21 @@ export const chartsApi = {
 
   getTrainingMetricsTrace: async (runId: string): Promise<TrainingMetricsTraceResponse> => {
     return apiClient.get('/charts/training-metrics-trace', { params: { run_id: runId } })
+  },
+
+  getExplainability: async (runId: string): Promise<ExplainabilityResponse> => {
+    return apiClient.get('/charts/explainability', { params: { run_id: runId } })
+  },
+
+  getAutomlTrials: async (experimentId: string): Promise<AutomlTrialsResponse> => {
+    return apiClient.get('/charts/automl-trials', { params: { experiment_id: experimentId } })
+  },
+
+  getAutomlVisualizations: async (experimentId: string): Promise<AutomlVisualizationsResponse> => {
+    return apiClient.get('/charts/automl-visualizations', { params: { experiment_id: experimentId } })
+  },
+
+  getFeatureTransforms: async (runId: string): Promise<FeatureTransformsResponse> => {
+    return apiClient.get('/charts/feature-transforms', { params: { run_id: runId } })
   },
 }

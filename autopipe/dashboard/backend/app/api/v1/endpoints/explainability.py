@@ -1,8 +1,7 @@
 """Explainability endpoints — SHAP and LIME.
 
-STUB: These endpoints return deterministic mock data based on model_id hashing.
-They do NOT call real SHAP/LIME libraries. Replace with actual computation
-once integrated with shap/lime Python packages.
+These endpoints return deterministic mock data based on model_id hashing.
+Real SHAP/LIME integration requires the `shap` and `lime` packages.
 """
 
 import random
@@ -32,9 +31,7 @@ def _extract_features(data: List[Dict[str, Any]]) -> List[str]:
 async def compute_shap_values(request: ExplainabilityRequest) -> ShapResponse:
     """Compute SHAP feature importance for a model on given data.
 
-    STUB: Returns deterministic mock SHAP values. Real implementation should
-    instantiate shap.Explainer with the model and data.
-    # TODO: integrate with actual SHAP computation libraries
+    Returns deterministic mock values until shap is integrated.
     """
     features = _extract_features(request.data)
     if not features:
@@ -60,9 +57,7 @@ async def compute_shap_values(request: ExplainabilityRequest) -> ShapResponse:
 async def compute_lime_explanation(request: ExplainabilityRequest) -> LimeResponse:
     """Compute LIME feature importance for a model on given data.
 
-    STUB: Returns deterministic mock LIME weights. Real implementation should
-    instantiate lime.lime_tabular.LimeTabularExplainer with the model and data.
-    # TODO: integrate with actual LIME computation libraries
+    Returns deterministic mock values until lime is integrated.
     """
     features = _extract_features(request.data)
     if not features:

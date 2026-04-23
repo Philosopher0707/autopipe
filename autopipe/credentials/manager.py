@@ -1,8 +1,7 @@
 """Secure credential management for AutoPipe."""
 import os
-from typing import Optional
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Optional
 
 from ..exceptions import ConfigurationError
 
@@ -54,7 +53,7 @@ class CredentialManager:
         """
         if provider in self._credentials:
             return self._credentials[provider]
-        
+
         creds = self._load_credentials(provider)
         self._credentials[provider] = creds
         return creds
@@ -64,7 +63,7 @@ class CredentialManager:
         # Check environment variables first
         env_key = self._get_env_key(provider)
         api_key = os.environ.get(env_key)
-        
+
         # Check provider-specific environment variables
         if not api_key:
             env_vars = {
@@ -76,16 +75,16 @@ class CredentialManager:
                 api_key = os.environ.get(var)
                 if api_key:
                     break
-        
+
         if not api_key:
             raise ConfigurationError(
                 f"No API key found for provider '{provider}'. "
                 f"Set {env_key} environment variable."
             )
-        
+
         # Get base URL from environment
         base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
-        
+
         return Credentials(api_key=api_key, base_url=base_url)
 
     def _get_env_key(self, provider: str) -> str:

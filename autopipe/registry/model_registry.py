@@ -1,18 +1,14 @@
 """Model Registry for versioning, comparison, and deployment of ML models."""
 
-import logging
-import json
 import hashlib
+import json
+import logging
 import pickle
 import shutil
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, Callable
-from dataclasses import dataclass, field, asdict
-import warnings
-
-import numpy as np
-import pandas as pd
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 try:
     import mlflow
@@ -40,7 +36,7 @@ class ModelVersion:
     description: str = ""
     status: str = "PENDING"  # PENDING, STAGING, PRODUCTION, ARCHIVED
     user: Optional[str] = None
-    
+
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
         d = asdict(self)
@@ -57,7 +53,7 @@ class ModelComparison:
     is_better: bool
     improved_metrics: List[str]
     degraded_metrics: List[str]
-    
+
     def to_markdown(self) -> str:
         """Generate markdown comparison report."""
         lines = [
@@ -70,12 +66,12 @@ class ModelComparison:
             "| Metric | Model A | Model B | Difference |",
             "|--------|---------|---------|------------|",
         ]
-        
+
         for metric, diff in self.metric_differences.items():
             val_a = self.model_a.metrics.get(metric, 'N/A')
             val_b = self.model_b.metrics.get(metric, 'N/A')
             lines.append(f"| {metric} | {val_a:.4f} | {val_b:.4f} | {diff:+.4f} |")
-        
+
         lines.extend([
             "",
             "### Improved Metrics",
@@ -84,7 +80,7 @@ class ModelComparison:
             "### Degraded Metrics",
             f"- {', '.join(self.degraded_metrics) if self.degraded_metrics else 'None'}",
         ])
-        
+
         return "\n".join(lines)
 
 
@@ -100,7 +96,7 @@ class ModelRegistry:
     - Model signature tracking
     - Automatic model lineage
     """
-    
+
     def __init__(
         self,
         registry_dir: str = "./.autopipe_registry",
@@ -117,21 +113,21 @@ class ModelRegistry:
         """
         self.registry_dir = Path(registry_dir)
         self.registry_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.models: Dict[str, List[ModelVersion]] = {}
         self._load_registry()
-        
+
         # MLflow integration
         self.use_mlflow = use_mlflow and MLFLOW_AVAILABLE
         self.mlflow_client: Optional[Any] = None
-        
+
         if self.use_mlflow:
             if mlflow_tracking_uri:
                 mlflow.set_tracking_uri(mlflow_tracking_uri)
             mlflow.set_experiment(mlflow_experiment)
             self.mlflow_client = MlflowClient()
             logger.info(f"MLflow configured with experiment: {mlflow_experiment}")
-    
+
     def _load_registry(self):
         """Load registry index from disk."""
         index_path = self.registry_dir / "registry_index.json"
@@ -139,7 +135,7 @@ class ModelRegistry:
             try:
                 with open(index_path, 'r') as f:
                     data = json.load(f)
-                
+
                 for name, versions_data in data.items():
                     self.models[name] = [
                         ModelVersion(
@@ -161,7 +157,7 @@ class ModelRegistry:
                     ]
             except Exception as e:
                 logger.warning(f"Failed to load registry: {e}")
-    
+
     def _save_registry(self):
         """Save registry index to disk."""
         index_path = self.registry_dir / "registry_index.json"
@@ -171,7 +167,7 @@ class ModelRegistry:
         }
         with open(index_path, 'w') as f:
             json.dump(data, f, indent=2, default=str)
-    
+
     def register(
         self,
         model: Any,
@@ -205,20 +201,20 @@ class ModelRegistry:
         # Generate version number
         if name not in self.models:
             self.models[name] = []
-        
+
         version = len(self.models[name]) + 1
         model_id = f"{name}_v{version}_{hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]}"
-        
+
         # Create model directory
         model_dir = self.registry_dir / name / f"v{version}"
         model_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Save model artifact
         if artifact_path is None:
             artifact_path = str(model_dir / "model")
-        
+
         self._save_model_artifact(model, artifact_path, framework)
-        
+
         # Create version metadata
         version_info = ModelVersion(
             model_id=model_id,
@@ -234,10 +230,10 @@ class ModelRegistry:
             description=description,
             status=stage.upper(),
         )
-        
+
         self.models[name].append(version_info)
         self._save_registry()
-        
+
         # Log to MLflow if enabled
         if self.use_mlflow:
             with mlflow.start_run(run_name=f"{name}_v{version}"):
@@ -246,7 +242,7 @@ class ModelRegistry:
                 mlflow.set_tags(tags or {})
                 mlflow.set_tag("model_name", name)
                 mlflow.set_tag("model_version", version)
-                
+
                 # Log model based on framework
                 if framework == "sklearn":
                     mlflow.sklearn.log_model(model, "model")
@@ -254,15 +250,15 @@ class ModelRegistry:
                     mlflow.pytorch.log_model(model, "model")
                 elif framework == "tensorflow":
                     mlflow.tensorflow.log_model(model, "model")
-        
+
         logger.info(f"Registered {name} v{version} with metrics: {metrics}")
         return version_info
-    
+
     def _save_model_artifact(self, model: Any, path: str, framework: str):
         """Save model to disk."""
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         if framework == "sklearn":
             with open(save_path.with_suffix('.pkl'), 'wb') as f:
                 pickle.dump(model, f)
@@ -277,7 +273,7 @@ class ModelRegistry:
             # Generic pickle fallback
             with open(save_path.with_suffix('.pkl'), 'wb') as f:
                 pickle.dump(model, f)
-    
+
     def load(self, name: str, version: Optional[int] = None, stage: Optional[str] = None) -> Any:
         """Load a model from registry.
         
@@ -291,9 +287,9 @@ class ModelRegistry:
         """
         if name not in self.models:
             raise ValueError(f"Model {name} not found in registry")
-        
+
         versions = self.models[name]
-        
+
         # Find version to load
         if version is not None:
             target = next((v for v in versions if v.version == version), None)
@@ -301,17 +297,17 @@ class ModelRegistry:
             target = next((v for v in reversed(versions) if v.status == stage.upper()), None)
         else:
             target = versions[-1] if versions else None
-        
+
         if target is None:
             raise ValueError(f"Model {name} version not found")
-        
+
         return self._load_model_artifact(target)
-    
+
     def _load_model_artifact(self, version: ModelVersion) -> Any:
         """Load model artifact from disk."""
         path = Path(version.artifact_path)
         framework = version.framework
-        
+
         if framework == "sklearn":
             with open(path.with_suffix('.pkl'), 'rb') as f:
                 return pickle.load(f)
@@ -331,7 +327,7 @@ class ModelRegistry:
         else:
             with open(path.with_suffix('.pkl'), 'rb') as f:
                 return pickle.load(f)
-    
+
     def transition_stage(self, name: str, version: int, stage: str) -> ModelVersion:
         """Transition model to a new stage.
         
@@ -345,24 +341,24 @@ class ModelRegistry:
         """
         if name not in self.models:
             raise ValueError(f"Model {name} not found")
-        
+
         version_obj = next((v for v in self.models[name] if v.version == version), None)
         if version_obj is None:
             raise ValueError(f"Version {version} not found for model {name}")
-        
+
         # If promoting to PRODUCTION, demote any existing production model
         if stage.upper() == "PRODUCTION":
             for v in self.models[name]:
                 if v.status == "PRODUCTION":
                     v.status = "ARCHIVED"
                     logger.info(f"Archived {name} v{v.version}")
-        
+
         version_obj.status = stage.upper()
         self._save_registry()
-        
+
         logger.info(f"Transitioned {name} v{version} to {stage}")
         return version_obj
-    
+
     def compare_versions(
         self,
         name: str,
@@ -383,13 +379,13 @@ class ModelRegistry:
         """
         if name not in self.models:
             raise ValueError(f"Model {name} not found")
-        
+
         model_a = next((v for v in self.models[name] if v.version == version_a), None)
         model_b = next((v for v in self.models[name] if v.version == version_b), None)
-        
+
         if model_a is None or model_b is None:
             raise ValueError("One or both versions not found")
-        
+
         # Default metric directions (maximize accuracy metrics)
         default_directions = {
             'accuracy': 'maximize',
@@ -404,32 +400,32 @@ class ModelRegistry:
             'loss': 'minimize',
         }
         directions = {**default_directions, **(metric_directions or {})}
-        
+
         # Compare metrics
         all_metrics = set(model_a.metrics.keys()) | set(model_b.metrics.keys())
         differences = {}
         improved = []
         degraded = []
-        
+
         for metric in all_metrics:
             val_a = model_a.metrics.get(metric, 0)
             val_b = model_b.metrics.get(metric, 0)
-            
+
             if isinstance(val_a, (int, float)) and isinstance(val_b, (int, float)):
                 diff = val_a - val_b
                 differences[metric] = diff
-                
+
                 direction = directions.get(metric, 'maximize')
                 is_better = (diff > 0 and direction == 'maximize') or (diff < 0 and direction == 'minimize')
-                
+
                 if is_better:
                     improved.append(metric)
                 elif diff != 0:
                     degraded.append(metric)
-        
+
         # Determine if model_a is better overall
         is_better = len(improved) > len(degraded)
-        
+
         return ModelComparison(
             model_a=model_a,
             model_b=model_b,
@@ -438,7 +434,7 @@ class ModelRegistry:
             improved_metrics=improved,
             degraded_metrics=degraded
         )
-    
+
     def get_best_version(
         self,
         name: str,
@@ -459,67 +455,67 @@ class ModelRegistry:
         """
         if name not in self.models:
             return None
-        
+
         versions = self.models[name]
         if stage:
             versions = [v for v in versions if v.status == stage.upper()]
-        
+
         if not versions:
             return None
-        
+
         # Sort by metric
         scored_versions = [
             (v, v.metrics.get(metric, float('-inf') if direction == 'maximize' else float('inf')))
             for v in versions
         ]
-        
+
         scored_versions.sort(key=lambda x: x[1], reverse=(direction == 'maximize'))
         return scored_versions[0][0] if scored_versions else None
-    
+
     def list_models(self) -> List[str]:
         """List all registered model names."""
         return list(self.models.keys())
-    
+
     def get_versions(self, name: str) -> List[ModelVersion]:
         """Get all versions of a model."""
         return self.models.get(name, [])
-    
+
     def get_production_model(self, name: str) -> Optional[ModelVersion]:
         """Get the current production model."""
         if name not in self.models:
             return None
         return next((v for v in reversed(self.models[name]) if v.status == "PRODUCTION"), None)
-    
+
     def delete_version(self, name: str, version: int):
         """Delete a specific model version."""
         if name not in self.models:
             return
-        
+
         self.models[name] = [v for v in self.models[name] if v.version != version]
-        
+
         # Clean up artifacts
         version_dir = self.registry_dir / name / f"v{version}"
         if version_dir.exists():
             shutil.rmtree(version_dir)
-        
+
         self._save_registry()
         logger.info(f"Deleted {name} v{version}")
-    
+
     def promote_to_production(self, name: str, version: int) -> ModelVersion:
         """Promote a model to production."""
         return self.transition_stage(name, version, "PRODUCTION")
-    
+
     def archive_version(self, name: str, version: int) -> ModelVersion:
         """Archive a model version."""
         return self.transition_stage(name, version, "ARCHIVED")
-    
+
     def generate_report(self, name: str) -> str:
         """Generate a markdown report for all versions of a model."""
         if name not in self.models:
             return f"# Model Report: {name}\n\nModel not found."
-        
+
         versions = self.models[name]
-        
+
         lines = [
             f"# Model Registry Report: {name}",
             "",
@@ -531,19 +527,19 @@ class ModelRegistry:
             "| Version | Status | Framework | Created | Metrics |",
             "|---------|--------|-----------|---------|---------|",
         ]
-        
+
         for v in versions:
             metrics_str = ", ".join([f"{k}={v:.3f}" for k, v in v.metrics.items()][:3])
             lines.append(
                 f"| {v.version} | {v.status} | {v.framework} | {v.created_at.strftime('%Y-%m-%d')} | {metrics_str} |"
             )
-        
+
         lines.extend([
             "",
             "## Production Model",
             "",
         ])
-        
+
         prod = self.get_production_model(name)
         if prod:
             lines.extend([
@@ -557,9 +553,9 @@ class ModelRegistry:
                 lines.append(f"- **{k}:** {v:.4f}")
         else:
             lines.append("No model in production.")
-        
+
         return "\n".join(lines)
-    
+
     def export_model(self, name: str, version: int, export_path: str, format: str = "auto"):
         """Export a model to various formats.
         
@@ -570,16 +566,16 @@ class ModelRegistry:
         """
         if name not in self.models:
             raise ValueError(f"Model {name} not found")
-        
+
         version_obj = next((v for v in self.models[name] if v.version == version), None)
         if version_obj is None:
             raise ValueError(f"Version {version} not found")
-        
+
         model = self._load_model_artifact(version_obj)
         framework = version_obj.framework
         export_path = Path(export_path)
         export_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         if framework == "sklearn":
             if format in ("pickle", "auto"):
                 with open(export_path.with_suffix('.pkl'), 'wb') as f:
@@ -591,13 +587,13 @@ class ModelRegistry:
                 # Requires skl2onnx
                 from skl2onnx import convert_sklearn
                 from skl2onnx.common.data_types import FloatTensorType
-                
+
                 # This is a simplified version - real implementation needs signature
                 initial_type = [('float_input', FloatTensorType([None, model.n_features_in_]))]
                 onnx_model = convert_sklearn(model, initial_types=initial_type)
                 with open(export_path.with_suffix('.onnx'), "wb") as f:
                     f.write(onnx_model.SerializeToString())
-        
+
         elif framework == "pytorch":
             if format in ("pt", "auto"):
                 import torch
@@ -606,7 +602,7 @@ class ModelRegistry:
                 import torch
                 dummy_input = torch.randn(1, 10)  # This needs actual input shape
                 torch.onnx.export(model, dummy_input, export_path.with_suffix('.onnx'))
-        
+
         elif framework == "tensorflow":
             if format in ("saved_model", "auto"):
                 model.save(export_path)
@@ -615,18 +611,18 @@ class ModelRegistry:
                 tflite_model = converter.convert()
                 with open(export_path.with_suffix('.tflite'), 'wb') as f:
                     f.write(tflite_model)
-        
+
         logger.info(f"Exported {name} v{version} to {export_path}")
-    
+
     def get_model_signature(self, name: str, version: int) -> Optional[Dict]:
         """Get the input/output signature of a model."""
         if name not in self.models:
             return None
-        
+
         version_obj = next((v for v in self.models[name] if v.version == version), None)
         if version_obj is None:
             return None
-        
+
         return version_obj.signature
 
 

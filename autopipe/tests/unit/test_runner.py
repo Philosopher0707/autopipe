@@ -1,8 +1,8 @@
 """Tests for autopipe.core.runner module."""
 
+
 import pytest
-import tempfile
-import os
+
 from autopipe.core.runner import load_pipeline_from_module, load_pipeline_from_yaml, run
 
 

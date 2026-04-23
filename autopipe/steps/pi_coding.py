@@ -27,16 +27,13 @@ import dataclasses
 import json
 import logging
 import os
-import re
 import subprocess
 import tempfile
 import time
-import warnings
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from autopipe.core.step import Step
-from autopipe.exceptions import LLMError
 from autopipe.steps.pi_coding_models import PiCodingResult, PiToolCall, PiTurn
 
 logger = logging.getLogger(__name__)
@@ -335,7 +332,7 @@ class PiCodingStep(Step):
         If the step was configured with *prompt_file*, its contents
         are used (overridden by any runtime ``prompt`` kwarg).
         """
-        if "prompt" in kwargs and kwargs["prompt"]:
+        if kwargs.get("prompt"):
             return str(kwargs["prompt"])
 
         if self._config.prompt_file:

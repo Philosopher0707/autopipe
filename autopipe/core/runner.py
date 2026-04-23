@@ -1,10 +1,10 @@
 """Pipeline runner."""
 import importlib.util
-import sys
-import os
-from typing import Any, Dict
-from .pipeline import Pipeline
 import logging
+import sys
+from typing import Any, Dict
+
+from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +27,25 @@ def load_pipeline_from_module(filepath: str) -> Pipeline:
         spec.loader.exec_module(module)
     except FileNotFoundError:
         raise ValueError(f"File not found: {filepath}")
-    
+
     if not hasattr(module, "pipeline"):
         raise AttributeError("Module must define a 'pipeline' variable")
-    
+
     pipeline = module.pipeline
     if not isinstance(pipeline, Pipeline):
         raise TypeError("'pipeline' must be an instance of Pipeline")
-    
+
     return pipeline
 
 
 def load_pipeline_from_yaml(filepath: str) -> Pipeline:
     """Load pipeline configuration from YAML."""
     import yaml
+
     from .loader import load_pipeline_from_config
     with open(filepath, 'r') as f:
         config = yaml.safe_load(f)
-    
+
     return load_pipeline_from_config(config)
 
 
@@ -59,5 +60,5 @@ def run(filepath: str, initial_inputs: Dict[str, Any] = None) -> Dict[str, Any]:
         pipeline = load_pipeline_from_yaml(filepath)
     else:
         raise ValueError("Unsupported file format. Use .py or .yaml")
-    
+
     return run_pipeline(pipeline, initial_inputs)

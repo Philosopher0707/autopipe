@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Callable, Generic, Optional, TypeVar
 
 import cachetools
-from cachetools.keys import hashkey
 
 from ..exceptions import CacheError
 
@@ -21,32 +20,26 @@ class CacheBackend(ABC, Generic[T]):
     @abstractmethod
     def get(self, key: str) -> Optional[T]:
         """Get value from cache."""
-        pass
 
     @abstractmethod
     def set(self, key: str, value: T, ttl: Optional[int] = None) -> None:
         """Set value in cache."""
-        pass
 
     @abstractmethod
     def delete(self, key: str) -> None:
         """Delete value from cache."""
-        pass
 
     @abstractmethod
     def clear(self) -> None:
         """Clear all cache."""
-        pass
 
     @abstractmethod
     def exists(self, key: str) -> bool:
         """Check if key exists in cache."""
-        pass
 
     @abstractmethod
     def ttl(self, key: str) -> Optional[int]:
         """Get remaining TTL for key in seconds."""
-        pass
 
 
 class MemoryCache(CacheBackend[T]):
@@ -61,12 +54,12 @@ class MemoryCache(CacheBackend[T]):
     def get(self, key: str) -> Optional[T]:
         if key not in self._cache:
             return None
-        
+
         value, expiry = self._cache[key]
         if time.time() > expiry:
             del self._cache[key]
             return None
-        
+
         return value
 
     def set(self, key: str, value: T, ttl: Optional[int] = None) -> None:
@@ -74,7 +67,7 @@ class MemoryCache(CacheBackend[T]):
             # Evict oldest
             oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][1])
             del self._cache[oldest_key]
-        
+
         ttl = ttl or self._default_ttl
         self._cache[key] = (value, time.time() + ttl)
 
@@ -111,7 +104,7 @@ class DiskCache(CacheBackend[T]):
             try:
                 with open(self._metadata_file, "r") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 return {}
         return {}
 
@@ -120,7 +113,7 @@ class DiskCache(CacheBackend[T]):
         try:
             with open(self._metadata_file, "w") as f:
                 json.dump(self._metadata, f)
-        except IOError:
+        except OSError:
             pass
 
     def _get_path(self, key: str) -> Path:
@@ -131,35 +124,35 @@ class DiskCache(CacheBackend[T]):
     def get(self, key: str) -> Optional[T]:
         if key not in self._metadata:
             return None
-        
+
         expiry = self._metadata[key]
         if time.time() > expiry:
             self.delete(key)
             return None
-        
+
         cache_path = self._get_path(key)
         if not cache_path.exists():
             self._metadata.pop(key, None)
             self._save_metadata()
             return None
-        
+
         try:
             with open(cache_path, "rb") as f:
                 return pickle.load(f)
-        except (pickle.PickleError, IOError):
+        except (OSError, pickle.PickleError):
             self.delete(key)
             return None
 
     def set(self, key: str, value: T, ttl: Optional[int] = None) -> None:
         ttl = ttl or self._default_ttl
         cache_path = self._get_path(key)
-        
+
         try:
             with open(cache_path, "wb") as f:
                 pickle.dump(value, f)
             self._metadata[key] = time.time() + ttl
             self._save_metadata()
-        except (pickle.PickleError, IOError) as e:
+        except (OSError, pickle.PickleError) as e:
             raise CacheError(f"Failed to cache value: {e}")
 
     def delete(self, key: str) -> None:
@@ -200,53 +193,53 @@ class CacheManager:
         self.enabled = enabled
         self.ttl = ttl
         self.backend_type = backend
-        
+
         if backend == "memory":
             self._backend: CacheBackend[Any] = MemoryCache(max_size=max_size, default_ttl=ttl)
         elif backend == "disk":
             self._backend = DiskCache(directory=directory, default_ttl=ttl)
         else:
             raise CacheError(f"Unknown cache backend: {backend}")
-    
+
     def _generate_key(self, *args: Any, **kwargs: Any) -> str:
         """Generate cache key from arguments."""
         key_data = json.dumps((args, kwargs), sort_keys=True, default=str)
         return hashlib.md5(key_data.encode()).hexdigest()
-    
+
     def get(self, key: str) -> Optional[Any]:
         """Get value from cache."""
         if not self.enabled:
             return None
         return self._backend.get(key)
-    
+
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """Set value in cache."""
         if not self.enabled:
             return
         self._backend.set(key, value, ttl or self.ttl)
-    
+
     def delete(self, key: str) -> None:
         """Delete value from cache."""
         if not self.enabled:
             return
         self._backend.delete(key)
-    
+
     def clear(self) -> None:
         """Clear all cache."""
         self._backend.clear()
-    
+
     def exists(self, key: str) -> bool:
         """Check if key exists in cache."""
         if not self.enabled:
             return False
         return self._backend.exists(key)
-    
+
     def ttl(self, key: str) -> Optional[int]:
         """Get remaining TTL for key."""
         if not self.enabled:
             return None
         return self._backend.ttl(key)
-    
+
     def cached(
         self,
         key_fn: Optional[Callable[..., str]] = None,
@@ -257,20 +250,20 @@ class CacheManager:
             def wrapper(*args: Any, **kwargs: Any) -> T:
                 if not self.enabled:
                     return func(*args, **kwargs)
-                
+
                 if key_fn:
                     cache_key = key_fn(*args, **kwargs)
                 else:
                     cache_key = self._generate_key(func.__name__, *args, **kwargs)
-                
+
                 cached_value = self.get(cache_key)
                 if cached_value is not None:
                     return cached_value
-                
+
                 result = func(*args, **kwargs)
                 self.set(cache_key, result, ttl)
                 return result
-            
+
             return wrapper
         return decorator
 
