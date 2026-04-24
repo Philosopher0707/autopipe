@@ -44,6 +44,24 @@ def _serialize_run(run: Run, pipeline_name: Optional[str] = None) -> RunResponse
     )
 
 
+def _serialize_pipeline(pipeline: Pipeline, run_count: int = 0) -> PipelineResponse:
+    """Serialize a pipeline with the fields used by the frontend."""
+    return PipelineResponse(
+        id=pipeline.id,
+        name=pipeline.name,
+        description=pipeline.description,
+        config=pipeline.config,
+        tags=pipeline.tags or [],
+        project_id=pipeline.project_id,
+        config_hash=pipeline.config_hash,
+        created_at=pipeline.created_at,
+        updated_at=pipeline.updated_at,
+        created_by=pipeline.created_by,
+        run_count=run_count,
+        is_active=pipeline.is_active,
+    )
+
+
 @router.get("", response_model=PipelineList)
 async def list_pipelines(
     skip: int = Query(0, ge=0, description="Number of items to skip"),
@@ -94,21 +112,7 @@ async def list_pipelines(
     # Convert to response format
     items = []
     for pipeline in pipelines:
-        item = PipelineResponse(
-            id=pipeline.id,
-            name=pipeline.name,
-            description=pipeline.description,
-            config=pipeline.config,
-            tags=pipeline.tags or [],
-            project_id=pipeline.project_id,
-            config_hash=pipeline.config_hash,
-            created_at=pipeline.created_at,
-            updated_at=pipeline.updated_at,
-            created_by=pipeline.created_by,
-            run_count=len(pipeline.runs) if pipeline.runs else 0,
-            is_active=pipeline.is_active,
-        )
-        items.append(item)
+        items.append(_serialize_pipeline(pipeline, run_count=len(pipeline.runs) if pipeline.runs else 0))
     
     return PipelineList(
         total=total_count or 0,
@@ -138,20 +142,7 @@ async def get_pipeline(
             detail=f"Pipeline {pipeline_id} not found",
         )
     
-    return PipelineResponse(
-        id=pipeline.id,
-        name=pipeline.name,
-        description=pipeline.description,
-        config=pipeline.config,
-        tags=pipeline.tags or [],
-        project_id=pipeline.project_id,
-        config_hash=pipeline.config_hash,
-        created_at=pipeline.created_at,
-        updated_at=pipeline.updated_at,
-        created_by=pipeline.created_by,
-        run_count=len(pipeline.runs) if pipeline.runs else 0,
-        is_active=pipeline.is_active,
-    )
+    return _serialize_pipeline(pipeline, run_count=len(pipeline.runs) if pipeline.runs else 0)
 
 
 @router.post("", response_model=PipelineResponse, status_code=status.HTTP_201_CREATED)
@@ -186,20 +177,7 @@ async def create_pipeline(
     db.add(activity)
     await db.commit()
     
-    return PipelineResponse(
-        id=db_pipeline.id,
-        name=db_pipeline.name,
-        description=db_pipeline.description,
-        config=db_pipeline.config,
-        tags=db_pipeline.tags or [],
-        project_id=db_pipeline.project_id,
-        config_hash=db_pipeline.config_hash,
-        created_at=db_pipeline.created_at,
-        updated_at=db_pipeline.updated_at,
-        created_by=db_pipeline.created_by,
-        run_count=0,
-        is_active=db_pipeline.is_active,
-    )
+    return _serialize_pipeline(db_pipeline, run_count=0)
 
 
 @router.put("/{pipeline_id}", response_model=PipelineResponse)
@@ -236,20 +214,7 @@ async def update_pipeline(
         select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id)
     )
 
-    return PipelineResponse(
-        id=pipeline.id,
-        name=pipeline.name,
-        description=pipeline.description,
-        config=pipeline.config,
-        tags=pipeline.tags or [],
-        project_id=pipeline.project_id,
-        config_hash=pipeline.config_hash,
-        created_at=pipeline.created_at,
-        updated_at=pipeline.updated_at,
-        created_by=pipeline.created_by,
-        run_count=run_count or 0,
-        is_active=pipeline.is_active,
-    )
+    return _serialize_pipeline(pipeline, run_count=run_count or 0)
 
 
 @router.delete("/{pipeline_id}", status_code=status.HTTP_204_NO_CONTENT)

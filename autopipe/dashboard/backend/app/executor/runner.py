@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import settings
 from app.db.models import Run, RunStatus, Step, StepStatus
 from app.executor.registry import register_run, unregister_run, cancel_run as _cancel_signal
+from app.utils.datetime_utils import safe_duration_seconds
 
 try:
     import psutil
@@ -121,17 +122,6 @@ class _WebSocketLogHandler(logging.Handler):
             pass
 
 
-def _safe_duration(start, end):
-    """Compute duration in seconds handling aware/naive datetime mix."""
-    if start is None or end is None:
-        return None
-    if start.tzinfo is None and end.tzinfo is not None:
-        start = start.replace(tzinfo=timezone.utc)
-    elif start.tzinfo is not None and end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    return (end - start).total_seconds()
-
-
 def _update_run_status(db: Session, run_id: str, status: RunStatus,
                        error_message: str | None = None,
                        metrics: dict | None = None) -> None:
@@ -145,7 +135,7 @@ def _update_run_status(db: Session, run_id: str, status: RunStatus,
     if status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
         run.completed_at = datetime.now(timezone.utc)
         if run.started_at:
-            run.duration_seconds = _safe_duration(run.started_at, run.completed_at)
+            run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
     if error_message:
         run.error_message = error_message
     if metrics:
@@ -178,7 +168,7 @@ def _update_step_status(db: Session, step_id: str, status: StepStatus,
     if status == StepStatus.SUCCESS:
         step.completed_at = datetime.now(timezone.utc)
         if step.started_at:
-            step.duration_seconds = _safe_duration(step.started_at, step.completed_at)
+            step.duration_seconds = safe_duration_seconds(step.started_at, step.completed_at)
     if status == StepStatus.FAILED:
         step.error_message = error_message
     if metrics:

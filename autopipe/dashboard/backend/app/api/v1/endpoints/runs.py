@@ -4,17 +4,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-
-def _safe_duration(start, end):
-    """Compute duration in seconds handling aware/naive datetime mix."""
-    if start is None or end is None:
-        return None
-    if start.tzinfo is None and end.tzinfo is not None:
-        start = start.replace(tzinfo=timezone.utc)
-    elif start.tzinfo is not None and end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    return (end - start).total_seconds()
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models import ActivityLog, Pipeline, Project, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
+from app.utils.datetime_utils import safe_duration_seconds
 from app.schemas import RunResponse, RunUpdate, RunList, TrainingConfigResponse, CheckpointsResponse, CheckpointPromoteRequest
 from app.schemas import (
     RunCompareRequest,
@@ -219,7 +209,7 @@ async def update_run(
         if update.status in [RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED]:
             run.completed_at = datetime.now(timezone.utc)
             if run.started_at:
-                run.duration_seconds = _safe_duration(run.started_at, run.completed_at)
+                run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
         # Signal the executor thread to stop if cancelling
         if update.status == RunStatus.CANCELLED.value:
             signal_cancel(run_id)
