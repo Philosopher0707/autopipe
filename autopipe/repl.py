@@ -96,11 +96,14 @@ class _RestrictedASTChecker(ast.NodeVisitor):
     """
 
     # Node types that are never allowed
-    BLOCKED_NODES = frozenset({
+    _blocked = {
         ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
         ast.Lambda, ast.Yield, ast.YieldFrom, ast.Await,
-        ast.Import, ast.ImportFrom, ast.TryStar,
-    })
+        ast.Import, ast.ImportFrom, ast.Try,
+    }
+    if hasattr(ast, 'TryStar'):
+        _blocked.add(ast.TryStar)
+    BLOCKED_NODES = frozenset(_blocked)
 
     # Attribute names that start with __ or are dangerous
     BLOCKED_PREFIXES = ('__', '_io', '_thread', '_signal', '_pickle', '_socket')
@@ -613,12 +616,12 @@ class AutoPipeREPL:
     def _cmd_exit(self, ctx: CommandContext, args: List[str]) -> None:
         """Exit the REPL."""
         if self.session:
-            ctx.print("\n[green]Goodbye! 👋[/green]")
+            ctx.print("\n[green]Goodbye![/green]")
         raise ExitREPL()
 
     def _cmd_clear(self, ctx: CommandContext, args: List[str]) -> None:
         """Clear the screen."""
-        os.system('cls' if os.name == 'nt' else 'clear')
+        print("\033[2J\033[H", end="")
 
     def _cmd_version(self, ctx: CommandContext, args: List[str]) -> None:
         """Show version info."""
