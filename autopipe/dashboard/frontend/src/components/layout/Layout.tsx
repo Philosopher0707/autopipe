@@ -7,7 +7,6 @@ import {
   Box,
   BarChart3,
   AlertTriangle,
-  Settings,
   Users,
   LogOut,
   Menu,
@@ -18,7 +17,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderKanban,
-  UserCircle,
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { useUIStore, useAuthStore } from '@/stores'
@@ -147,14 +145,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
           <SidebarItem to="/projects" icon={<FolderKanban className="w-5 h-5" />} label="Projects" collapsed={collapsed} />
-          <SidebarItem to="/settings" icon={<Settings className="w-5 h-5" />} label="Settings" collapsed={collapsed} />
-          <SidebarItem to="/team" icon={<Users className="w-5 h-5" />} label="Team" collapsed={collapsed} />
         </nav>
-
-        {/* Profile — always visible above user card */}
-        <div className="px-2 pb-2">
-          <SidebarItem to="/profile" icon={<UserCircle className="w-5 h-5" />} label="Profile" collapsed={collapsed} />
-        </div>
 
         {/* User */}
         <div className="absolute bottom-0 left-0 right-0 p-2 border-t border-border bg-card">

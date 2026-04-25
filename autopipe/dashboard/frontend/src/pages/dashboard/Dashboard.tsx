@@ -124,8 +124,6 @@ export function Dashboard() {
         <StatCard
           title="Total Pipelines"
           value={stats?.pipelines.total ?? 0}
-          trend="up"
-          trendValue="12% today"
           icon={GitBranch}
           color="bg-blue-500"
           status={{ running: stats?.pipelines.running ?? 0 }}
@@ -134,8 +132,6 @@ export function Dashboard() {
         <StatCard
           title="Models in Production"
           value={stats?.models.in_production ?? 0}
-          trend="up"
-          trendValue="3 new"
           icon={Box}
           color="bg-green-500"
           subtext={`${stats?.models.in_staging ?? 0} in staging`}
@@ -143,8 +139,6 @@ export function Dashboard() {
         <StatCard
           title="Drift Alerts"
           value={featuresDrifted}
-          trend="down"
-          trendValue="1 Alert"
           icon={AlertTriangle}
           color="bg-amber-500"
           subtext={`PSI Avg: ${stats?.drift?.drift_ratio?.toFixed(2) ?? 'N/A'}`}

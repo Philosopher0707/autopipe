@@ -17,13 +17,11 @@ const ExperimentDetail = lazy(() => import('@/pages/experiments/ExperimentDetail
 const DriftList = lazy(() => import('@/pages/drift/DriftList').then((module) => ({ default: module.DriftList })))
 const DriftReport = lazy(() => import('@/pages/drift/DriftReport').then((module) => ({ default: module.DriftReport })))
 const Workspace = lazy(() => import('@/pages/workspace/Workspace').then((module) => ({ default: module.Workspace })))
-const SettingsPage = lazy(() => import('@/pages/settings/Settings').then((module) => ({ default: module.SettingsPage })))
-const TeamPage = lazy(() => import('@/pages/settings/Team').then((module) => ({ default: module.TeamPage })))
 const ExplainabilityPage = lazy(() => import('@/pages/explainability/ExplainabilityPage').then((module) => ({ default: module.ExplainabilityPage })))
 const AutomlPage = lazy(() => import('@/pages/automl/AutoMLPage').then((module) => ({ default: module.AutoMLPage })))
 const FeatureEngineeringPage = lazy(() => import('@/pages/features/FeaturesPage').then((module) => ({ default: module.FeaturesPage })))
 const ProjectsPage = lazy(() => import('@/pages/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })))
-const ProfilePage = lazy(() => import('@/pages/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })))
+const NotFound = lazy(() => import('@/pages/NotFound').then((module) => ({ default: module.NotFound })))
 
 function PageFallback() {
   return (
@@ -249,23 +247,6 @@ export function AppRoutes() {
       />
 
       <Route
-        path="/settings"
-        element={
-          <ProtectedLayout>
-            <SettingsPage />
-          </ProtectedLayout>
-        }
-      />
-      <Route
-        path="/team"
-        element={
-          <ProtectedLayout>
-            <TeamPage />
-          </ProtectedLayout>
-        }
-      />
-
-      <Route
         path="/projects"
         element={
           <ProtectedLayout>
@@ -274,16 +255,7 @@ export function AppRoutes() {
         }
       />
 
-      <Route
-        path="/profile"
-        element={
-          <ProtectedLayout>
-            <ProfilePage />
-          </ProtectedLayout>
-        }
-      />
-
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   )
 }
