@@ -1,4 +1,8 @@
-"""Seed the database with initial data for development/testing."""
+"""Seed the database with initial data for development/testing.
+
+WARNING: This script creates demo users with hardcoded passwords.
+Only use in development/testing environments. Do NOT run in production.
+"""
 
 import logging
 
