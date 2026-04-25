@@ -228,7 +228,7 @@ def _collect_run_metrics(pipeline, execution_order: list) -> dict:
 
 
 def _collect_system_metrics() -> dict:
-    """Collect genuine system resource usage via psutil."""
+    """Collect CPU and memory usage via psutil."""
     metrics: dict = {}
     if not psutil:
         return metrics
@@ -238,15 +238,6 @@ def _collect_system_metrics() -> dict:
         metrics["memory_percent"] = round(psutil.virtual_memory().percent, 1)
     except Exception:
         logger.debug("psutil CPU/memory metrics failed", exc_info=True)
-
-    # GPU metrics via psutil internals (best-effort)
-    try:
-        if hasattr(psutil, "_psplatform") and hasattr(psutil._psplatform, "cuda_devices"):
-            gpus = psutil._psplatform.cuda_devices()
-            if gpus:
-                metrics["gpu_percent"] = round(gpus[0].utilization, 1)
-    except Exception:
-        logger.debug("psutil GPU metrics failed", exc_info=True)
 
     return metrics
 

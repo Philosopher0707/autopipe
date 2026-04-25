@@ -49,7 +49,6 @@ def cli(ctx: click.Context, verbose: bool, config: Optional[str]):
 @click.option('--cache/--no-cache', default=True, help='Enable/disable caching')
 @click.option('--parallel', '-p', is_flag=True, help='Run steps in parallel where possible')
 @click.option('--step', '-s', multiple=True, help='Run only specific steps')
-@click.option('--tui', is_flag=True, help='Launch live TUI dashboard instead of silent run')
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -58,7 +57,6 @@ def run(
     cache: bool,
     parallel: bool,
     step: tuple,
-    tui: bool,
 ):
     """Run a pipeline from a YAML file."""
     import yaml
@@ -67,11 +65,6 @@ def run(
         config_dict = yaml.safe_load(f)
 
     pipeline = load_pipeline_from_config(config_dict)
-
-    if tui:
-        from autopipe.dashboard.tui import launch
-        launch(pipeline)
-        return
 
     print_banner()
 

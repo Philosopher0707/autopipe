@@ -1,5 +1,7 @@
 """Seed the database with initial data for development/testing."""
 
+import logging
+
 import asyncio
 import uuid
 
@@ -16,6 +18,8 @@ from app.db.models import (
 from sqlalchemy import select
 
 from app.db.session import engine, AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 async def seed_projects(db: AsyncSession) -> list[Project]:
@@ -72,7 +76,7 @@ async def seed_projects(db: AsyncSession) -> list[Project]:
             created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} projects, {len(projects_data) - created} already existed")
+    logger.info(f"  ✓ Created {created} projects, {len(projects_data) - created} already existed")
     return projects
 
 
@@ -129,7 +133,7 @@ async def seed_users(db: AsyncSession) -> None:
             created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} users, {len(users_data) - created} already existed")
+    logger.info(f"  ✓ Created {created} users, {len(users_data) - created} already existed")
 
 
 async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Project]) -> list[Pipeline]:
@@ -227,7 +231,7 @@ async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Pro
             created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} pipelines, {len(pipelines_data) - created} already existed")
+    logger.info(f"  ✓ Created {created} pipelines, {len(pipelines_data) - created} already existed")
     return pipelines
 
 
@@ -236,7 +240,7 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
     # Skip if runs already exist
     existing_count = await db.scalar(select(sa_func.count(Run.id)))
     if existing_count and existing_count > 0:
-        print(f"  ✓ Runs already exist ({existing_count}), skipping")
+        logger.info(f"  ✓ Runs already exist ({existing_count}), skipping")
         return
 
     import random
@@ -313,7 +317,7 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                 db.add(step)
     
     await db.commit()
-    print(f"  ✓ Created {runs_created} runs with steps")
+    logger.info(f"  ✓ Created {runs_created} runs with steps")
 
 
 async def seed_models(db: AsyncSession, users: list[User]) -> None:
@@ -390,7 +394,7 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
             db.add(version)
     
     await db.commit()
-    print(f"  ✓ Created {created} models with versions, {len(models_data) - created} already existed")
+    logger.info(f"  ✓ Created {created} models with versions, {len(models_data) - created} already existed")
 
 
 async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experiment]:
@@ -456,7 +460,7 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experime
             created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} experiments, {len(experiments_data) - created} already existed")
+    logger.info(f"  ✓ Created {created} experiments, {len(experiments_data) - created} already existed")
     return experiments
 
 
@@ -464,7 +468,7 @@ async def seed_drift_reports(db: AsyncSession) -> None:
     """Create sample drift reports and alerts."""
     existing = await db.scalar(select(sa_func.count(DriftReport.id)))
     if existing and existing > 0:
-        print(f"  ✓ Drift reports already exist ({existing}), skipping")
+        logger.info(f"  ✓ Drift reports already exist ({existing}), skipping")
         return
 
     from datetime import datetime, timedelta, timezone
@@ -507,14 +511,14 @@ async def seed_drift_reports(db: AsyncSession) -> None:
         db.add(alert)
     
     await db.commit()
-    print(f"  ✓ Created drift reports and alerts")
+    logger.info(f"  ✓ Created drift reports and alerts")
 
 
 async def seed_dashboard_metrics(db: AsyncSession) -> None:
     """Create sample dashboard metrics."""
     existing = await db.scalar(select(sa_func.count(DashboardMetric.id)))
     if existing and existing > 0:
-        print(f"  ✓ Dashboard metrics already exist ({existing}), skipping")
+        logger.info(f"  ✓ Dashboard metrics already exist ({existing}), skipping")
         return
 
     from datetime import datetime, timedelta, timezone
@@ -545,14 +549,14 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
             db.add(metric)
     
     await db.commit()
-    print(f"  ✓ Created dashboard metrics")
+    logger.info(f"  ✓ Created dashboard metrics")
 
 
 async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
     """Create sample activity logs."""
     existing = await db.scalar(select(sa_func.count(ActivityLog.id)))
     if existing and existing > 0:
-        print(f"  ✓ Activity logs already exist ({existing}), skipping")
+        logger.info(f"  ✓ Activity logs already exist ({existing}), skipping")
         return
 
     from datetime import datetime, timedelta, timezone
@@ -580,14 +584,14 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
         db.add(activity)
     
     await db.commit()
-    print(f"  ✓ Created activity logs")
+    logger.info(f"  ✓ Created activity logs")
 
 
 async def seed_chart_artifacts(db: AsyncSession) -> None:
     """Create sample chart artifacts for seeded runs."""
     existing = await db.scalar(select(sa_func.count(ChartArtifact.id)))
     if existing and existing > 0:
-        print(f"  ✓ Chart artifacts already exist ({existing}), skipping")
+        logger.info(f"  ✓ Chart artifacts already exist ({existing}), skipping")
         return
 
     import random
@@ -595,7 +599,7 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
     result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(5))
     runs = list(result.scalars().all())
     if not runs:
-        print("  ⚠ No successful runs found, skipping chart artifacts")
+        logger.info("  ⚠ No successful runs found, skipping chart artifacts")
         return
 
     templates = [
@@ -684,14 +688,14 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
             created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} chart artifacts")
+    logger.info(f"  ✓ Created {created} chart artifacts")
 
 
 async def seed_metric_logs(db: AsyncSession) -> None:
     """Create sample metric logs with training curves for successful runs."""
     existing = await db.scalar(select(sa_func.count(MetricLog.id)))
     if existing and existing > 0:
-        print(f"  ✓ Metric logs already exist ({existing}), skipping")
+        logger.info(f"  ✓ Metric logs already exist ({existing}), skipping")
         return
 
     import random
@@ -700,7 +704,7 @@ async def seed_metric_logs(db: AsyncSession) -> None:
     result = await db.execute(select(Run).where(Run.status == RunStatus.SUCCESS).limit(10))
     runs = list(result.scalars().all())
     if not runs:
-        print("  ⚠ No successful runs found, skipping metric logs")
+        logger.info("  ⚠ No successful runs found, skipping metric logs")
         return
 
     created = 0
@@ -743,13 +747,13 @@ async def seed_metric_logs(db: AsyncSession) -> None:
                 created += 1
 
     await db.commit()
-    print(f"  ✓ Created {created} metric logs")
+    logger.info(f"  ✓ Created {created} metric logs")
 
 
 async def main() -> None:
     """Run all seeders."""
-    print("\n🌱 Seeding database with initial data...")
-    print("=" * 50)
+    logger.info("\n🌱 Seeding database with initial data...")
+    logger.info("=" * 50)
     
     async with AsyncSessionLocal() as db:
         # Seed users first
@@ -790,13 +794,13 @@ async def main() -> None:
         # Seed metric logs (training curves)
         await seed_metric_logs(db)
 
-    print("=" * 50)
-    print("✅ Database seeded successfully!")
-    print("\n📋 Default credentials:")
-    print("   admin / admin123")
-    print("   data_scientist / ds123456")
-    print("   ml_engineer / ml123456")
-    print("   viewer / viewer123")
+    logger.info("=" * 50)
+    logger.info("✅ Database seeded successfully!")
+    logger.info("\n📋 Default credentials:")
+    logger.info("   admin / admin123")
+    logger.info("   data_scientist / ds123456")
+    logger.info("   ml_engineer / ml123456")
+    logger.info("   viewer / viewer123")
 
 
 if __name__ == "__main__":

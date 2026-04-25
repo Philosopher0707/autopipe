@@ -1,15 +1,10 @@
 """Pipeline orchestration."""
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .step import Step
 
-if TYPE_CHECKING:
-    from autopipe.dashboard.state import PipelineState
-
 logger = logging.getLogger(__name__)
-
-PipelineWatcher = Callable[["PipelineState", str, Any], None]
 
 
 class Pipeline:
@@ -19,7 +14,6 @@ class Pipeline:
         self.name = name
         self.steps: Dict[str, Step] = {}
         self._execution_order: List[Step] = []
-        self._watchers: List[Callable] = []
 
     def add_step(self, step: Step):
         """Add a step to the pipeline."""
@@ -27,10 +21,6 @@ class Pipeline:
             raise ValueError(f"Step with name {step.name} already exists")
         self.steps[step.name] = step
         return self
-
-    def add_watcher(self, watcher: Callable) -> None:
-        """Register a watcher to receive pipeline execution callbacks."""
-        self._watchers.append(watcher)
 
     def get_step(self, name: str) -> Step:
         """Get a step by name."""
@@ -83,26 +73,10 @@ class Pipeline:
         Returns:
             Dictionary of step outputs keyed by step name.
         """
-        logger.info(f"Running pipeline {self.name}")
+        logger.info("Running pipeline %s", self.name)
         self._execution_order = self._topological_sort()
 
-        # Build shared state for watchers
-        from autopipe.dashboard.state import PipelineState
-        state = PipelineState(pipeline_name=self.name)
-        for step in self._execution_order:
-            state.add_step(step.name)
-
-        # Notify before any step runs
-        for w in self._watchers:
-            try:
-                w.before_pipeline(state)
-            except Exception as e:
-                logger.warning(f"Watcher before_pipeline failed: {e}")
-
-        # Map step outputs
-        outputs: Dict[str, Any] = {}
-        if initial_inputs:
-            outputs.update(initial_inputs)
+        outputs: Dict[str, Any] = dict(initial_inputs or {})
 
         for step in self._execution_order:
             # Gather outputs of declared dependencies as inputs
@@ -111,53 +85,21 @@ class Pipeline:
             else:
                 inputs = dict(initial_inputs or {})
 
-            # Notify before step
-            state.start_step(step.name)
-            for w in self._watchers:
-                try:
-                    w.before_step(state, step.name)
-                except Exception as e:
-                    logger.warning(f"Watcher before_step failed: {e}")
-
-            logger.info(f"Running step {step.name}")
+            logger.info("Running step %s", step.name)
             try:
                 step_output = step.run(**inputs)
                 outputs[step.name] = step_output
-                state.finish_step(step.name, step_output)
-
-                # Notify after step
-                for w in self._watchers:
-                    try:
-                        w.after_step(state, step.name, step_output)
-                    except Exception as e:
-                        logger.warning(f"Watcher after_step failed: {e}")
-
-            except Exception as e:
-                state.fail_step(step.name, e)
-                for w in self._watchers:
-                    try:
-                        w.on_error(state, step.name, e)
-                    except Exception as w_err:
-                        logger.warning(f"Watcher on_error failed: {w_err}")
+            except Exception:
+                logger.error("Step %s failed", step.name)
                 raise
 
             # Generate visualizations
             try:
                 step.visualize(**inputs)
             except Exception as e:
-                logger.warning(f"Visualization failed for step {step.name}: {e}")
+                logger.warning("Visualization failed for step %s: %s", step.name, e)
 
-        state.state = "completed"
-        state.pipeline_output = outputs
-
-        # Notify after all steps
-        for w in self._watchers:
-            try:
-                w.after_pipeline(state)
-            except Exception as e:
-                logger.warning(f"Watcher after_pipeline failed: {e}")
-
-        logger.info(f"Pipeline {self.name} completed")
+        logger.info("Pipeline %s completed", self.name)
         return outputs
 
     def visualize_all(self):

@@ -47,7 +47,6 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "pygments>=2.16",
     "requests>=2.31",
-    "textual>=0.50",
     "psutil>=5.9",
 ]
 
