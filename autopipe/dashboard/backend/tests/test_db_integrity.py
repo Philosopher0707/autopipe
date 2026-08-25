@@ -67,16 +67,9 @@ def test_pragmas_active_on_connection(sync_engine):
 
 def test_async_engine_applies_pragmas():
     """The production async session engine must register the same hardening."""
-    from app.db.session import engine
-
-    listeners = (
-        list(engine.sync_engine.event_listeners.get("connect", []))
-        if hasattr(engine.sync_engine, "event_listeners")
-        else []
-    )
-
-    # sqlalchemy >= 2 stores listeners differently; assert functionally instead.
+    # Assert functionally rather than introspecting listener registration.
     import anyio
+    from app.db.session import engine
 
     async def _check():
         async with engine.connect() as conn:
