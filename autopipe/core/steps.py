@@ -1,7 +1,7 @@
 """Built-in pipeline steps."""
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 class PrintStep(Step):
     """Step that prints its input."""
 
-    def __init__(self, name: str, message: str = "", **kwargs):
+    def __init__(self, name: str, message: str = "", **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.message = message
 
-    def run(self, **kwargs) -> Any:
+    def run(self, **kwargs: Any) -> Any:
         print(f"[{self.name}] {self.message}")
         print(f"Input keys: {list(kwargs.keys())}")
         # Pass through first input or None
@@ -36,17 +36,17 @@ class LLMStep(Step):
         self,
         name: str,
         provider: str = "openrouter",
-        model: str = None,
+        model: Optional[str] = None,
         prompt_template: str = "",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(name, **kwargs)
         self.provider = provider
         self.model = model
         self.prompt_template = prompt_template
-        self.client = None
+        self.client: Optional[Any] = None
 
-    def run(self, **kwargs) -> str:
+    def run(self, **kwargs: Any) -> str:
         """Format prompt with inputs and call LLM."""
         # Format prompt template using kwargs
         try:
@@ -62,7 +62,7 @@ class LLMStep(Step):
         self.log_metrics(response_length=len(response))
         return response
 
-    def visualize(self, **kwargs):
+    def visualize(self, **kwargs: Any) -> None:
         """Generate a simple visualization of response length."""
         if self.metrics:
             chart = ChartGenerator()
@@ -74,11 +74,11 @@ class LLMStep(Step):
 class DataLoaderStep(Step):
     """Load a dataset (placeholder)."""
 
-    def __init__(self, name: str, dataset: str = "iris", **kwargs):
+    def __init__(self, name: str, dataset: str = "iris", **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.dataset = dataset
 
-    def run(self, **kwargs) -> pd.DataFrame:
+    def run(self, **kwargs: Any) -> pd.DataFrame:
         """Load a sample dataset."""
         if self.dataset == "iris":
             from sklearn.datasets import load_iris
@@ -97,7 +97,7 @@ class DataLoaderStep(Step):
         self.log_metrics(rows=df.shape[0], columns=df.shape[1])
         return df
 
-    def visualize(self, **kwargs):
+    def visualize(self, **kwargs: Any) -> None:
         """Plot dataset distributions."""
         df = self.output
         if df is not None and isinstance(df, pd.DataFrame):
@@ -110,11 +110,11 @@ class DataLoaderStep(Step):
 class VisualizationStep(Step):
     """Step that generates visualizations from input data."""
 
-    def __init__(self, name: str, chart_type: str = "metrics", **kwargs):
+    def __init__(self, name: str, chart_type: str = "metrics", **kwargs: Any) -> None:
         super().__init__(name, **kwargs)
         self.chart_type = chart_type
 
-    def run(self, **kwargs) -> Dict[str, Any]:
+    def run(self, **kwargs: Any) -> Dict[str, Any]:
         """Generate charts and return metadata.
 
         Automatically detects input types:
@@ -143,7 +143,9 @@ class VisualizationStep(Step):
                 and len(value) > 0
                 and isinstance(value[0], (int, float))
             ):
-                chart.plot_distribution(value, title=f"Distribution - {key}")
+                chart.plot_distribution(
+                    [float(v) for v in value], title=f"Distribution - {key}"
+                )
                 outputs[f"chart_{key}"] = f"distribution_{key}.png"
             # DataFrame → plot feature importance
             elif isinstance(value, pd.DataFrame):
@@ -174,11 +176,11 @@ class FeatureEngineeringStep(Step):
     def __init__(
         self,
         name: str,
-        transformations: Dict[str, Any] = None,
-        target_column: str = None,
+        transformations: Optional[Dict[str, Any]] = None,
+        target_column: Optional[str] = None,
         drop_original: bool = False,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """
         Args:
             name: Step name
@@ -200,9 +202,9 @@ class FeatureEngineeringStep(Step):
         self.transformations = transformations or {}
         self.target_column = target_column
         self.drop_original = drop_original
-        self._transformers = {}  # Store fitted transformers
+        self._transformers: Dict[str, Any] = {}  # Store fitted transformers
 
-    def run(self, **kwargs) -> pd.DataFrame:
+    def run(self, **kwargs: Any) -> pd.DataFrame:
         """Apply feature engineering transformations."""
         # Get input DataFrame from dependencies
         df = None
@@ -301,7 +303,7 @@ class FeatureEngineeringStep(Step):
 
         return df
 
-    def _apply_scaling(self, df: pd.DataFrame, config: Dict) -> tuple:
+    def _apply_scaling(self, df: pd.DataFrame, config: Dict[str, Any]) -> Tuple[Any, ...]:
         """Apply scaling transformations."""
         from sklearn.preprocessing import MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
 
@@ -329,7 +331,7 @@ class FeatureEngineeringStep(Step):
 
         return df, list(numeric_cols)
 
-    def _apply_encoding(self, df: pd.DataFrame, config: Dict) -> tuple:
+    def _apply_encoding(self, df: pd.DataFrame, config: Dict[str, Any]) -> Tuple[Any, ...]:
         """Apply categorical encoding."""
         from sklearn.preprocessing import LabelEncoder, OneHotEncoder, OrdinalEncoder
 
@@ -369,7 +371,7 @@ class FeatureEngineeringStep(Step):
 
         return df, encoded_cols
 
-    def _apply_polynomial(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_polynomial(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Generate polynomial features."""
         from sklearn.preprocessing import PolynomialFeatures
 
@@ -394,7 +396,7 @@ class FeatureEngineeringStep(Step):
         self._transformers["polynomial"] = poly
         return new_features
 
-    def _apply_binning(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_binning(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Apply binning/discretization."""
         from sklearn.preprocessing import KBinsDiscretizer
 
@@ -414,7 +416,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_text_tfidf(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_text_tfidf(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Apply TF-IDF to text columns."""
         from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -441,7 +443,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_text_count(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_text_count(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Apply Count Vectorizer to text columns."""
         from sklearn.feature_extraction.text import CountVectorizer
 
@@ -465,7 +467,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_datetime_extraction(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_datetime_extraction(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Extract features from datetime columns."""
         columns = config.get("columns", [])
         features = config.get("features", ["day", "month", "year", "dayofweek"])
@@ -495,7 +497,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_math_transform(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_math_transform(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Apply mathematical transformations."""
         operation = config.get("operation", "log")
         columns = config.get("columns", [])
@@ -526,7 +528,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_interaction(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _apply_interaction(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
         """Create interaction features between columns."""
         operation = config.get("operation", "multiply")  # multiply, add, divide, subtract
         column_pairs = config.get("pairs", [])  # List of [col1, col2] pairs
@@ -550,7 +552,7 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_feature_selection(self, df: pd.DataFrame, config: Dict) -> pd.DataFrame:
+    def _apply_feature_selection(self, df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
         """Apply feature selection."""
         method = config.get("method", "variance_threshold")
 
@@ -592,7 +594,7 @@ class FeatureEngineeringStep(Step):
 
         return df
 
-    def visualize(self, **kwargs):
+    def visualize(self, **kwargs: Any) -> None:
         """Visualize feature engineering results."""
         chart = ChartGenerator()
 

@@ -41,7 +41,7 @@ TRUSTED_STEP_ROOTS = (
 )
 
 
-def import_class(class_path: str):
+def import_class(class_path: str) -> type:
     """Import a Step class from a dotted path within trusted package roots."""
     resolved = resolve_step_type(class_path)
     if not resolved.startswith(TRUSTED_STEP_ROOTS):
@@ -56,9 +56,10 @@ def import_class(class_path: str):
     except ModuleNotFoundError as e:
         raise ValueError(f"Failed to import module '{module_name}': {e}") from e
     try:
-        return getattr(module, class_name)
+        step_cls: type = getattr(module, class_name)
     except AttributeError as e:
         raise ValueError(f"Class '{class_name}' not found in module '{module_name}'") from e
+    return step_cls
 
 
 def load_step_from_config(step_config: Dict[str, Any]) -> Step:
@@ -85,7 +86,7 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
 
     # Instantiate with params
     try:
-        step = cls(name=name, depends_on=depends_on, **params)
+        step: Step = cls(name=name, depends_on=depends_on, **params)
         # Attach bindings for the run loop (named-input resolution).
         with contextlib.suppress(AttributeError):
             step.input_bindings = input_bindings

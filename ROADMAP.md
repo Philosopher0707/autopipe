@@ -31,7 +31,7 @@ state. Every phase lands as verified commits with green suites.
 - [ ] Executor hardening (bounded concurrency, per-run loggers, orphan
       sweep, in-step cancellation)
 - [ ] Alembic migrations + unique constraints + indexes + SQLite pragmas
-- [ ] Typing truth: strict mypy passes on core/ (gate enforced, advisory
+- [x] Typing truth: strict mypy passes on core/ (gate enforced, advisory
       flag removed)
 
 ## P3 — Safety

@@ -59,6 +59,7 @@ dev = [
     "pytest-timeout>=2.2",
     "ruff>=0.5",
     "mypy>=1.5",
+    "types-PyYAML>=6.0",
     "pre-commit>=3.4",
     "bandit>=1.7",
     "safety>=2.3",
@@ -182,11 +183,22 @@ strict_equality = true
 show_error_codes = true
 show_column_numbers = true
 show_traceback = false
-ignore_missing_imports = true
+
+# CI enforces strict typing on autopipe/core (the engine). Errors inside
+# imported non-core modules are silenced so the gate is meaningful now and
+# its scope can grow file-by-file (see ROADMAP P2).
 follow_imports = "silent"
 namespace_packages = true
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pandas.*", "sklearn.*", "scipy.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

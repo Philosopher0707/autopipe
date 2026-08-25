@@ -49,10 +49,11 @@ jobs:
     - name: Check formatting with ruff-format
       run: ruff format --check autopipe tests
 
-    # TODO(P2): flip continue-on-error to false once the typing-truth pass lands
-    - name: Run type checking with mypy (advisory until P2)
-      run: mypy autopipe
-      continue-on-error: true
+    # Strict typing is ENFORCED on the engine (autopipe/core). Scope grows
+    # file-by-file per ROADMAP P2; do not widen to `mypy autopipe` until
+    # those modules pass strict.
+    - name: Run type checking with mypy (strict, core engine)
+      run: mypy autopipe/core
 
     - name: Run security checks with bandit
       run: bandit -c pyproject.toml -r autopipe

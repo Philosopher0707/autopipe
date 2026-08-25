@@ -16,7 +16,7 @@ class Pipeline:
         self.steps: Dict[str, Step] = {}
         self._execution_order: List[Step] = []
 
-    def add_step(self, step: Step):
+    def add_step(self, step: Step) -> "Pipeline":
         """Add a step to the pipeline."""
         if step.name in self.steps:
             raise ValueError(f"Step with name {step.name} already exists")
@@ -39,7 +39,7 @@ class Pipeline:
         """Determine execution order based on dependencies."""
         # Kahn's algorithm
         in_degree = dict.fromkeys(self.steps, 0)
-        graph = {name: [] for name in self.steps}
+        graph: Dict[str, List[str]] = {name: [] for name in self.steps}
 
         for step in self.steps.values():
             for dep in step.depends_on:
@@ -118,7 +118,7 @@ class Pipeline:
         logger.info("Pipeline %s completed", self.name)
         return outputs
 
-    def visualize_all(self):
+    def visualize_all(self) -> None:
         """Generate visualizations for all steps."""
         for step in self.steps.values():
             try:

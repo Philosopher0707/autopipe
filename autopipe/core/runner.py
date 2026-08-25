@@ -3,14 +3,14 @@
 import importlib.util
 import logging
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(pipeline: Pipeline, initial_inputs: Dict[str, Any] = None) -> Dict[str, Any]:
+def run_pipeline(pipeline: Pipeline, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run a pipeline and return outputs."""
     return pipeline.run(initial_inputs)
 
@@ -25,6 +25,8 @@ def load_pipeline_from_module(filepath: str) -> Pipeline:
         raise ValueError(f"Could not load module from {filepath}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
+    if spec.loader is None:
+        raise ValueError(f"Could not load module from {filepath}")
     try:
         spec.loader.exec_module(module)
     except FileNotFoundError:
@@ -52,7 +54,7 @@ def load_pipeline_from_yaml(filepath: str) -> Pipeline:
     return load_pipeline_from_config(config)
 
 
-def run(filepath: str, initial_inputs: Dict[str, Any] = None) -> Dict[str, Any]:
+def run(filepath: str, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run a pipeline from a file.
 
     Supports .py (module) and .yaml/.yml (YAML config).
