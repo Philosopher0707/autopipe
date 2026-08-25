@@ -35,7 +35,7 @@ state. Every phase lands as verified commits with green suites.
       flag removed)
 
 ## P3 — Safety
-- [ ] Step-type allowlist in loader (no arbitrary imports from YAML)
+- [x] Step-type allowlist in loader (no arbitrary imports from YAML)
 - [ ] REPL evaluator isolated or disabled by default; secret redaction in
       history/config display
 - [ ] Pin promptfoo version; single credential path with masking
