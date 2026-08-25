@@ -10,7 +10,6 @@ from rich.console import Console
 from rich.table import Table
 
 from autopipe.config.load import Config
-from autopipe.core.loader import load_pipeline_from_config
 from autopipe.eval import eval_command as eval_cmd
 from autopipe.exceptions import AutoPipeError
 
@@ -59,13 +58,13 @@ def run(
     parallel: bool,
     step: tuple,
 ):
-    """Run a pipeline from a YAML file."""
-    import yaml
+    """Run a pipeline from a YAML or Python file."""
+    from autopipe.core.runner import load_pipeline_from_module, load_pipeline_from_yaml
 
-    with open(pipeline_file, "r") as f:
-        config_dict = yaml.safe_load(f)
-
-    pipeline = load_pipeline_from_config(config_dict)
+    if pipeline_file.endswith(".py"):
+        pipeline = load_pipeline_from_module(pipeline_file)
+    else:
+        pipeline = load_pipeline_from_yaml(pipeline_file)
 
     print_banner()
 
@@ -128,15 +127,26 @@ def validate(pipeline_file: str):
 
         config = PipelineConfig.model_validate(config_dict)
 
-        # Validate step types can be imported
-        for step_config in config.steps:
-            from autopipe.core.loader import import_class
+        # Validate step types can be imported (aliases resolved via the
+        # SAME map the loader uses, so `autopipe create` output validates).
+        from autopipe.core.loader import import_class, resolve_step_type
 
+        invalid = []
+        for step_config in config.steps:
+            resolved = resolve_step_type(step_config.type)
             try:
-                import_class(step_config.type)
-                console.print(f"  [green]✓[/green] {step_config.name}: {step_config.type}")
+                import_class(resolved)
+                console.print(f"  [green]✓[/green] {step_config.name}: {resolved}")
             except ValueError as e:
                 console.print(f"  [red]✗[/red] {step_config.name}: {e}")
+                invalid.append(step_config.name)
+
+        if invalid:
+            console.print(
+                "\n[bold red]✗ Pipeline configuration is INVALID "
+                f"(steps failed: {', '.join(invalid)})[/bold red]"
+            )
+            sys.exit(1)
 
         console.print("\n[bold green]✓ Pipeline configuration is valid![/bold green]")
 
