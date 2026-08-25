@@ -367,7 +367,11 @@ class TrialLaunchRequest(BaseModel):
     strategy: str = Field(default="random", pattern="^(random|grid)$")
     n_trials: int = Field(default=5, ge=1, le=100)
     simulate: bool = Field(
-        default=True, description="Auto-advance runs through lifecycle with metrics"
+        default=False,
+        description=(
+            "DEPRECATED fabrication mode: generated fake runs with random "
+            "metrics. Retained for API compatibility but rejected at runtime."
+        ),
     )
 
 

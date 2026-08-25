@@ -31,17 +31,14 @@ from app.schemas import (
     ExperimentMetricTraceResponse,
     ExplainabilityResponse,
     FeatureTransformsResponse,
-    LimeExplanationPoint,
     MetricLogCreate,
     MetricLogPoint,
     MetricSeriesResponse,
     ModelVersionMetricsResponse,
     ParamImportancePoint,
     ParetoFrontPoint,
-    PermutationImportancePoint,
     PruningHistoryPoint,
     RunMetricsOverTimeResponse,
-    ShapValuePoint,
     StepDurationPoint,
     StepDurationsResponse,
     TrainingEpochPoint,
@@ -671,70 +668,14 @@ async def get_explainability(
         else:
             features = ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"]
 
-    # ── Seed RNG from run_id for reproducibility ─────────────────────
-    import random
-
-    rng = random.Random(run_id)
-
-    # ── Base value from actual metrics ─────────────────────────────
-    metrics = run.metrics or {}
-    base_value = metrics.get("accuracy") or metrics.get("score") or metrics.get("f1") or 0.5
-    if not isinstance(base_value, (int, float)):
-        base_value = 0.5
-
-    # ── SHAP values ──────────────────────────────────────────────────
-    # Jittered around base_value, impact scaled by metric magnitude
-    shap_values = []
-    for f in features:
-        val = base_value + rng.gauss(0, 0.05)
-        impact = (rng.random() - 0.5) * 2 * base_value
-        shap_values.append(
-            ShapValuePoint(
-                feature=f,
-                value=round(val, 4),
-                impact=round(impact, 4),
-                base_value=round(base_value, 4),
-            )
-        )
-    # Sort by |impact| descending
-    shap_values.sort(key=lambda s: abs(s.impact), reverse=True)
-
-    # ── LIME weights ─────────────────────────────────────────────────
-    lime_weights = []
-    for f in features:
-        w = rng.gauss(0, base_value * 0.3)
-        lime_weights.append(LimeExplanationPoint(feature=f, weight=round(w, 4)))
-    lime_weights.sort(key=lambda lw: abs(lw.weight), reverse=True)
-
-    # ── Permutation importance ───────────────────────────────────────
-    # Higher importance for features that sound more predictive
-    predictive = {
-        "tenure",
-        "monthly_charges",
-        "transaction_amount",
-        "merchant_risk",
-        "user_rating_count",
-        "feature_1",
-    }
-    perm_importance = []
-    for f in features:
-        base_imp = 0.15 + rng.random() * 0.25
-        if f.lower() in predictive:
-            base_imp += 0.15
-        importance = base_value * base_imp
-        std = importance * 0.1 + rng.random() * 0.02
-        perm_importance.append(
-            PermutationImportancePoint(
-                feature=f, importance=round(importance, 4), std=round(std, 4)
-            )
-        )
-    perm_importance.sort(key=lambda p: p.importance, reverse=True)
-
+    # Real explainability data is not persisted yet; the previous random
+    # fabrication ("features that sound predictive get higher importance")
+    # was removed. Honest empty payload until SHAP/LIME integration lands.
     return ExplainabilityResponse(
         run_id=run_id,
-        shap_values=shap_values,
-        lime_explanation=lime_weights,
-        permutation_importance=perm_importance,
+        shap_values=[],
+        lime_explanation=[],
+        permutation_importance=[],
     )
 
 
@@ -769,7 +710,9 @@ async def get_automl_trials(
                 else "FAIL"
                 if run.status == RunStatus.FAILED
                 else "RUNNING",
-                value=metrics.get("accuracy") or metrics.get("score") or 0.8 - idx * 0.02,
+                value=metrics.get("accuracy")
+                if metrics.get("accuracy") is not None
+                else metrics.get("score"),
                 params=run.config or {},
                 duration_seconds=run.duration_seconds,
                 started_at=run.started_at,
@@ -822,7 +765,7 @@ async def get_automl_visualizations(
         pareto_front.append(
             ParetoFrontPoint(
                 trial_number=idx + 1,
-                objective_1=metrics.get("accuracy") or 0.85 - idx * 0.015,
+                objective_1=metrics.get("accuracy"),
                 objective_2=metrics.get("latency") or 50 + idx * 2.5,
                 params=run.config or {},
             )
@@ -847,7 +790,7 @@ async def get_automl_visualizations(
         metrics = run.metrics or {}
         row: Dict[str, Any] = dict(run.config or {})
         row["trial_number"] = idx + 1
-        row["accuracy"] = metrics.get("accuracy") or 0.8 - idx * 0.01
+        row["accuracy"] = metrics.get("accuracy")
         parallel_coords_data.append(row)
 
     return AutomlVisualizationsResponse(

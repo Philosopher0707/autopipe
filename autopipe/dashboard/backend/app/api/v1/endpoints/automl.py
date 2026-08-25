@@ -1,6 +1,5 @@
 """AutoML / Optuna trial endpoints."""
 
-import random
 from typing import List, Optional
 
 from app.db.models import Experiment, MetricLog, Run, RunStatus
@@ -147,27 +146,15 @@ async def get_trial_history(
     )
     logs = log_result.scalars().all()
 
-    if logs:
-        history = [
-            TrialHistoryPoint(
-                step=pt.step_index or i,
-                value=pt.value,
-                timestamp=pt.recorded_at.isoformat() if pt.recorded_at else None,
-            )
-            for i, pt in enumerate(logs[:50])
-        ]
-    else:
-        rng = random.Random(run.id)
-        final = (run.metrics or {}).get("accuracy") or 0.8
-        history = [
-            TrialHistoryPoint(
-                step=step,
-                value=round(final * step / 10 + rng.gauss(0, 0.02), 4),
-                timestamp=(run.started_at.isoformat() if run.started_at else None)
-                if step == 1
-                else None,
-            )
-            for step in range(1, 11)
-        ]
+    # Real metric logs only — the synthetic convergence-curve fallback was
+    # removed (it fabricated optimization history that never happened).
+    history = [
+        TrialHistoryPoint(
+            step=pt.step_index or i,
+            value=pt.value,
+            timestamp=pt.recorded_at.isoformat() if pt.recorded_at else None,
+        )
+        for i, pt in enumerate(logs[:50])
+    ]
 
     return TrialHistoryResponse(trial_id=str(trial_id), history=history)

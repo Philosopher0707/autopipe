@@ -450,7 +450,11 @@ async def get_run_checkpoints(
     run_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get saved checkpoints for a run. Returns seeded mock data until checkpoint model is added."""
+    """Get saved checkpoints for a run.
+
+    Returns an empty list until real checkpoint persistence exists
+    (previously this returned synthetic epoch curves).
+    """
     result = await db.execute(select(Run).where(Run.id == run_id))
     run = result.scalar_one_or_none()
     if not run:
@@ -458,27 +462,7 @@ async def get_run_checkpoints(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id} not found",
         )
-    # Mock checkpoints derived from run config or defaults
-    epochs = (run.config or {}).get("epochs", 10) if isinstance(run.config, dict) else 10
-    checkpoints = []
-    for i in range(1, epochs + 1):
-        loss = max(0.01, 1.0 - i * 0.08 + 0.02 * ((-1) ** i))
-        acc = min(0.99, 0.5 + i * 0.045)
-        checkpoints.append(
-            {
-                "id": f"ckpt-{run_id[:8]}-{i}",
-                "run_id": run_id,
-                "epoch": i,
-                "val_loss": round(loss, 4),
-                "val_accuracy": round(acc, 4),
-                "file_path": f"/checkpoints/{run_id[:8]}/epoch_{i}.pt",
-                "is_best": i == epochs,
-                "restored": False,
-                "promoted": False,
-                "created_at": run.completed_at,
-            }
-        )
-    return CheckpointsResponse(run_id=run_id, checkpoints=checkpoints)
+    return CheckpointsResponse(run_id=run_id, checkpoints=[])
 
 
 @router.patch("/{run_id}/checkpoints/{checkpoint_id}", response_model=dict)
@@ -488,16 +472,17 @@ async def promote_checkpoint(
     body: CheckpointPromoteRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark a checkpoint as restored or promoted. Stub — returns ack."""
+    """Mark a checkpoint as restored or promoted — NOT IMPLEMENTED (honest 501)."""
     result = await db.execute(select(Run).where(Run.id == run_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
-    return {
-        "run_id": run_id,
-        "checkpoint_id": checkpoint_id,
-        "restored": body.restored,
-        "promoted": body.promoted,
-    }
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Checkpoint management is not implemented yet; there is no "
+            "checkpoint store to promote or restore."
+        ),
+    )
 
 
 @router.post("/compare")

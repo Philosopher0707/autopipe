@@ -523,21 +523,6 @@ async def get_resource_usage(
             )
         )
 
-    # If no data, fall back to random (for fresh installs)
-    if not points:
-        from datetime import timedelta
-
-        now = datetime.now(timezone.utc)
-        for i in range(min(hours * 4, 288)):
-            ts = now - timedelta(minutes=15 * i)
-            points.append(
-                ResourceUsagePoint(
-                    timestamp=ts,
-                    cpu_percent=round(20 + (i % 5) * 10, 1),
-                    memory_percent=round(40 + (i % 3) * 8, 1),
-                    gpu_percent=round(30 + (i % 7) * 10, 1) if i % 3 == 0 else None,
-                )
-            )
-        points.reverse()
-
+    # No fabricated fallback on fresh installs: empty DB means an empty
+    # series (restores the project's "no mock data" contract).
     return ResourceUsageResponse(points=points)

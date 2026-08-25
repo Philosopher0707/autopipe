@@ -68,10 +68,10 @@ async def test_delete_experiment(client: AsyncClient, seed_experiment: Experimen
     assert resp.status_code == 204
 
 
-async def test_launch_trials(
+async def test_launch_trials_simulate_rejected(
     client: AsyncClient, seed_experiment: Experiment, seed_pipeline: Pipeline
 ):
-    """POST /experiments/{id}/trials creates trial runs (simulated)."""
+    """POST /experiments/{id}/trials with simulate=true is an honest 501."""
     resp = await client.post(
         f"/api/v1/experiments/{seed_experiment.id}/trials",
         json={
@@ -79,6 +79,22 @@ async def test_launch_trials(
             "strategy": "random",
             "n_trials": 3,
             "simulate": True,
+        },
+    )
+    assert resp.status_code == 501
+    assert "no longer supported" in resp.json()["detail"].lower()
+
+
+async def test_launch_trials_real_dispatch(
+    client: AsyncClient, seed_experiment: Experiment, seed_pipeline: Pipeline
+):
+    """POST /experiments/{id}/trials (default simulate=false) creates PENDING runs."""
+    resp = await client.post(
+        f"/api/v1/experiments/{seed_experiment.id}/trials",
+        json={
+            "pipeline_id": seed_pipeline.id,
+            "strategy": "random",
+            "n_trials": 3,
         },
     )
     assert resp.status_code == 200

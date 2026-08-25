@@ -3,16 +3,14 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from app.db.models import AlertSeverity, DriftAlert, DriftReport
+from app.db.models import DriftAlert, DriftReport
 from app.db.session import get_db
 from app.schemas import (
     DriftAlertList,
     DriftAlertResponse,
     DriftDetectRequest,
-    DriftDetectResponse,
     DriftReportList,
     DriftReportResponse,
-    FeatureDrift,
 )
 from app.utils.drift_utils import normalize_feature_drifts as _normalize_feature_drifts
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -84,124 +82,36 @@ async def list_drift_reports(
     )
 
 
-@router.post("/detect", response_model=DriftDetectResponse)
+@router.post("/detect")
 async def trigger_drift_detection(
     detect_request: DriftDetectRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a drift detection job."""
+    """Trigger real drift detection.
 
-    # In real implementation, this would launch a background job
-    # For now, simulate a detection result
-
-    metric_name = detect_request.test_types[0] if detect_request.test_types else "psi"
-    feature_drifts_map = {
-        "avg_session_duration": {
-            "drift_score": 0.28,
-            "p_value": 0.01,
-            "threshold": detect_request.threshold,
-            "is_drifted": detect_request.threshold < 0.28,
-            "test_type": metric_name,
-        },
-        "transaction_count": {
-            "drift_score": 0.18,
-            "p_value": 0.03,
-            "threshold": detect_request.threshold,
-            "is_drifted": detect_request.threshold < 0.18,
-            "test_type": metric_name,
-        },
-        "page_views": {
-            "drift_score": 0.04,
-            "p_value": 0.62,
-            "threshold": detect_request.threshold,
-            "is_drifted": detect_request.threshold < 0.04,
-            "test_type": metric_name,
-        },
-    }
-
-    drifted_features = [
-        feature_name
-        for feature_name, details in feature_drifts_map.items()
-        if details["is_drifted"]
-    ]
-    drift_detected = bool(drifted_features)
-    overall_drift_score = max(
-        (details["drift_score"] for details in feature_drifts_map.values()),
-        default=0.0,
-    )
-
-    # Create drift report
-    report = DriftReport(
-        model_id=detect_request.model_id,
-        run_id=None,
-        drift_score=overall_drift_score,
-        drift_detected=drift_detected,
-        feature_drifts=feature_drifts_map,
-        reference_data_summary={"rows": 10000, "columns": 20},
-        current_data_summary={"rows": 5000, "columns": 20},
-        alert_generated=drift_detected,
-    )
-    db.add(report)
-    await db.commit()
-    await db.refresh(report)
-
-    # Generate alerts for drifted features
-    if drift_detected:
-        for feature in drifted_features:
-            alert = DriftAlert(
-                drift_report_id=report.id,
-                feature_name=feature,
-                severity=AlertSeverity.ERROR
-                if feature_drifts_map[feature]["drift_score"] >= 0.25
-                else AlertSeverity.WARNING,
-                drift_type="feature",
-                drift_metric=metric_name,
-                drift_score=feature_drifts_map[feature]["drift_score"],
-                threshold=detect_request.threshold,
-            )
-            db.add(alert)
-        await db.commit()
-
-    # Build feature drift details
-    feature_drifts = []
-    for feature_name, stats in _normalize_feature_drifts(
-        report.feature_drifts,
-        default_threshold=detect_request.threshold,
-    ).items():
-        p_value = stats.get("p_value", 0.5)
-        is_drifted = bool(stats.get("is_drifted"))
-        if is_drifted:
-            feature_drifts.append(
-                FeatureDrift(
-                    feature_name=feature_name,
-                    drift_score=float(stats.get("drift_score", 0.0)),
-                    p_value=p_value,
-                    threshold=float(stats.get("threshold", detect_request.threshold)),
-                    is_drifted=is_drifted,
-                    test_type=stats.get("test_type", "ks"),
-                )
-            )
-
-    return DriftDetectResponse(
-        drift_detected=drift_detected,
-        overall_drift_score=report.drift_score,
-        features_analyzed=len(report.feature_drifts or {}),
-        drifted_features=drifted_features,
-        feature_drifts=feature_drifts,
-        report_path=f"/api/v1/drift/{report.id}",
+    NOT IMPLEMENTED YET: this endpoint previously returned hardcoded scores
+    for synthetic features and persisted them as real reports. Real detection
+    against reference/current datasets lands with the monitoring rewrite
+    (ROADMAP P2). This handler intentionally does not write anything.
+    """
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Drift detection is not implemented yet. This endpoint no longer "
+            "returns simulated data. Use GET /drift/reports for existing reports."
+        ),
     )
 
 
-@router.post("", response_model=DriftDetectResponse)
+@router.post("", response_model=None)
 async def create_drift_report(
     detect_request: DriftDetectRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Create a drift report / trigger drift detection.
 
-    This endpoint is an alias for POST /drift/detect to match frontend expectations.
+    Alias for POST /drift/detect — equally not implemented (see above).
     """
-    # Delegate to the detect endpoint
     return await trigger_drift_detection(detect_request, db)
 
 
