@@ -4,6 +4,7 @@ A production-grade dashboard for monitoring ML pipelines with real-time
 updates, model registry management, drift detection, and experiment tracking.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -24,6 +25,13 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     await create_start_app_handler(app)()
+
+    # Runs left RUNNING by a previous process can never finish on their own.
+    from app.executor.runner import set_event_loop, sweep_orphaned_runs
+
+    sweep_orphaned_runs()
+    app.state.event_loop = asyncio.get_running_loop()
+    set_event_loop(app.state.event_loop)
     yield
     # Shutdown
     await create_stop_app_handler(app)()

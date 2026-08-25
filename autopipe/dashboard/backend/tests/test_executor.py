@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.db.models import Base, Pipeline, Run, RunStatus, Step, StepStatus
 from app.executor import runner
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 
@@ -229,3 +229,62 @@ def test_run_pipeline_in_thread_cancellation(tmp_path: Path, monkeypatch):
         runner._SyncSessionLocal = original_local
         runner._event_loop = original_loop
         runner.unregister_run(run_id)
+
+
+def test_sweep_orphaned_runs_marks_stale_running_failed(tmp_path: Path):
+    """Runs/Steps left RUNNING by a dead process become FAILED at startup."""
+
+    SessionLocal = _make_sync_session(tmp_path / "sweep.db")
+    _, run_id = _seed_pipeline_and_run(SessionLocal)
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        run.status = RunStatus.RUNNING
+        step = Step(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            name="step1",
+            step_type="PrintStep",
+            status=StepStatus.RUNNING,
+            order_index=0,
+        )
+        db.add(step)
+        db.commit()
+
+    # The function reads the module-level session factory; point it at tmp DB.
+    import app.executor.runner as runner_mod
+
+    original = runner_mod._get_sync_session_factory
+    runner_mod._get_sync_session_factory = lambda: SessionLocal
+    try:
+        swept = runner_mod.sweep_orphaned_runs()
+    finally:
+        runner_mod._get_sync_session_factory = original
+
+    assert swept == 1
+    with SessionLocal() as db:
+        assert db.get(Run, run_id).status == RunStatus.FAILED
+        step_row = db.scalars(select(Step).where(Step.run_id == run_id)).first()
+        assert step_row is not None and step_row.status == StepStatus.FAILED
+
+
+def test_log_handler_filters_other_runs():
+    """A handler attached for run A must drop records emitted under run B."""
+    import logging as _logging
+
+    from app.executor.runner import _current_run_id, _WebSocketLogHandler
+
+    handler = _WebSocketLogHandler(run_id="run-a", step_id="step-a")
+    record = _logging.LogRecord("autopipe", _logging.INFO, __file__, 1, "msg", None, None)
+
+    token = _current_run_id.set("run-b")
+    try:
+        assert handler.filter(record) is False, "run-B record leaked into run-A stream"
+    finally:
+        _current_run_id.reset(token)
+
+    token = _current_run_id.set("run-a")
+    try:
+        assert handler.filter(record) is True
+    finally:
+        _current_run_id.reset(token)

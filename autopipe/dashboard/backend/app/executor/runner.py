@@ -9,6 +9,7 @@ Bridges the dashboard's Run/Step DB records with autopipe.core.Pipeline:
 """
 
 import asyncio
+import contextvars
 import logging
 import sys
 import threading
@@ -21,7 +22,7 @@ from app.core.config import settings
 from app.db.models import Run, RunStatus, Step, StepStatus
 from app.executor.registry import register_run, unregister_run
 from app.utils.datetime_utils import safe_duration_seconds
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 try:
@@ -43,6 +44,17 @@ _sync_engine_lock = threading.Lock()
 
 # Reference to the running event loop for scheduling async broadcasts
 _event_loop: asyncio.AbstractEventLoop | None = None
+
+# Identifies which run a background thread is executing; log handlers use it
+# to keep concurrent runs' records out of each other's WebSocket streams.
+_current_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_run_id", default=None
+)
+
+# Upper bound on simultaneously executing pipeline runs. Each run occupies a
+# daemon thread; unbounded spawning let N parallel requests exhaust memory.
+MAX_CONCURRENT_RUNS = 4
+_run_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 
 
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -118,6 +130,14 @@ class _WebSocketLogHandler(logging.Handler):
         super().__init__()
         self.run_id = run_id
         self.step_id = step_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Drop records emitted by OTHER concurrently-running pipelines.
+
+        The 'autopipe' logger tree is shared across threads; without this,
+        run B's step logs stream into run A's WebSocket channel.
+        """
+        return _current_run_id.get() == self.run_id
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -315,7 +335,11 @@ def _run_pipeline_in_thread(
 
     # Register run for cancellation tracking
     cancel_event = register_run(run_id)
+    token = _current_run_id.set(run_id)
 
+    # Queue behind other active runs; the row stays PENDING (never marked
+    # RUNNING) until a slot frees up.
+    _run_slots.acquire()
     try:
         # Mark run as RUNNING
         with SessionLocal() as db:
@@ -445,8 +469,36 @@ def _run_pipeline_in_thread(
             "cancelled" if cancelled else "failed" if run_failed else "completed successfully",
         )
     finally:
+        _run_slots.release()
+        _current_run_id.reset(token)
         # Always unregister the run
         unregister_run(run_id)
+
+
+def sweep_orphaned_runs() -> int:
+    """Mark runs/steps stuck in RUNNING from a previous process as FAILED.
+
+    A crash or restart leaves rows claiming active execution forever; the UI
+    then shows phantom running pipelines. Called once at application startup,
+    before any new run can be dispatched.
+    """
+    SessionLocal = _get_sync_session_factory()
+    swept = 0
+    with SessionLocal() as db:
+        orphan_runs = db.scalars(select(Run).where(Run.status == RunStatus.RUNNING)).all()
+        for run in orphan_runs:
+            run.status = RunStatus.FAILED
+            run.error_message = "Interrupted by server restart"
+            run.completed_at = datetime.now(timezone.utc)
+            swept += 1
+        orphan_steps = db.scalars(select(Step).where(Step.status == StepStatus.RUNNING)).all()
+        for step in orphan_steps:
+            step.status = StepStatus.FAILED
+            step.error_message = "Interrupted by server restart"
+        db.commit()
+    if swept:
+        logger.warning("Swept %d orphaned RUNNING run(s) at startup", swept)
+    return swept
 
 
 async def execute_run(
