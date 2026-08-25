@@ -8,7 +8,7 @@ Usage:
     autopipe eval --task pipeline-generation --model kimi-k2.5:cloud
     autopipe eval --compare --output eval-results.json
 
-Requires Node.js and npx promptfoo@latest.
+Requires Node.js and a pinned promptfoo version (currently 0.105).
 """
 
 import json
@@ -29,7 +29,7 @@ def _check_promptfoo() -> bool:
     """Verify that promptfoo (via npx) is available."""
     try:
         result = subprocess.run(
-            ["npx", "promptfoo@latest", "--version"],
+            ["npx", "promptfoo@0.105", "--version"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -49,7 +49,7 @@ def _ensure_promptfoo() -> None:
                 "Install Node.js (v18+) and run:\n\n"
                 "  [bold]npm install -g promptfoo[/bold]\n\n"
                 "Or use npx (no install):\n\n"
-                "  [bold]npx promptfoo@latest eval -c promptfoo/promptfooconfig.yaml[/bold]",
+                "  [bold]npx promptfoo@0.105 eval -c promptfoo/promptfooconfig.yaml[/bold]",
                 title="Missing Dependency",
                 border_style="red",
             )
