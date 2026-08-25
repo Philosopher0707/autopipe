@@ -32,8 +32,9 @@ state. Every phase lands as verified commits with green suites.
       isolation, startup orphan sweep, in-step cancellation)
 - [x] UniqueConstraint(model_id, version), FK indexes, SQLite pragmas
       (foreign_keys/WAL/busy_timeout)
-- [ ] Alembic migration env for existing deployments (fresh installs use
-      create_all; constraint/index changes above are additive)
+- [x] Alembic migration env for existing deployments (`alembic stamp head`
+      adopts create_all databases; `upgrade head` verified byte-parity with
+      Base.metadata across all 15 tables)
 - [x] Typing truth: strict mypy passes on core/ (gate enforced, advisory
       flag removed)
 

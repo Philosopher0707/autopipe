@@ -45,6 +45,9 @@ cd autopipe/dashboard/backend
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload  # Dev server
 .venv/bin/python -m app.seed                                                     # Seed database
+.venv/bin/python -m alembic upgrade head                                        # Apply DB migrations
+.venv/bin/python -m alembic revision --autogenerate -m "..."                    # New migration
+.venv/bin/python -m alembic stamp head                                          # Adopt an existing (create_all) DB
 .venv/bin/python -m pytest tests/ -v                                            # Run backend tests
 ```
 - API docs: `http://localhost:8765/api/v1/docs`

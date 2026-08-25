@@ -6,10 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Known gaps (tracked in ROADMAP)
+### Added
 
-- Alembic migration env for pre-0.2.0 deployments (fresh installs use
-  `create_all`; 0.2.0's constraint/index changes are additive).
+- Alembic migration environment for the dashboard database
+  (`autopipe/dashboard/backend/migrations`). Existing create_all databases
+  adopt it via `alembic stamp head`; fresh deployments use `alembic upgrade
+  head`. Initial revision verified schema-identical to `Base.metadata`.
 
 ## [0.2.0] — 2026-08-25
 
