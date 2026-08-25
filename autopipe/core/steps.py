@@ -143,9 +143,7 @@ class VisualizationStep(Step):
                 and len(value) > 0
                 and isinstance(value[0], (int, float))
             ):
-                chart.plot_distribution(
-                    [float(v) for v in value], title=f"Distribution - {key}"
-                )
+                chart.plot_distribution([float(v) for v in value], title=f"Distribution - {key}")
                 outputs[f"chart_{key}"] = f"distribution_{key}.png"
             # DataFrame → plot feature importance
             elif isinstance(value, pd.DataFrame):
@@ -467,7 +465,9 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_datetime_extraction(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
+    def _apply_datetime_extraction(
+        self, df: pd.DataFrame, config: Dict[str, Any]
+    ) -> Dict[str, pd.Series]:
         """Extract features from datetime columns."""
         columns = config.get("columns", [])
         features = config.get("features", ["day", "month", "year", "dayofweek"])
@@ -497,7 +497,9 @@ class FeatureEngineeringStep(Step):
 
         return new_features
 
-    def _apply_math_transform(self, df: pd.DataFrame, config: Dict[str, Any]) -> Dict[str, pd.Series]:
+    def _apply_math_transform(
+        self, df: pd.DataFrame, config: Dict[str, Any]
+    ) -> Dict[str, pd.Series]:
         """Apply mathematical transformations."""
         operation = config.get("operation", "log")
         columns = config.get("columns", [])

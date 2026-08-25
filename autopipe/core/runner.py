@@ -10,7 +10,9 @@ from .pipeline import Pipeline
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(pipeline: Pipeline, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def run_pipeline(
+    pipeline: Pipeline, initial_inputs: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Run a pipeline and return outputs."""
     return pipeline.run(initial_inputs)
 

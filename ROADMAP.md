@@ -47,4 +47,4 @@ state. Every phase lands as verified commits with green suites.
 ## P4 — Product honesty
 - [x] pi_coding + REPL behind optional extras (removed from top-level exports; explicit imports only; modules marked non-core)
 - [x] Distributed tuning honest or deleted (deleted: zero consumers, K8s result collection was NotImplementedError, Hyperband formula wrong)
-- [ ] 0.2.0 release: version bump, changelog, tagged build
+- [x] 0.2.0 released: v0.2.0 tagged (9daa2def), CHANGELOG complete, bumpversion schema fixed
