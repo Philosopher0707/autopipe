@@ -10,6 +10,28 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def _resolve_api_key(
+    provider: str, explicit: Optional[str], default: Optional[str] = None
+) -> Optional[str]:
+    """Resolve an API key through the single credential path.
+
+    Priority: explicit argument > CredentialManager (env vars, alias keys).
+    Consolidated here so provider clients never read os.getenv directly —
+    one place owns secret lookup and masking.
+    """
+    if explicit:
+        return explicit
+    try:
+        from autopipe.credentials import get_credentials
+
+        creds = get_credentials(provider)
+        if creds and creds.api_key:
+            return creds.api_key
+    except Exception:
+        pass
+    return default
+
+
 class LLMClient(ABC):
     """Abstract LLM client."""
 
@@ -32,7 +54,7 @@ class OllamaClient(LLMClient):
     def __init__(
         self, api_key: Optional[str] = None, model: str = "llama3.1", base_url: Optional[str] = None
     ):
-        self.api_key = api_key or os.getenv("OLLAMA_API_KEY", "ollama")
+        self.api_key = _resolve_api_key("ollama", api_key, default="ollama")
         self.model = model
         # Default to local Ollama; should end with /v1 for OpenAI compatibility
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
@@ -143,7 +165,7 @@ class OpenAIClient(LLMClient):
     """OpenAI API client."""
 
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o"):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.api_key = _resolve_api_key("openai", api_key)
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY not set in environment")
         self.model = model
@@ -168,7 +190,7 @@ class AnthropicClient(LLMClient):
     """Anthropic Claude API client."""
 
     def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-5-sonnet-20241022"):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.api_key = _resolve_api_key("anthropic", api_key)
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY not set in environment")
         self.model = model
@@ -193,7 +215,7 @@ class OpenRouterClient(LLMClient):
     def __init__(
         self, api_key: Optional[str] = None, model: str = "google/gemma-4-26b-a4b-it:free"
     ):
-        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        self.api_key = _resolve_api_key("openrouter", api_key)
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY not set in environment")
         self.model = model
@@ -286,11 +308,11 @@ class LLMFactory:
                     return "ollama"
 
         # Check for other provider API keys
-        if os.getenv("OPENAI_API_KEY"):
+        if _resolve_api_key("openai", None):
             return "openai"
-        if os.getenv("ANTHROPIC_API_KEY"):
+        if _resolve_api_key("anthropic", None):
             return "anthropic"
-        if os.getenv("OPENROUTER_API_KEY"):
+        if _resolve_api_key("openrouter", None):
             return "openrouter"
 
         # Default to Ollama if available
