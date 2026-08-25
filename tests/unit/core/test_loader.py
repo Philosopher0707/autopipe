@@ -13,7 +13,8 @@ class TestImportClass:
         assert cls is PrintStep
 
     def test_import_invalid_module(self):
-        with pytest.raises(ValueError, match="Failed to import"):
+        # Untrusted roots are rejected by the allowlist before any import.
+        with pytest.raises(ValueError, match="not allowed"):
             import_class("nonexistent_module.SomeClass")
 
     def test_import_invalid_attribute(self):

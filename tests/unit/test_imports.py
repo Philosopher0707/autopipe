@@ -59,3 +59,19 @@ def test_steps_instantiate(module_path: str, class_name: str):
     assert (
         not inspect.isfunction(type(instance).run) or type(instance).run is not autopipe.Step.run
     ), f"{class_name} does not implement run()"
+
+
+def test_loader_allowlist_blocks_arbitrary_imports():
+    """YAML step types may only reference trusted autopipe.* roots (RCE guard)."""
+    from autopipe.core.loader import import_class
+
+    for malicious in ("os.system", "subprocess.Popen", "builtins.eval", "socket.socket"):
+        with pytest.raises(ValueError, match="not allowed"):
+            import_class(malicious)
+
+
+def test_loader_allowlist_permits_builtin_steps():
+    from autopipe.core.loader import import_class
+
+    assert import_class("print") is not None
+    assert import_class("autopipe.steps.data.DataLoaderStep") is not None

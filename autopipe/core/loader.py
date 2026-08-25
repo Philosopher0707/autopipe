@@ -30,9 +30,27 @@ def resolve_step_type(step_type: str) -> str:
     return BUILTIN_ALIASES.get(step_type, step_type)
 
 
+# Pipeline configs are untrusted input (they arrive from YAML files and the
+# dashboard API). Only these package roots may ever be imported as steps —
+# otherwise a config line `type: os.system` becomes remote code execution.
+TRUSTED_STEP_ROOTS = (
+    "autopipe.steps.",
+    "autopipe.core.steps.",
+    "autopipe.monitoring.",
+    "autopipe.evaluation",
+)
+
+
 def import_class(class_path: str):
-    """Import a class from a dotted path."""
-    module_name, class_name = class_path.rsplit(".", 1)
+    """Import a Step class from a dotted path within trusted package roots."""
+    resolved = resolve_step_type(class_path)
+    if not resolved.startswith(TRUSTED_STEP_ROOTS):
+        raise ValueError(
+            f"Step type '{class_path}' is not allowed. Trusted roots: "
+            f"{', '.join(TRUSTED_STEP_ROOTS)}. Register custom steps inside "
+            "the autopipe.* package namespace."
+        )
+    module_name, class_name = resolved.rsplit(".", 1)
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as e:
