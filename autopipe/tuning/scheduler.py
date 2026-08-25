@@ -235,7 +235,7 @@ class PopulationBasedScheduler:
         # Replace bottom with mutated top
         for member_id, _ in sorted_pop[cutoff:]:
             # Exploit: copy parameters from top performer
-            top_id, top_member = sorted_pop[0]
+            _top_id, top_member = sorted_pop[0]
             new_params = self.mutate_params(top_member["params"])
 
             # Update member

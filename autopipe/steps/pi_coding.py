@@ -314,7 +314,7 @@ class PiCodingStep(Step):
 
         # Resolve prompt — either inline or via temp file (always safer)
         with self._prompt_as_file(prompt_text) as prompt_path:
-            result = self._invoke_pi(cmd_args + [f"@{prompt_path}"], t0)
+            result = self._invoke_pi([*cmd_args, f"@{prompt_path}"], t0)
 
         result.prompt = prompt_text
         self.log_metrics(
@@ -474,10 +474,8 @@ class PiCodingStep(Step):
             logger.debug("Prompt written to temp file: %s", path)
             yield path
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(path)
-            except OSError:
-                pass
 
     # ------------------------------------------------------------------
     # Visualise

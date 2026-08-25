@@ -45,7 +45,7 @@ class TestEndToEndMLPipeline:
 
     def test_complete_classification_pipeline(self, sample_classification_data, temp_dir):
         """Test a complete ML pipeline from data loading to model registry."""
-        df, feature_names = sample_classification_data
+        df, _feature_names = sample_classification_data
 
         # Step 1: Split data
         splitter = DataSplitterStep(
@@ -168,7 +168,7 @@ class TestCrossValidationIntegration:
             n_samples=100, n_features=10, n_informative=5, n_redundant=2, random_state=42
         )
 
-        pipeline = Pipeline("cv_pipeline")
+        _pipeline = Pipeline("cv_pipeline")
 
         # Create CV step
         cv_step = CrossValidationStep(
@@ -220,7 +220,7 @@ class TestFeatureEngineeringIntegration:
 
         # Create sample data
         np.random.seed(42)
-        df = pd.DataFrame(
+        _df = pd.DataFrame(
             {
                 "num1": np.random.randn(100),
                 "num2": np.random.randn(100),

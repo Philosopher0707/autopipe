@@ -336,7 +336,7 @@ class LocalTracker(BaseTracker):
         import os
 
         if os.path.isdir(local_dir):
-            for root, dirs, files in os.walk(local_dir):
+            for root, _dirs, files in os.walk(local_dir):
                 for file in files:
                     full_path = os.path.join(root, file)
                     self.log_artifact(full_path, artifact_path)

@@ -84,13 +84,16 @@ class SklearnTrainerStep(Step):
         # Extract data from inputs
         X_train, y_train = None, None
 
-        for key, value in kwargs.items():
-            if isinstance(value, dict) and "train" in value:
-                train_data = value.get("train")
-                if isinstance(train_data, pd.DataFrame):
-                    if y_train is None:
-                        y_train = train_data.iloc[:, -1].values
-                        X_train = train_data.iloc[:, :-1].values
+        for _key, value in kwargs.items():
+            if (
+                isinstance(value, dict)
+                and "train" in value
+                and isinstance(value["train"], pd.DataFrame)
+                and y_train is None
+            ):
+                train_data = value["train"]
+                y_train = train_data.iloc[:, -1].values
+                X_train = train_data.iloc[:, :-1].values
             elif isinstance(value, tuple) and len(value) == 2:
                 X_train, y_train = value
             elif isinstance(value, pd.DataFrame):
@@ -289,13 +292,13 @@ class HyperparameterTunerStep(Step):
         model = (self.model_class or RandomForestClassifier)()
         SearchCV = GridSearchCV if self.search_strategy == "grid" else RandomizedSearchCV
 
-        search_kwargs = dict(
-            estimator=model,
-            param_grid=self.param_grid,
-            cv=self.cv,
-            scoring=self.scoring,
-            n_jobs=self.n_jobs,
-        )
+        search_kwargs = {
+            "estimator": model,
+            "param_grid": self.param_grid,
+            "cv": self.cv,
+            "scoring": self.scoring,
+            "n_jobs": self.n_jobs,
+        }
         if self.search_strategy == "random":
             search_kwargs["n_iter"] = self.n_iter
             search_kwargs["param_distributions"] = search_kwargs.pop("param_grid")

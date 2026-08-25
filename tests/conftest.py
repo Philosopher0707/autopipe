@@ -1,6 +1,5 @@
 """Test fixtures and configuration."""
 
-
 import pytest
 
 
@@ -34,17 +33,16 @@ def temp_cache_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def reset_singletons():
-    """Reset singleton instances between tests."""
-    from autopipe.caching.manager import _cache_instance
-    from autopipe.credentials.manager import _credential_manager
-    from autopipe.observability.metrics import _metrics_collector
+    """Reset singleton module globals between tests."""
+    import autopipe.caching.manager as cache_manager
+    import autopipe.credentials.manager as credentials_manager
+    import autopipe.observability.metrics as metrics_module
 
-    global _credential_manager, _cache_instance, _metrics_collector
+    def _reset():
+        cache_manager._cache_instance = None
+        credentials_manager._credential_manager = None
+        metrics_module._metrics_collector = None
 
-    _credential_manager = None
-    _cache_instance = None
-    _metrics_collector = None
+    _reset()
     yield
-    _credential_manager = None
-    _cache_instance = None
-    _metrics_collector = None
+    _reset()

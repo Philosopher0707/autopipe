@@ -82,10 +82,7 @@ class SHAPExplainerStep(Step):
         fnames = feature_names or self.feature_names or [f"feature_{i}" for i in range(X.shape[1])]
 
         # Limit samples for speed
-        if len(X) > self.max_samples:
-            X_explainer = shap.sample(X, self.max_samples)
-        else:
-            X_explainer = X
+        X_explainer = shap.sample(X, self.max_samples) if len(X) > self.max_samples else X
 
         # Create explainer
         if self.explainer_type == "tree":
@@ -265,7 +262,7 @@ class LIMEExplainerStep(Step):
         feature_weights = dict(explanation.as_list())
 
         self.log_metrics(
-            top_positive_feature=list(feature_weights.keys())[0] if feature_weights else None,
+            top_positive_feature=next(iter(feature_weights), None),
             num_features_explained=len(feature_weights),
         )
 
@@ -290,7 +287,7 @@ class LIMEExplainerStep(Step):
                 f.write(html)
 
             # Generate matplotlib plot
-            fig = explanation.as_pyplot_figure()
+            explanation.as_pyplot_figure()
             plt.tight_layout()
             plt.savefig(f"{self.name}_lime_plot.png", dpi=150, bbox_inches="tight")
             plt.close()
@@ -363,7 +360,9 @@ class PermutationImportanceStep(Step):
 
         self.importances = {
             name: {"importance_mean": mean, "importance_std": std}
-            for name, mean, std in zip(fnames, result.importances_mean, result.importances_std, strict=False)
+            for name, mean, std in zip(
+                fnames, result.importances_mean, result.importances_std, strict=False
+            )
         }
 
         # Sort by importance
@@ -489,7 +488,7 @@ class PartialDependenceStep(Step):
 
         # Create figure
         n_features = len(feature_names)
-        fig, axes = plt.subplots(n_features, 1, figsize=(10, 4 * n_features))
+        _fig, axes = plt.subplots(n_features, 1, figsize=(10, 4 * n_features))
 
         if n_features == 1:
             axes = [axes]
@@ -771,7 +770,7 @@ class ExplainabilityPipeline(Step):
         all_features = set()
         method_ranks = []
 
-        for method, result in self.results.items():
+        for _method, result in self.results.items():
             if "sorted_importance" in result:
                 sorted_imp = result["sorted_importance"]
                 ranks = {name: idx for idx, (name, _) in enumerate(sorted_imp)}

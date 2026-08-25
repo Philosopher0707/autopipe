@@ -1,6 +1,5 @@
 """Tests for exceptions."""
 
-
 from autopipe.exceptions import (
     AuthenticationError,
     AutoPipeError,

@@ -3,7 +3,7 @@
 Type aliases and custom types for data handling in ML pipelines.
 """
 
-from typing import TypeVar, Union
+from typing import TypeVar
 
 import numpy as np
 import pandas as pd
@@ -17,8 +17,8 @@ Series = pd.Series
 Array = np.ndarray
 
 # Union types for flexible input handling
-DataLike = Union[pd.DataFrame, np.ndarray]
-TargetLike = Union[pd.Series, np.ndarray]
+DataLike = pd.DataFrame | np.ndarray
+TargetLike = pd.Series | np.ndarray
 
 __all__ = [
     "Array",

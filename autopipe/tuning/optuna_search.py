@@ -1,5 +1,6 @@
 """Optuna-based hyperparameter search for AutoPipe."""
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -251,7 +252,7 @@ class OptunaSearchStep(Step):
 
         return tuple(metrics.get(obj, 0.0) for obj in self.objective)
 
-    def execute(
+    def run(
         self,
         train_data: Any,
         val_data: Any,
@@ -292,9 +293,7 @@ class OptunaSearchStep(Step):
                     trial_id=trial.number,
                     params=trial.params,
                     value=trial.value if not isinstance(trial.value, tuple) else trial.value[0],
-                    objective_values={k: v for k, v in trial.params.items()}
-                    if trial.params
-                    else {},
+                    objective_values=dict(trial.params) if trial.params else {},
                     runtime=trial.user_attrs.get("runtime", 0),
                     state=trial.state.name,
                     user_attrs=dict(trial.user_attrs),
@@ -317,10 +316,8 @@ class OptunaSearchStep(Step):
         # Get importances if available
         importances = None
         if len(self.study.trials) > 10:
-            try:
+            with contextlib.suppress(Exception):
                 importances = optuna.importance.get_param_importances(self.study)
-            except Exception:
-                pass
 
         # Prepare results
         results = {

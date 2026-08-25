@@ -29,7 +29,7 @@ class TestAutopipeInit:
         if hasattr(autopipe, "Pipeline"):
             delattr(autopipe, "Pipeline")
 
-        with patch.object(sys, "modules") as mock_modules:
+        with patch.object(sys, "modules") as _mock_modules:
             # This would trigger the import
             pass  # Testing the structure exists
 

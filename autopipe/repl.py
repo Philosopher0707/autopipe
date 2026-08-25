@@ -908,7 +908,6 @@ class AutoPipeREPL:
 
         # Parse options
         step_type = "print"
-        params = {}
         depends = []
 
         i = 2

@@ -529,7 +529,6 @@ async def seed_drift_reports(db: AsyncSession) -> None:
         logger.info(f"  ✓ Drift reports already exist ({existing}), skipping")
         return
 
-
     # Drift report
     report = DriftReport(
         id=str(uuid.uuid4()),

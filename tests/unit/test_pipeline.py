@@ -92,7 +92,7 @@ class TestPipeline:
         pipeline.add_step(step2)
 
         # Should raise when trying to get execution order
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             _ = pipeline.execution_order
 
     def test_run_empty_pipeline(self):

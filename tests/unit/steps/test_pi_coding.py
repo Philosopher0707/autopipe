@@ -332,7 +332,7 @@ class TestPiCodingStep:
             + b"\n"
         )
         parser.feed(json.dumps({"type": "turn_end"}).encode() + b"\n")
-        result = parser.result()
+        parser.result()
         # Callback tested via actual subprocess in integration; unit test
         # just ensures the config plumbing works.
         assert step._config.on_tool_call is not None

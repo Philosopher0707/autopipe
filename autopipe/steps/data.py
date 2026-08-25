@@ -152,7 +152,7 @@ class DataValidatorStep(Step):
 
         # Get DataFrame from inputs
         df = None
-        for key, value in kwargs.items():
+        for _key, value in kwargs.items():
             if isinstance(value, pd.DataFrame):
                 df = value.copy()
                 break
@@ -213,11 +213,11 @@ class DataValidatorStep(Step):
                 # Simple type checking
                 if expected_type == "numeric" and not pd.api.types.is_numeric_dtype(df[col]):
                     report.type_violations[col] = [f"Expected numeric, got {actual_type}"]
-                elif expected_type == "categorical" and not pd.api.types.is_categorical_dtype(
-                    df[col]
+                elif expected_type == "categorical" and not (
+                    pd.api.types.is_categorical_dtype(df[col])
+                    or pd.api.types.is_object_dtype(df[col])
                 ):
-                    if not pd.api.types.is_object_dtype(df[col]):
-                        report.type_violations[col] = [f"Expected categorical, got {actual_type}"]
+                    report.type_violations[col] = [f"Expected categorical, got {actual_type}"]
 
         self.validation_report = report
 
@@ -322,7 +322,7 @@ class DataPreprocessorStep(Step):
         logger = logging.getLogger(__name__)
 
         df = None
-        for key, value in kwargs.items():
+        for _key, value in kwargs.items():
             if isinstance(value, pd.DataFrame):
                 df = value.copy()
                 break
@@ -491,7 +491,7 @@ class FeatureSelectionStep(Step):
         df = None
         target_col = None
 
-        for key, value in kwargs.items():
+        for _key, value in kwargs.items():
             if isinstance(value, pd.DataFrame):
                 df = value.copy()
             elif isinstance(value, pd.Series):

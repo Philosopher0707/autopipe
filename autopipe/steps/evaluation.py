@@ -39,6 +39,8 @@ class ModelEvaluatorStep(Step):
 
     def __init__(
         self,
+        name: str,
+        depends_on: Optional[list] = None,
         task_type: str = "classification",
         metrics: Optional[List[str]] = None,
         calculate_proba: bool = True,
@@ -49,6 +51,7 @@ class ModelEvaluatorStep(Step):
         calibration_bins: int = 10,
         error_analysis: bool = True,
     ):
+        super().__init__(name, depends_on=depends_on)
         self.task_type = task_type
         self.metrics = metrics or []
         self.calculate_proba = calculate_proba
@@ -60,7 +63,7 @@ class ModelEvaluatorStep(Step):
         self.error_analysis = error_analysis
         self.result = EvaluationResult()
 
-    def execute(
+    def run(
         self,
         model: Any,
         X_test: np.ndarray | pd.DataFrame,
@@ -286,18 +289,21 @@ class ExplainabilityStep(Step):
 
     def __init__(
         self,
+        name: str,
+        depends_on: Optional[list] = None,
         method: str = "shap",
         background_samples: int = 100,
         num_features: int = 10,
         plot: bool = True,
     ):
+        super().__init__(name, depends_on=depends_on)
         self.method = method.lower()
         self.background_samples = background_samples
         self.num_features = num_features
         self.plot = plot
         self.explanations = {}
 
-    def execute(
+    def run(
         self,
         model: Any,
         X: np.ndarray | pd.DataFrame,
@@ -383,7 +389,9 @@ class ExplainabilityStep(Step):
         importance_dict = {
             name: {"importance": float(imp), "std": float(std)}
             for name, imp, std in zip(
-                feature_names, result.importances_mean, result.importances_std,
+                feature_names,
+                result.importances_mean,
+                result.importances_std,
                 strict=False,
             )
         }
@@ -396,16 +404,19 @@ class DriftDetectionStep(Step):
 
     def __init__(
         self,
+        name: str,
+        depends_on: Optional[list] = None,
         reference_data: Optional[np.ndarray] = None,
         drift_threshold: float = 0.05,
-        methods: List[str] = None,
+        methods: Optional[List[str]] = None,
     ):
+        super().__init__(name, depends_on=depends_on)
         self.reference_data = reference_data
         self.drift_threshold = drift_threshold
         self.methods = methods or ["ks_test", "wasserstein"]
         self.drift_results = {}
 
-    def execute(
+    def run(
         self,
         current_data: np.ndarray,
         context: Optional[Dict[str, Any]] = None,

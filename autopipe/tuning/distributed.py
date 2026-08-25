@@ -58,7 +58,7 @@ class DistributedSearch:
             step = self.search_step_class(**self.search_kwargs)
 
             # Execute with subset of data
-            result = step.execute(
+            result = step.run(
                 train_data=trial_config.get("train_data"),
                 val_data=trial_config.get("val_data"),
             )

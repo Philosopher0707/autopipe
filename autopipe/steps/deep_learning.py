@@ -426,8 +426,6 @@ class PyTorchTrainerStep(Step):
 
         # Plot metric curves
         for metric_name in self.metric_names:
-            train_key = f"train_{metric_name}"
-            val_key = f"val_{metric_name}"
             if metric_name in self.history.get("train_metrics", {}):
                 chart.plot_metrics(
                     {
@@ -590,7 +588,7 @@ class TensorFlowTrainerStep(Step):
         chart = ChartGenerator()
 
         # Plot all metrics
-        for metric in self.history.history.keys():
+        for metric in self.history.history:
             if "val_" not in metric:
                 val_metric = f"val_{metric}"
                 data = {metric: self.history.history[metric]}
@@ -666,10 +664,7 @@ class TransferLearningStep(Step):
         # Build complete model
         inputs = keras.Input(shape=self.input_shape)
 
-        if self.preprocessing:
-            x = keras.applications.resnet50.preprocess_input(inputs)
-        else:
-            x = inputs
+        x = keras.applications.resnet50.preprocess_input(inputs) if self.preprocessing else inputs
 
         x = base(x, training=False)
         x = keras.layers.GlobalAveragePooling2D()(x)
@@ -686,8 +681,8 @@ class TransferLearningStep(Step):
 
         self.log_metrics(
             total_layers=len(model.layers),
-            trainable_layers=sum(1 for l in model.layers if l.trainable),
-            frozen_layers=sum(1 for l in model.layers if not l.trainable),
+            trainable_layers=sum(1 for layer in model.layers if layer.trainable),
+            frozen_layers=sum(1 for layer in model.layers if not layer.trainable),
         )
 
         return {"model": model, "base_model": self.base_model, "num_classes": self.num_classes}

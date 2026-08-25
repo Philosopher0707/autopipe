@@ -424,10 +424,7 @@ class DataSplitterStep(Step):
             test_data = data.iloc[val_end:]
         else:
             # Random split
-            if target_column and self.stratify:
-                y = data[target_column].values
-            else:
-                y = None
+            y = data[target_column].values if target_column and self.stratify else None
 
             # First split: separate test
             train_val_data, test_data = train_test_split(

@@ -13,8 +13,7 @@ import autopipe
 
 
 def _iter_public_names():
-    for name in autopipe.__all__:
-        yield name
+    yield from autopipe.__all__
 
 
 def test_all_exports_resolve():
@@ -57,6 +56,6 @@ def test_steps_instantiate(module_path: str, class_name: str):
     instance = cls(name="smoke")
     assert isinstance(instance, autopipe.Step)
     # A concrete Step must override run()
-    assert not inspect.isfunction(type(instance).run) or type(
-        instance
-    ).run is not autopipe.Step.run, f"{class_name} does not implement run()"
+    assert (
+        not inspect.isfunction(type(instance).run) or type(instance).run is not autopipe.Step.run
+    ), f"{class_name} does not implement run()"

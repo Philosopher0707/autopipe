@@ -19,11 +19,10 @@ __all__ = [
     "ExplainabilityStep",
     "FeatureEngineeringStep",
     "FeatureSelectionStep",
-    "HyperparameterTuner",
     "LLMClient",
     "LLMFactory",
-    "LocalModelRegistry",
     "ModelEvaluatorStep",
+    "ModelRegistry",
     "OllamaClient",
     "OpenAIClient",
     "OpenRouterClient",
@@ -67,15 +66,10 @@ def __getattr__(name: str) -> Any:
         "FeatureSelectionStep",
         "FeatureEngineeringStep",
     ]:
-        from .core.steps import FeatureEngineeringStep
-        from .steps.data import (
-            DataLoaderStep,
-            DataPreprocessorStep,
-            DataValidatorStep,
-            FeatureSelectionStep,
-        )
+        from .core import steps as _core_steps
+        from .steps import data as _steps_data
 
-        module = sys.modules["autopipe.steps.data"]
+        module = _core_steps if name == "FeatureEngineeringStep" else _steps_data
         return getattr(module, name)
     elif name == "DataSplitterStep":
         from .steps.cross_validation import DataSplitterStep
@@ -124,21 +118,20 @@ def __getattr__(name: str) -> Any:
         return getattr(module, name)
 
     # Hyperparameter tuning
-    elif name in ["HyperparameterTuner", "SearchStrategy", "continuous", "discrete", "categorical"]:
-        from .tuning import HyperparameterTuner, SearchStrategy, categorical, continuous, discrete
+    elif name in ["SearchStrategy", "continuous", "discrete", "categorical"]:
+        from . import tuning as _tuning
 
-        module = sys.modules["autopipe.tuning"]
-        return getattr(module, name)
+        return getattr(_tuning, name)
 
     # Model registry
     elif name == "get_registry":
         from .registry import get_registry
 
         return get_registry
-    elif name == "LocalModelRegistry":
-        from .registry import LocalModelRegistry
+    elif name == "ModelRegistry":
+        from .registry import ModelRegistry
 
-        return LocalModelRegistry
+        return ModelRegistry
 
     # Visualization
     elif name == "ChartGenerator":

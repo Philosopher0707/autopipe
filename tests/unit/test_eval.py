@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import click
 import pytest
 
 from autopipe.eval import (
@@ -39,7 +40,10 @@ class TestPromptfooAvailability:
 
     def test_ensure_promptfoo_raises_when_missing(self):
         """_ensure_promptfoo exits with helpful error when promptfoo missing."""
-        with patch("autopipe.eval._check_promptfoo", return_value=False), pytest.raises(Exception):
+        with (
+            patch("autopipe.eval._check_promptfoo", return_value=False),
+            pytest.raises(click.ClickException),
+        ):
             _ensure_promptfoo()
 
 
@@ -142,8 +146,10 @@ class TestRunEval:
         with patch("autopipe.eval.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
             # Patch the default output path to our temp file
-            with patch.object(Path, "exists", return_value=True):
-                with patch("builtins.open", return_value=open(str(results_file))):
-                    # Because the function looks for .autopipe_eval_results.json in cwd,
-                    # we instead just test the result parsing with mocked open
-                    pass
+            with (
+                patch.object(Path, "exists", return_value=True),
+                patch("builtins.open", return_value=open(str(results_file))),
+            ):
+                # Because the function looks for .autopipe_eval_results.json in cwd,
+                # we instead just test the result parsing with mocked open
+                pass
