@@ -116,7 +116,7 @@ Repository = "https://github.com/autopipe/autopipe"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["autopipe*"]
-exclude = ["tests*", "docs*"]
+exclude = ["tests*", "docs*", "autopipe.tests*"]
 
 [tool.setuptools.package-data]
 autopipe = ["py.typed", "schemas/*.json"]

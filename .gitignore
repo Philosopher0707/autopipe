@@ -1,3 +1,4 @@
+# Python
 *.py[cod]
 __pycache__/
 *.so
@@ -12,7 +13,7 @@ venv/
 ENV/
 env/
 
-# IDE
+# IDE / OS
 .vscode/
 .idea/
 *.swp
@@ -22,14 +23,16 @@ env/
 
 # Testing
 .pytest_cache/
+.ruff_cache/
 .tox/
 .coverage
 .coverage.*
 htmlcov/
 *.cover
 .hypothesis/
+.benchmarks/
 
-# Documentation
+# Documentation builds
 docs/_build/
 site/
 
@@ -38,60 +41,60 @@ site/
 logs/
 log/
 
-# Data
-data/
-*.csv
-*.parquet
+# Data artifacts
 *.db
 *.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.csv
+*.parquet
 
-# Figures
+# Figures (generated)
 figures/
 *.png
 *.jpg
 *.jpeg
-*.svg
-*.pdf
 
-# Environment
+# Environment / secrets
 .env
 .env.local
 .env.*.local
 .env.production
 .env.development
-
-# Secrets
 secrets.json
 secrets.yaml
 *.key
 *.pem
 *.crt
 
-# Cache
+# Caches
 .cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json
-*.pytype/
-
-# Pydantic stubs
-.pyi
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
 
-# CI/CD
-.github/workflows/*.yml.bak
+# Node / frontend tooling
+node_modules/
+.vite/
+test-results/
+playwright-report/
+.last-run.json
 
 # Playwright MCP
 .playwright-mcp/
 
-# Vite deps cache
-.vite/
-
-# Node
-node_modules/
-
-# Sandbox cache
+# Agent / sandbox session residue — never commit these again
 .sandbox-home/
+.sandbox-tmp/
+.claw/
+.clawd-todos.json
+.autopipe_cache/
+.autopipe_registry/
+.autopipe_eval_results.json
+.mempalace/
+lab-*/
+codebase-qa-workspace/

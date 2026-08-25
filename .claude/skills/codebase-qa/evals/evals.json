@@ -1,0 +1,23 @@
+{
+  "skill_name": "codebase-qa",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create an onboarding quiz about this repo's testing setup. I need 5 questions with answers that new devs can use to verify they understand how tests work here.",
+      "expected_output": "Markdown file with 5 Q&A pairs about testing structure, markers, fixtures, coverage gates, and CI. Cites specific files.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I'm interviewing backend engineers for this AutoPipe project. Generate 5 intermediate-level interview questions about the dashboard backend architecture. Include answers with file citations.",
+      "expected_output": "Markdown with 5 architecture-focused Q&A pairs covering FastAPI, SQLAlchemy, executor, WebSocket, auth.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Make a troubleshooting FAQ for this repo. Focus on common issues when setting up the dev environment, running tests, and starting the dashboard.",
+      "expected_output": "Markdown FAQ with practical questions and answers citing setup files and known pitfalls.",
+      "files": []
+    }
+  ]
+}
