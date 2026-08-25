@@ -1,5 +1,9 @@
 """PiCodingStep — call the pi coding agent as a pipeline step.
 
+Non-core, opt-in tool: this step shells out to an external agent binary
+and is not part of the stable autopipe API surface. Import explicitly
+from ``autopipe.steps.pi_coding``.
+
 Runs ``pi --mode json`` as a subprocess so the pi agent can use its
 built-in tools (read, bash, edit, write, grep, find, ls) to operate
 on the source tree.  Output is parsed from JSON lines into a

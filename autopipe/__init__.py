@@ -26,10 +26,6 @@ __all__ = [
     "OllamaClient",
     "OpenAIClient",
     "OpenRouterClient",
-    "PiCodingResult",
-    "PiCodingStep",
-    "PiToolCall",
-    "PiTurn",
     "Pipeline",
     "PyTorchTrainerStep",
     "SearchStrategy",
@@ -165,17 +161,6 @@ def __getattr__(name: str) -> Any:
 
         return LLMFactory
 
-    # Pi coding
-    elif name == "PiCodingStep":
-        from .steps.pi_coding import PiCodingStep
-
-        return PiCodingStep
-    elif name in ["PiCodingResult", "PiToolCall", "PiTurn"]:
-        from .steps.pi_coding_models import PiCodingResult, PiToolCall, PiTurn
-
-        module = sys.modules["autopipe.steps.pi_coding_models"]
-        return getattr(module, name)
-
     # Utilities
     elif name == "Config":
         from .config import Config
@@ -198,10 +183,6 @@ if sys.version_info >= (3, 7):
         from .core.runner import run as _run
         from .llm import LLMClient as _LLMClient
         from .llm import LLMFactory as _LLMFactory
-        from .steps.pi_coding import PiCodingStep as _PiCodingStep
-        from .steps.pi_coding_models import PiCodingResult as _PiCodingResult
-        from .steps.pi_coding_models import PiToolCall as _PiToolCall
-        from .steps.pi_coding_models import PiTurn as _PiTurn
         from .visualization import ChartGenerator as _ChartGenerator
 
         Pipeline = _Pipeline
@@ -209,10 +190,6 @@ if sys.version_info >= (3, 7):
         ChartGenerator = _ChartGenerator
         LLMClient = _LLMClient
         LLMFactory = _LLMFactory
-        PiCodingStep = _PiCodingStep
-        PiCodingResult = _PiCodingResult
-        PiToolCall = _PiToolCall
-        PiTurn = _PiTurn
         Config = _Config
         run = _run
 

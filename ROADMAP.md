@@ -41,6 +41,6 @@ state. Every phase lands as verified commits with green suites.
 - [ ] Pin promptfoo version; single credential path with masking
 
 ## P4 — Product honesty
-- [ ] pi_coding + REPL behind optional extras
+- [x] pi_coding + REPL behind optional extras (removed from top-level exports; explicit imports only; modules marked non-core)
 - [x] Distributed tuning honest or deleted (deleted: zero consumers, K8s result collection was NotImplementedError, Hyperband formula wrong)
 - [ ] 0.2.0 release: version bump, changelog, tagged build

@@ -1,5 +1,9 @@
 """AutoPipe Interactive REPL CLI.
 
+Non-core, opt-in tool: this module is not part of the stable autopipe API
+surface; it is exposed only through the explicit ``autopipe-repl`` console
+script.
+
 A production-grade interactive REPL (Read-Eval-Print Loop) for AutoPipe that provides:
 - Command history with arrow-key navigation
 - Syntax highlighting
