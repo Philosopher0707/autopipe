@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.core.auth import require_role
 from app.db.models import ActivityLog, Pipeline, Project, Run, RunStatus, Step
 from app.db.session import get_db
 from app.executor.registry import cancel_run as signal_cancel
@@ -268,7 +269,11 @@ async def update_run(
     )
 
 
-@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def delete_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),

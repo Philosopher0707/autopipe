@@ -6,9 +6,9 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio
 
 
-async def test_run_metrics_over_time(client: AsyncClient):
+async def test_run_metrics_over_time(auth_client: AsyncClient):
     """GET /charts/run-metrics-over-time returns chart data."""
-    resp = await client.get(
+    resp = await auth_client.get(
         "/api/v1/charts/run-metrics-over-time",
         params={
             "metric": "accuracy",
@@ -20,9 +20,9 @@ async def test_run_metrics_over_time(client: AsyncClient):
     assert "points" in data
 
 
-async def test_step_durations(client: AsyncClient):
+async def test_step_durations(auth_client: AsyncClient):
     """GET /charts/step-durations returns step durations."""
-    resp = await client.get(
+    resp = await auth_client.get(
         "/api/v1/charts/step-durations",
         params={
             "run_id": "00000000-0000-0000-0000-000000000000",
@@ -33,9 +33,9 @@ async def test_step_durations(client: AsyncClient):
     assert "steps" in data
 
 
-async def test_create_chart_artifact(client: AsyncClient):
+async def test_create_chart_artifact(auth_client: AsyncClient):
     """POST /charts/artifacts creates a chart artifact."""
-    resp = await client.post(
+    resp = await auth_client.post(
         "/api/v1/charts/artifacts",
         json={
             "chart_type": "line",
@@ -49,18 +49,18 @@ async def test_create_chart_artifact(client: AsyncClient):
     assert data["chart_type"] == "line"
 
 
-async def test_list_chart_artifacts(client: AsyncClient):
+async def test_list_chart_artifacts(auth_client: AsyncClient):
     """GET /charts/artifacts returns chart artifacts list."""
-    resp = await client.get("/api/v1/charts/artifacts")
+    resp = await auth_client.get("/api/v1/charts/artifacts")
     assert resp.status_code == 200
     data = resp.json()
     assert "items" in data
 
 
-async def test_training_metrics_trace(client: AsyncClient, seed_pipeline):
+async def test_training_metrics_trace(auth_client: AsyncClient, seed_pipeline):
     """GET /charts/training-metrics-trace returns training curve data."""
     # Create a run via pipeline trigger
-    run_resp = await client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
+    run_resp = await auth_client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
     assert run_resp.status_code == 201
     run_id = run_resp.json()["id"]
 
@@ -72,7 +72,7 @@ async def test_training_metrics_trace(client: AsyncClient, seed_pipeline):
             ("accuracy", 0.6 + 0.1 * epoch),
             ("val_accuracy", 0.58 + 0.09 * epoch),
         ]:
-            log_resp = await client.post(
+            log_resp = await auth_client.post(
                 "/api/v1/charts/metric-logs",
                 json={
                     "run_id": run_id,
@@ -83,7 +83,7 @@ async def test_training_metrics_trace(client: AsyncClient, seed_pipeline):
             )
             assert log_resp.status_code == 201
 
-    resp = await client.get("/api/v1/charts/training-metrics-trace", params={"run_id": run_id})
+    resp = await auth_client.get("/api/v1/charts/training-metrics-trace", params={"run_id": run_id})
     assert resp.status_code == 200
     data = resp.json()
     assert data["run_id"] == run_id
@@ -100,9 +100,9 @@ async def test_training_metrics_trace(client: AsyncClient, seed_pipeline):
     assert "val_accuracy" in first
 
 
-async def test_training_metrics_trace_prefixed(client: AsyncClient, seed_pipeline):
+async def test_training_metrics_trace_prefixed(auth_client: AsyncClient, seed_pipeline):
     """GET /charts/training-metrics-trace normalizes train/* metric names."""
-    run_resp = await client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
+    run_resp = await auth_client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
     assert run_resp.status_code == 201
     run_id = run_resp.json()["id"]
 
@@ -114,7 +114,7 @@ async def test_training_metrics_trace_prefixed(client: AsyncClient, seed_pipelin
             ("train/epoch_accuracy", 0.6 + 0.1 * epoch),
             ("val_accuracy", 0.58 + 0.09 * epoch),
         ]:
-            log_resp = await client.post(
+            log_resp = await auth_client.post(
                 "/api/v1/charts/metric-logs",
                 json={
                     "run_id": run_id,
@@ -125,7 +125,7 @@ async def test_training_metrics_trace_prefixed(client: AsyncClient, seed_pipelin
             )
             assert log_resp.status_code == 201
 
-    resp = await client.get("/api/v1/charts/training-metrics-trace", params={"run_id": run_id})
+    resp = await auth_client.get("/api/v1/charts/training-metrics-trace", params={"run_id": run_id})
     assert resp.status_code == 200
     data = resp.json()
     assert data["run_id"] == run_id
@@ -137,9 +137,9 @@ async def test_training_metrics_trace_prefixed(client: AsyncClient, seed_pipelin
     assert first["val_accuracy"] is not None
 
 
-async def test_training_metrics_trace_404(client: AsyncClient):
+async def test_training_metrics_trace_404(auth_client: AsyncClient):
     """GET /charts/training-metrics-trace returns 404 for unknown run."""
-    resp = await client.get(
+    resp = await auth_client.get(
         "/api/v1/charts/training-metrics-trace",
         params={
             "run_id": "00000000-0000-0000-0000-000000000000",

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.core.auth import require_role
 from app.db.models import Model, ModelStage, ModelVersion
 from app.db.session import get_db
 from app.schemas import (
@@ -215,7 +216,11 @@ async def update_model(
     )
 
 
-@router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{model_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def delete_model(
     model_id: str,
     db: AsyncSession = Depends(get_db),
@@ -340,7 +345,11 @@ async def get_model_version(
     return ModelVersionResponse.model_validate(ver_dict)
 
 
-@router.post("/{model_id}/versions/{version_number}/promote", response_model=ModelVersionResponse)
+@router.post(
+    "/{model_id}/versions/{version_number}/promote",
+    response_model=ModelVersionResponse,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def promote_model_version(
     model_id: str,
     version_number: int,

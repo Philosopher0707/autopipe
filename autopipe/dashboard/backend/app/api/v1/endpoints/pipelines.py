@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from app.core.auth import require_role
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
@@ -211,7 +212,11 @@ async def update_pipeline(
     return _serialize_pipeline(pipeline, run_count=run_count or 0)
 
 
-@router.delete("/{pipeline_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{pipeline_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def delete_pipeline(
     pipeline_id: str,
     db: AsyncSession = Depends(get_db),

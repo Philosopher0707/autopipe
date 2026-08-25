@@ -4,6 +4,7 @@ import itertools
 import random
 from typing import List, Optional
 
+from app.core.auth import require_role
 from app.db.models import ChartArtifact, Experiment, Pipeline, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import (
@@ -173,7 +174,11 @@ async def update_experiment(
     return _serialize_experiment(updated_experiment)
 
 
-@router.delete("/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{experiment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def delete_experiment(
     experiment_id: str,
     db: AsyncSession = Depends(get_db),

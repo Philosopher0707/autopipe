@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
+from app.core.auth import require_role
 from app.db.models import Project, Run
 from app.db.session import get_db
 from app.schemas import ProjectCreate, ProjectList, ProjectResponse, ProjectUpdate
@@ -155,7 +156,11 @@ async def update_project(
     return ProjectResponse.model_validate(project)
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin"))],
+)
 async def delete_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),

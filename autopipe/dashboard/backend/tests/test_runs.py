@@ -7,46 +7,46 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio
 
 
-async def _create_run(client: AsyncClient, pipeline_id: str) -> dict:
+async def _create_run(auth_client: AsyncClient, pipeline_id: str) -> dict:
     """Helper to create a run via the pipeline trigger endpoint."""
-    resp = await client.post(f"/api/v1/pipelines/{pipeline_id}/runs")
+    resp = await auth_client.post(f"/api/v1/pipelines/{pipeline_id}/runs")
     assert resp.status_code == 201
     return resp.json()
 
 
-async def test_list_runs_empty(client: AsyncClient):
+async def test_list_runs_empty(auth_client: AsyncClient):
     """GET /runs returns empty list when no runs exist."""
-    resp = await client.get("/api/v1/runs")
+    resp = await auth_client.get("/api/v1/runs")
     assert resp.status_code == 200
     data = resp.json()
     assert data["items"] == []
 
 
-async def test_create_run_via_pipeline(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_create_run_via_pipeline(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """Triggering a run via POST /pipelines/{id}/runs creates a run."""
-    data = await _create_run(client, seed_pipeline.id)
+    data = await _create_run(auth_client, seed_pipeline.id)
     assert data["pipeline_id"] == seed_pipeline.id
     assert data["status"] in ("pending", "running")
 
 
-async def test_get_run(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_get_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """GET /runs/{id} returns run details."""
-    run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.get(f"/api/v1/runs/{run_data['id']}")
+    run_data = await _create_run(auth_client, seed_pipeline.id)
+    resp = await auth_client.get(f"/api/v1/runs/{run_data['id']}")
     assert resp.status_code == 200
     assert resp.json()["id"] == run_data["id"]
 
 
-async def test_get_run_not_found(client: AsyncClient):
+async def test_get_run_not_found(auth_client: AsyncClient):
     """GET /runs/nonexistent returns 404."""
-    resp = await client.get("/api/v1/runs/00000000-0000-0000-0000-000000000000")
+    resp = await auth_client.get("/api/v1/runs/00000000-0000-0000-0000-000000000000")
     assert resp.status_code == 404
 
 
-async def test_update_run_status(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_update_run_status(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """PATCH /runs/{id} updates run status."""
-    run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.patch(
+    run_data = await _create_run(auth_client, seed_pipeline.id)
+    resp = await auth_client.patch(
         f"/api/v1/runs/{run_data['id']}",
         json={
             "status": "running",
@@ -56,10 +56,10 @@ async def test_update_run_status(client: AsyncClient, seed_pipeline: Pipeline):
     assert resp.json()["status"] in ("running", "RUNNING")
 
 
-async def test_cancel_run(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_cancel_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """PATCH /runs/{id} with status=cancelled cancels the run."""
-    run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.patch(
+    run_data = await _create_run(auth_client, seed_pipeline.id)
+    resp = await auth_client.patch(
         f"/api/v1/runs/{run_data['id']}",
         json={
             "status": "cancelled",
@@ -69,42 +69,42 @@ async def test_cancel_run(client: AsyncClient, seed_pipeline: Pipeline):
     assert resp.json()["status"] in ("cancelled", "CANCELLED")
 
 
-async def test_get_run_steps(client: AsyncClient, db_session, seed_pipeline: Pipeline):
+async def test_get_run_steps(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """GET /runs/{id}/steps returns step list."""
-    run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.get(f"/api/v1/runs/{run_data['id']}/steps")
+    run_data = await _create_run(auth_client, seed_pipeline.id)
+    resp = await auth_client.get(f"/api/v1/runs/{run_data['id']}/steps")
     assert resp.status_code == 200
     data = resp.json()
     assert "items" in data
 
 
-async def test_delete_run(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_delete_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """DELETE /runs/{id} removes the run."""
-    run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.delete(f"/api/v1/runs/{run_data['id']}")
+    run_data = await _create_run(auth_client, seed_pipeline.id)
+    resp = await auth_client.delete(f"/api/v1/runs/{run_data['id']}")
     assert resp.status_code == 204
 
-    resp = await client.get(f"/api/v1/runs/{run_data['id']}")
+    resp = await auth_client.get(f"/api/v1/runs/{run_data['id']}")
     assert resp.status_code == 404
 
 
-async def test_compare_runs(client: AsyncClient, seed_pipeline: Pipeline):
+async def test_compare_runs(auth_client: AsyncClient, seed_pipeline: Pipeline):
     """POST /runs/compare returns structured comparison for multiple runs."""
     # Create two runs via the pipeline trigger endpoint
-    run_a = await _create_run(client, seed_pipeline.id)
-    run_b = await _create_run(client, seed_pipeline.id)
+    run_a = await _create_run(auth_client, seed_pipeline.id)
+    run_b = await _create_run(auth_client, seed_pipeline.id)
     run_id_a = run_a["id"]
     run_id_b = run_b["id"]
 
     # Patch runs with distinct configs and metrics for comparison
-    await client.patch(
+    await auth_client.patch(
         f"/api/v1/runs/{run_id_a}",
         json={
             "config": {"lr": 0.001, "epochs": 10, "batch_size": 32},
             "metrics": {"accuracy": 0.85, "loss": 0.25},
         },
     )
-    await client.patch(
+    await auth_client.patch(
         f"/api/v1/runs/{run_id_b}",
         json={
             "config": {"lr": 0.01, "epochs": 10, "batch_size": 64},
@@ -112,7 +112,7 @@ async def test_compare_runs(client: AsyncClient, seed_pipeline: Pipeline):
         },
     )
 
-    resp = await client.post("/api/v1/runs/compare", json={"run_ids": [run_id_a, run_id_b]})
+    resp = await auth_client.post("/api/v1/runs/compare", json={"run_ids": [run_id_a, run_id_b]})
     assert resp.status_code == 200
     data = resp.json()
 
@@ -163,15 +163,15 @@ async def test_compare_runs(client: AsyncClient, seed_pipeline: Pipeline):
     assert round(acc_b["delta_from_baseline"], 1) == round((0.88 - 0.85) / 0.85 * 100, 1)
 
 
-async def test_compare_runs_less_than_two(client: AsyncClient):
+async def test_compare_runs_less_than_two(auth_client: AsyncClient):
     """POST /runs/compare with fewer than 2 run IDs returns 422 (Pydantic validation)."""
-    resp = await client.post("/api/v1/runs/compare", json={"run_ids": ["abc"]})
+    resp = await auth_client.post("/api/v1/runs/compare", json={"run_ids": ["abc"]})
     assert resp.status_code == 422
 
 
-async def test_compare_runs_missing(client: AsyncClient):
+async def test_compare_runs_missing(auth_client: AsyncClient):
     """POST /runs/compare with nonexistent run IDs returns 404."""
-    resp = await client.post(
+    resp = await auth_client.post(
         "/api/v1/runs/compare",
         json={
             "run_ids": [

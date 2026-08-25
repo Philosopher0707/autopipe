@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from app.core.auth import require_role
 from app.db.models import DriftAlert, DriftReport
 from app.db.session import get_db
 from app.schemas import (
@@ -207,7 +208,7 @@ async def list_alerts(
     )
 
 
-@router.post("/alerts/{alert_id}/acknowledge")
+@router.post("/alerts/{alert_id}/acknowledge", dependencies=[Depends(require_role("admin"))])
 async def acknowledge_alert(
     alert_id: str,
     db: AsyncSession = Depends(get_db),

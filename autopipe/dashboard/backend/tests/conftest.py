@@ -74,6 +74,23 @@ async def auth_headers(seed_user: User) -> dict:
 
 
 @pytest_asyncio.fixture
+async def auth_client(
+    db_session: AsyncSession, seed_user: User, auth_headers: dict
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client that authenticates as the seeded admin on every request."""
+    app = create_application()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=auth_headers) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
 async def seed_pipeline(db_session: AsyncSession) -> Pipeline:
     """Create a test pipeline and return it."""
     pipeline = Pipeline(

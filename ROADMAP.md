@@ -13,12 +13,12 @@ state. Every phase lands as verified commits with green suites.
 - [x] De-fabricate endpoints (`simulate` default off; honest empties/501s)
 
 ## P1 — Make it true
-- [ ] Fix import/instantiation showstoppers (`tracking`, `experiments`,
+- [x] Fix import/instantiation showstoppers (`tracking`, `experiments`,
       `OptunaSearchStep.execute→run`, evaluation classes not Steps)
-- [ ] Assign `step.output` in run loop; unify Step contract
-- [ ] One validation/loading path (pydantic schemas + shared alias map;
+- [x] Assign `step.output` in run loop; unify Step contract
+- [x] One validation/loading path (pydantic schemas + shared alias map;
       `autopipe create` output must pass `autopipe validate`)
-- [ ] Backend auth for real: router-level deps, role gates, no admin
+- [x] Backend auth for real: router-level deps, role gates, no admin
       self-registration, WS handshake tokens, persistent SECRET_KEY
 
 ## P2 — Correctness

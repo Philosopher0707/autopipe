@@ -1,5 +1,6 @@
 """Application configuration settings."""
 
+import os
 import secrets
 from typing import List, Optional
 
@@ -23,8 +24,10 @@ class Settings(BaseSettings):
 
     # API settings
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = secrets.token_urlsafe(32)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    # JWT secret. MUST be provided via SECRET_KEY env var in production
+    # (a random per-process key makes all tokens invalid on restart).
+    SECRET_KEY: str = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     # CORS - dev defaults (override in production via env vars)
     BACKEND_CORS_ORIGINS: List[str] = Field(

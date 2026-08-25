@@ -1,5 +1,7 @@
 // WebSocket client for real-time updates
 
+import { useAuthStore } from '@/stores/authStore'
+
 export type WSEventType =
   | 'run.started'
   | 'run.step.started'
@@ -70,7 +72,12 @@ class WebSocketClient {
   private getWebSocketUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`
-    return `${host}/api/v1/ws/dashboard`
+    // The backend rejects unauthenticated WS handshakes (close 1008), and
+    // browsers cannot set an Authorization header on WebSocket, so the
+    // access token travels as a query parameter.
+    const token = useAuthStore.getState().token
+    const authQuery = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${host}/api/v1/ws/dashboard${authQuery}`
   }
 
   private attemptReconnect() {

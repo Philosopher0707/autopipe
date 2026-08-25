@@ -150,6 +150,17 @@ The `/workspace` route provides a multi-panel layout with 14 panel types for run
 Panel renderers receive `{ panel }` prop with `PanelLayout` type (id, type, title, config, state). Each panel uses `PanelWrapper` for consistent chrome, loading skeletons, and error boundaries. Panel state is persisted via Zustand store.
 
 ### Security (Backend)
+- Router-level JWT enforcement: every data router under `/api/v1/` requires a valid
+  access token (`dependencies=[Depends(get_current_user)]`); only `/auth/*` is public
+- Destructive routes (DELETEs, model promote, alert acknowledge) additionally require
+  `require_role("admin")`
+- Registration never trusts client-sent roles: first account bootstraps admin, later
+  accounts start as `data_scientist`
+- WebSocket handshakes require the access token as `?token=` query param (browsers
+  cannot set headers on WS); rejected with close code 1008 before accept
+- Legacy SHA256 password hashes are transparently upgraded to bcrypt on login
+- `SECRET_KEY` must come from env in production (random per-process default invalidates
+  tokens on restart); token TTL is 24h
 - `app/core/security.py` — `SimpleRateLimiter` (in-memory), rate-limit decorator for login/register endpoints, bcrypt password hashing with legacy SHA256 fallback for existing seeds
 - `app/core/security_headers.py` — `SecurityHeadersMiddleware` adds CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
 - `app/core/file_security.py` — Path traversal prevention, mime type validation, safe file serving utilities

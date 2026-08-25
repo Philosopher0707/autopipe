@@ -4,9 +4,27 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Set
 
+from app.core.auth import decode_token
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
+
+
+async def authenticate_websocket(websocket: WebSocket) -> bool:
+    """Validate the JWT passed as ?token= on the WS query string.
+
+    Browsers cannot set an Authorization header on WebSocket connections,
+    so the dashboard passes its access token as a query parameter.
+    Unauthenticated handshakes are rejected with 1008 (policy violation)
+    before accept().
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        return False
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return False
+    return payload.get("sub") is not None
 
 
 # Connection manager for WebSocket connections
@@ -85,6 +103,10 @@ manager = ConnectionManager()
 @router.websocket("/runs/{run_id}")
 async def run_websocket(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for real-time run updates."""
+    if not await authenticate_websocket(websocket):
+        await websocket.close(code=1008)
+        return
+
     channel = f"run:{run_id}"
     await manager.connect(websocket, channel)
 
@@ -123,6 +145,10 @@ async def run_websocket(websocket: WebSocket, run_id: str):
 @router.websocket("/dashboard")
 async def dashboard_websocket(websocket: WebSocket):
     """WebSocket endpoint for dashboard real-time updates."""
+    if not await authenticate_websocket(websocket):
+        await websocket.close(code=1008)
+        return
+
     channel = "dashboard"
     await manager.connect(websocket, channel)
 

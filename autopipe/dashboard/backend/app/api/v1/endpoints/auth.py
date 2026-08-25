@@ -16,7 +16,7 @@ from app.db.session import get_db
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -118,7 +118,9 @@ async def login(
             detail="User account is disabled",
         )
 
-    # Update last login
+    # Update last login; transparently upgrade legacy SHA256 to bcrypt
+    if not user.hashed_password.startswith("$"):
+        user.hashed_password = get_password_hash(form_data.password)
     user.last_login = datetime.now(timezone.utc)
     await db.commit()
 
@@ -166,7 +168,9 @@ async def login_json(
             detail="User account is disabled",
         )
 
-    # Update last login
+    # Update last login; transparently upgrade legacy SHA256 to bcrypt
+    if not user.hashed_password.startswith("$"):
+        user.hashed_password = get_password_hash(credentials.password)
     user.last_login = datetime.now(timezone.utc)
     await db.commit()
 
@@ -225,29 +229,22 @@ async def register(
             detail="Email already registered",
         )
 
-    # Validate role
-    valid_roles = {"admin", "data_scientist", "viewer"}
-    if user_data.role not in valid_roles:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role. Must be one of: {valid_roles}",
-        )
-
-    # Create user
+    # Role is NEVER client-controlled: open registration granting arbitrary
+    # roles was a privilege-escalation hole. The very first account bootstraps
+    # as admin; every later account starts as data_scientist and must be
+    # promoted by an existing admin.
     from app.db.models import UserRole
 
-    role_map = {
-        "admin": UserRole.ADMIN,
-        "data_scientist": UserRole.DATA_SCIENTIST,
-        "viewer": UserRole.VIEWER,
-    }
+    count_result = await db.execute(select(func.count(User.id)))
+    is_first_user = (count_result.scalar() or 0) == 0
+    role = UserRole.ADMIN if is_first_user else UserRole.DATA_SCIENTIST
 
     user = User(
         username=user_data.username,
         email=user_data.email,
         hashed_password=get_password_hash(user_data.password),
         full_name=user_data.full_name,
-        role=role_map[user_data.role],
+        role=role,
     )
 
     db.add(user)
