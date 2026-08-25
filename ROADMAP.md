@@ -42,5 +42,5 @@ state. Every phase lands as verified commits with green suites.
 
 ## P4 — Product honesty
 - [ ] pi_coding + REPL behind optional extras
-- [ ] Distributed tuning honest or deleted; Kubernetes stub removed
+- [x] Distributed tuning honest or deleted (deleted: zero consumers, K8s result collection was NotImplementedError, Hyperband formula wrong)
 - [ ] 0.2.0 release: version bump, changelog, tagged build
