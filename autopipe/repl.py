@@ -197,6 +197,20 @@ class _RestrictedASTChecker(ast.NodeVisitor):
         ):
             raise SecurityError("'__import__' is not allowed")
 
+        # Block str.format() method calls entirely.
+        # Dunder paths inside a format-string CONSTANT never appear as
+        # Attribute nodes, so '{0.__class__.__mro__[1]}'.format(obj) sailed
+        # past every other rule and resolved at runtime. F-strings are safe:
+        # their expressions ARE parsed, so dunder access there stays blocked.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"
+        ):
+            raise SecurityError(
+                "'.format()' is not allowed (format-string sandbox escape); use f-strings"
+            )
+
         # Check for forbidden subscript access on names
         if (
             isinstance(node, ast.Subscript)
@@ -225,6 +239,48 @@ def _validate_ast(code: str) -> None:
         raise
     except Exception as e:
         raise SecurityError(f"AST validation error: {e}")
+
+
+_SECRET_KEY_HINTS = (
+    "key",
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "credential",
+    "authorization",
+)
+
+
+def _redact(value: str) -> str:
+    """Mask values whose variable/key NAME suggests a secret.
+
+    History and config display previously echoed API keys verbatim, and the
+    history file persists across sessions.
+    """
+    text = str(value)
+    if len(text) <= 4:
+        return "****"
+    return text[:2] + "****" + text[-2:]
+
+
+def _looks_secret(name: str) -> bool:
+    lowered = name.lower()
+    return any(hint in lowered for hint in _SECRET_KEY_HINTS)
+
+
+_REDACT_PATTERNS = [
+    # 'config OPENAI_API_KEY sk-...' or 'set OPENAI_API_KEY=sk-...'
+    re.compile(r"(config\s+|set\s+)(\S*(?:key|token|secret|password)\S*)\s+(\S+)", re.IGNORECASE),
+]
+
+
+def _redact_history_line(line: str) -> str:
+    """Mask secret arguments in recorded command lines before display."""
+    out = line
+    for pattern in _REDACT_PATTERNS:
+        out = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)} {_redact(m.group(3))}", out)
+    return out
 
 
 class ExecutionError(Exception):
@@ -1174,13 +1230,15 @@ class AutoPipeREPL:
         elif len(args) == 1:
             key = args[0]
             if key in os.environ:
-                ctx.print(f"{key}={os.environ[key]}")
+                shown = _redact(os.environ[key]) if _looks_secret(key) else os.environ[key]
+                ctx.print(f"{key}={shown}")
             else:
                 ctx.print(f"[red]Key '{key}' not set[/red]")
         else:
             key, val = args[0], " ".join(args[1:])
             os.environ[key] = val
-            ctx.print(f"[green]✓[/green] Set {key}={val}")
+            shown = _redact(val) if _looks_secret(key) else val
+            ctx.print(f"[green]✓[/green] Set {key}={shown}")
 
     def _cmd_history(self, ctx: CommandContext, args: List[str]) -> None:
         """Show command history."""
@@ -1195,7 +1253,8 @@ class AutoPipeREPL:
             lines = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
             lines = lines[-n:]
 
-            for i, line in enumerate(lines, 1):
+            for i, raw_line in enumerate(lines, 1):
+                line = _redact_history_line(raw_line)
                 ctx.print(f"[cyan]{i:3d}[/cyan]  {line}")
         else:
             ctx.print("[dim]No history available[/dim]")
@@ -1519,9 +1578,11 @@ class AutoPipeREPL:
         # Look up command
         cmd = self.registry.get(cmd_name)
         if cmd is None:
-            # Try to evaluate as Python expression
+            # Unknown input must NOT silently execute as Python: a typo'd
+            # command used to become an eval() of arbitrary text.
             ctx = CommandContext(self)
-            self._cmd_python(ctx, parts)
+            ctx.print(f"[red]Unknown command: {cmd_name}[/red]")
+            ctx.print("[dim]Use 'py <expr>' to evaluate Python explicitly.[/dim]")
             return
 
         # Execute command
