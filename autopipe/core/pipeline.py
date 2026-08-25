@@ -80,8 +80,20 @@ class Pipeline:
         outputs: Dict[str, Any] = dict(initial_inputs or {})
 
         for step in self._execution_order:
-            # Gather outputs of declared dependencies as inputs
-            if step.depends_on:
+            bindings = getattr(step, "input_bindings", None)
+            if bindings:
+                # Named bindings win: each run() parameter gets exactly the
+                # output of the step it names.
+                missing = [src for src in bindings.values() if src not in outputs]
+                if missing:
+                    from autopipe.exceptions import AutoPipeError
+
+                    raise AutoPipeError(
+                        f"Step '{step.name}' binds inputs to unexecuted/unknown "
+                        f"steps: {sorted(set(missing))}"
+                    )
+                inputs = {param: outputs[src] for param, src in bindings.items()}
+            elif step.depends_on:
                 inputs = {dep: outputs[dep] for dep in step.depends_on if dep in outputs}
             else:
                 inputs = dict(initial_inputs or {})

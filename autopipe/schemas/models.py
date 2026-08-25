@@ -12,6 +12,15 @@ class StepConfig(BaseModel):
     type: str = Field(default="autopipe.core.steps.PrintStep", description="Step class path")
     params: Dict[str, Any] = Field(default_factory=dict, description="Step parameters")
     depends_on: List[str] = Field(default_factory=list, description="Dependency step names")
+    inputs: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Named input bindings: maps this step's run() parameter name to "
+            "the upstream step whose output feeds it. Each referenced step is "
+            "treated as a dependency. When empty, all outputs of depends_on "
+            "steps are passed as kwargs (legacy behavior)."
+        ),
+    )
 
     @field_validator("name")
     @classmethod

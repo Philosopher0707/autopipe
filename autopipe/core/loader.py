@@ -1,5 +1,6 @@
 """Load pipeline configuration from YAML."""
 
+import contextlib
 import importlib
 import logging
 from typing import Any, Dict
@@ -54,7 +55,12 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     name = step_config["name"]
     step_type = resolve_step_type(step_config.get("type", BUILTIN_ALIASES["print"]))
     params = step_config.get("params", {})
-    depends_on = step_config.get("depends_on", [])
+    depends_on = list(step_config.get("depends_on", []))
+    input_bindings = dict(step_config.get("input_bindings", {}) or {})
+    # Bound upstream steps are dependencies by definition.
+    for upstream in input_bindings.values():
+        if upstream not in depends_on:
+            depends_on.append(upstream)
 
     # Import the class
     cls = import_class(step_type)
@@ -62,6 +68,9 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     # Instantiate with params
     try:
         step = cls(name=name, depends_on=depends_on, **params)
+        # Attach bindings for the run loop (named-input resolution).
+        with contextlib.suppress(AttributeError):
+            step.input_bindings = input_bindings
     except TypeError as e:
         raise ValueError(f"Failed to instantiate {step_type} with params {params}: {e}") from e
 
@@ -85,6 +94,7 @@ def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
                 "type": step_model.type,
                 "params": step_model.params,
                 "depends_on": step_model.depends_on,
+                "input_bindings": dict(step_model.inputs),
             }
         )
         pipeline.add_step(step)

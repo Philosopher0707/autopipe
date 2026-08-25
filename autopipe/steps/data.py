@@ -309,14 +309,156 @@ class DataPreprocessorStep(Step):
         self.passthrough_columns = passthrough_columns or []
 
         # Fitted transformers storage
+        self._fitted: bool = False
+        self._fit_columns: tuple = ([], [])
         self._scaler = None
         self._encoders: Dict[str, Any] = {}
         self._imputer_numeric = None
         self._imputer_categorical = None
         self._feature_names: List[str] = []
 
+    @property
+    def fitted(self) -> bool:
+        """True once fit() has learned transformers from data."""
+        return self._fitted
+
+    def fit(self, df: pd.DataFrame) -> "DataPreprocessorStep":
+        """Learn imputers/scaler/encoders from df WITHOUT transforming it.
+
+        Call this on TRAINING data only. transform() then applies the same
+        learned parameters to any data (train, validation, test, production),
+        which is what prevents train/test leakage.
+        """
+        self._fit_columns = (
+            df.select_dtypes(include=[np.number]).columns.tolist(),
+            df.select_dtypes(include=["object", "category"]).columns.tolist(),
+        )
+        numeric_cols = [c for c in self._fit_columns[0] if c not in self.passthrough_columns]
+        categorical_cols = [c for c in self._fit_columns[1] if c not in self.passthrough_columns]
+
+        from sklearn.impute import SimpleImputer
+        from sklearn.preprocessing import MaxAbsScaler, MinMaxScaler, RobustScaler, StandardScaler
+
+        # Numeric imputation (only when missing values exist)
+        if numeric_cols and df[numeric_cols].isnull().sum().sum() > 0:
+            self._imputer_numeric = SimpleImputer(strategy=self.imputation_numeric)
+            self._imputer_numeric.fit(df[numeric_cols])
+        else:
+            self._imputer_numeric = None
+
+        # Categorical imputation
+        if categorical_cols and df[categorical_cols].isnull().sum().sum() > 0:
+            self._imputer_categorical = SimpleImputer(strategy=self.imputation_categorical)
+            self._imputer_categorical.fit(df[categorical_cols])
+        else:
+            self._imputer_categorical = None
+
+        # Scaler
+        scalers = {
+            "standard": StandardScaler,
+            "minmax": MinMaxScaler,
+            "robust": RobustScaler,
+            "maxabs": MaxAbsScaler,
+        }
+        if self.numeric_scaling and numeric_cols:
+            if self.numeric_scaling not in scalers:
+                raise ValueError(f"Unknown scaling method: {self.numeric_scaling}")
+            self._scaler = scalers[self.numeric_scaling]()
+            self._scaler.fit(self._maybe_impute(df[numeric_cols], numeric=True))
+        else:
+            self._scaler = None
+
+        # Encoders (fit only; application happens in transform)
+        from sklearn.preprocessing import LabelEncoder, OneHotEncoder, OrdinalEncoder
+
+        self._encoders = {}
+        for col in categorical_cols:
+            if self.categorical_encoding == "onehot":
+                encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
+                encoder.fit(df[[col]])
+                self._encoders[col] = ("onehot", encoder)
+            elif self.categorical_encoding == "ordinal":
+                encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+                encoder.fit(df[[col]])
+                self._encoders[col] = ("ordinal", encoder)
+            elif self.categorical_encoding == "label":
+                encoder = LabelEncoder()
+                encoder.fit(df[col].astype(str))
+                self._encoders[col] = ("label", encoder)
+            elif self.categorical_encoding is None:
+                continue
+            else:
+                raise ValueError(f"Unknown encoding method: {self.categorical_encoding}")
+
+        self._fitted = True
+        return self
+
+    def _maybe_impute(self, block: pd.DataFrame, numeric: bool) -> np.ndarray:
+        """Apply the fitted imputer for this dtype group if one was fitted."""
+        imputer = self._imputer_numeric if numeric else self._imputer_categorical
+        return imputer.transform(block) if imputer is not None else block.to_numpy()
+
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Transform new data using the transformers learned in fit().
+
+        Raises RuntimeError before fit() has been called — silently passing
+        data through unfitted (as this method previously did) would leak raw
+        values into downstream steps.
+        """
+        if not self._fitted:
+            raise RuntimeError(
+                "DataPreprocessorStep.transform() called before fit(); "
+                "call fit() on training data first or use run()/fit_transform()"
+            )
+
+        df = df.copy()
+        numeric_cols = [c for c in self._fit_columns[0] if c not in self.passthrough_columns]
+        categorical_cols = [c for c in self._fit_columns[1] if c not in self.passthrough_columns]
+        present_numeric = [c for c in numeric_cols if c in df.columns]
+        present_categorical = [c for c in categorical_cols if c in df.columns]
+
+        # Imputation
+        if self._imputer_numeric is not None and present_numeric:
+            df[present_numeric] = self._maybe_impute(df[present_numeric], numeric=True)
+        if self._imputer_categorical is not None and present_categorical:
+            df[present_categorical] = self._maybe_impute(df[present_categorical], numeric=False)
+
+        # Scaling
+        if self._scaler is not None and present_numeric:
+            scaled = self._scaler.transform(df[present_numeric])
+            for i, col in enumerate(present_numeric):
+                df[f"{col}_scaled"] = scaled[:, i]
+            df = df.drop(columns=present_numeric)
+
+        # Encoding — onehot/ordinal add *_encoded / exploded columns
+        for col in present_categorical:
+            kind, encoder = self._encoders.get(col, (None, None))
+            if kind == "onehot":
+                encoded = encoder.transform(df[[col]])
+                categories = encoder.categories_[0]
+                feature_names = [f"{col}_{cat}" for cat in categories]
+                for i, fname in enumerate(feature_names):
+                    df[fname] = encoded[:, i]
+                df = df.drop(columns=[col])
+            elif kind == "ordinal":
+                df[f"{col}_encoded"] = encoder.transform(df[[col]])
+                df = df.drop(columns=[col])
+            elif kind == "label":
+                df[col] = encoder.transform(df[col].astype(str))
+
+        return df
+
+    def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Fit on df and return its transformed version."""
+        self.fit(df)
+        return self.transform(df)
+
     def run(self, **kwargs) -> pd.DataFrame:
-        """Preprocess data with scaling, encoding, and imputation."""
+        """Fit on first invocation; pure transform on subsequent ones.
+
+        The first call learns parameters from its input (treat that input as
+        training data); later calls apply those parameters unchanged.
+        """
         import logging
 
         logger = logging.getLogger(__name__)
@@ -332,34 +474,14 @@ class DataPreprocessorStep(Step):
 
         logger.info(f"Preprocessing data with {len(df)} rows")
 
-        # Separate columns
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        categorical_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-
-        # Remove passthrough columns
-        numeric_cols = [c for c in numeric_cols if c not in self.passthrough_columns]
-        categorical_cols = [c for c in categorical_cols if c not in self.passthrough_columns]
-
-        # Imputation
-        df = self._apply_imputation(df, numeric_cols, categorical_cols)
-
-        # Scaling
-        if self.numeric_scaling and numeric_cols:
-            df = self._apply_scaling(df, numeric_cols)
-
-        # Encoding
-        if self.categorical_encoding and categorical_cols:
-            df = self._apply_encoding(df, categorical_cols)
+        result = self.fit_transform(df) if not self._fitted else self.transform(df)
 
         self.log_metrics(
-            original_columns=len(df.columns),
-            numeric_scaled=len(numeric_cols),
-            categorical_encoded=len(categorical_cols),
-            final_columns=len(df.columns),
+            original_columns=len(result.columns),
+            rows=len(result),
         )
-
-        logger.info(f"Preprocessing complete: {len(df.columns)} columns")
-        return df
+        logger.info(f"Preprocessing complete: {len(result.columns)} columns")
+        return result
 
     def _apply_imputation(
         self, df: pd.DataFrame, numeric_cols: List[str], categorical_cols: List[str]
@@ -435,13 +557,6 @@ class DataPreprocessorStep(Step):
                 df[col] = encoder.fit_transform(df[col].astype(str))
                 self._encoders[col] = encoder
 
-        return df
-
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Transform new data using fitted preprocessors."""
-        df = df.copy()
-        # Similar logic to run but using fitted transformers
-        # Implementation for inference pipeline
         return df
 
     def visualize(self, **kwargs):
