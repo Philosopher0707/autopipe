@@ -32,7 +32,7 @@ cd autopipe/dashboard/backend && source .venv/bin/activate  # Backend env
 ### Core Library (autopipe Python package)
 ```bash
 conda run -n pipeline pip install -e ".[dev]"   # Install with dev dependencies
-conda run -n pipeline pytest tests/unit -q       # Unit tests (150 pass)
+conda run -n pipeline pytest tests/unit -q       # Unit tests (205 pass, 2 skipped)
 conda run -n pipeline pytest tests/integration -m integration  # Integration tests
 conda run -n pipeline ruff check autopipe tests   # Lint
 conda run -n pipeline ruff format --check autopipe tests  # Format check (ruff-format is the only formatter)
@@ -170,7 +170,7 @@ Panel renderers receive `{ panel }` prop with `PanelLayout` type (id, type, titl
 - Tests in `tests/test_security.py` (25 tests covering all three modules)
 
 ### CI (GitHub Actions)
-- `test` job: 3 OS × 3 Python (3.10–3.12), ruff lint + ruff-format + advisory mypy + bandit, pytest with coverage
+- `test` job: 3 OS × 3 Python (3.10–3.12), ruff lint + ruff-format + enforced mypy strict on `autopipe/core` + bandit, pytest with coverage
 - `integration` job: runs on every push and PR (uses pytest-timeout)
 - `build` job: package build + twine check
 - `frontend` job: pnpm install/typecheck/test/build in `autopipe/dashboard/frontend/`
