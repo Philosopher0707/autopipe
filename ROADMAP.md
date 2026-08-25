@@ -22,22 +22,25 @@ state. Every phase lands as verified commits with green suites.
       self-registration, WS handshake tokens, persistent SECRET_KEY
 
 ## P2 — Correctness
-- [ ] Preprocessing fit/transform + named step input bindings (kill
+- [x] Preprocessing fit/transform + named step input bindings (kill
       leakage-by-construction)
-- [ ] Drift statistics rewrite (decile PSI ±inf edges, BH correction,
+- [x] Drift statistics rewrite (decile PSI ±inf edges, BH correction,
       aggregation across methods, ECE bins)
-- [ ] Registry hardening (locks, atomic index writes, joblib+sha256,
+- [x] Registry hardening (locks, atomic index writes, joblib+sha256,
       uuid4 ids, torch weights_only)
-- [ ] Executor hardening (bounded concurrency, per-run loggers, orphan
-      sweep, in-step cancellation)
-- [ ] Alembic migrations + unique constraints + indexes + SQLite pragmas
+- [x] Executor hardening (bounded concurrency, per-run ContextVar log
+      isolation, startup orphan sweep, in-step cancellation)
+- [x] UniqueConstraint(model_id, version), FK indexes, SQLite pragmas
+      (foreign_keys/WAL/busy_timeout)
+- [ ] Alembic migration env for existing deployments (fresh installs use
+      create_all; constraint/index changes above are additive)
 - [x] Typing truth: strict mypy passes on core/ (gate enforced, advisory
       flag removed)
 
 ## P3 — Safety
 - [x] Step-type allowlist in loader (no arbitrary imports from YAML)
-- [ ] REPL evaluator isolated or disabled by default; secret redaction in
-      history/config display
+- [x] REPL: .format() sandbox escape blocked, unknown-command eval
+      fallthrough removed, secrets redacted in config/history display
 - [x] Pin promptfoo version; single credential path with masking
 
 ## P4 — Product honesty
