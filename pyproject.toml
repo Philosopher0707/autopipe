@@ -264,8 +264,17 @@ skips = ["B101", "B311"]
 current_version = "0.1.0"
 commit = true
 tag = true
+tag_name = "v{new_version}"
 
-[tool.bumpversion.file.whitelist]
+# bump-my-version TOML schema: each managed file is a [[files]] array entry.
+# (The previous [tool.bumpversion.file.whitelist] table was not a valid
+# schema for any release tool — bumps would silently change nothing.)
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = "version = \"{current_version}\""
+replace = "version = \"{new_version}\""
+
+[[tool.bumpversion.files]]
 filename = "autopipe/__init__.py"
 search = "__version__ = \"{current_version}\""
 replace = "__version__ = \"{new_version}\""
