@@ -1,8 +1,21 @@
 """Main API router."""
 
+from app.api.v1.endpoints import (
+    auth,
+    automl,
+    charts,
+    dashboard,
+    drift,
+    experiments,
+    explainability,
+    features,
+    models,
+    pipelines,
+    projects,
+    runs,
+    websocket,
+)
 from fastapi import APIRouter
-
-from app.api.v1.endpoints import auth, automl, charts, dashboard, drift, explainability, experiments, features, models, pipelines, projects, runs, websocket
 
 api_router = APIRouter()
 

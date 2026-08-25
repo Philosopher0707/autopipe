@@ -1,4 +1,5 @@
 """Metrics collection for AutoPipe."""
+
 import json
 import time
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, star
 @dataclass
 class PipelineMetrics:
     """Metrics for a single pipeline run."""
+
     run_id: str
     pipeline_name: str
     start_time: float = 0.0
@@ -122,13 +124,11 @@ class MetricsCollector:
 
         if self.enabled and self._initialized:
             self._active_runs.labels(pipeline_name=metrics.pipeline_name).dec()
-            self._pipeline_runs.labels(
-                pipeline_name=metrics.pipeline_name, status=status
-            ).inc()
+            self._pipeline_runs.labels(pipeline_name=metrics.pipeline_name, status=status).inc()
             if duration:
-                self._pipeline_duration.labels(
-                    pipeline_name=metrics.pipeline_name
-                ).observe(duration / 1000)
+                self._pipeline_duration.labels(pipeline_name=metrics.pipeline_name).observe(
+                    duration / 1000
+                )
 
         if self.export_json and self.json_path:
             self._export_to_json()
@@ -171,9 +171,7 @@ class MetricsCollector:
         if error:
             step_data["error"] = error
 
-    def add_step_metric(
-        self, run_id: str, step_name: str, key: str, value: Any
-    ) -> None:
+    def add_step_metric(self, run_id: str, step_name: str, key: str, value: Any) -> None:
         """Add a custom metric for a step."""
         metrics = self._metrics.get(run_id)
         if metrics:
@@ -191,16 +189,18 @@ class MetricsCollector:
 
         data = []
         for metrics in self._metrics.values():
-            data.append({
-                "run_id": metrics.run_id,
-                "pipeline_name": metrics.pipeline_name,
-                "start_time": metrics.start_time,
-                "end_time": metrics.end_time,
-                "duration_ms": metrics.duration_ms,
-                "step_durations": metrics.step_durations,
-                "step_metrics": metrics.step_metrics,
-                "errors": metrics.errors,
-            })
+            data.append(
+                {
+                    "run_id": metrics.run_id,
+                    "pipeline_name": metrics.pipeline_name,
+                    "start_time": metrics.start_time,
+                    "end_time": metrics.end_time,
+                    "duration_ms": metrics.duration_ms,
+                    "step_durations": metrics.step_durations,
+                    "step_metrics": metrics.step_metrics,
+                    "errors": metrics.errors,
+                }
+            )
 
         Path(self.json_path).parent.mkdir(parents=True, exist_ok=True)
         with open(self.json_path, "w") as f:

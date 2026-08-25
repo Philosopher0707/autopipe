@@ -3,16 +3,17 @@
 import enum
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, Float
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 Base = declarative_base()
 
 
 class RunStatus(str, enum.Enum):
     """Pipeline run status enumeration."""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -22,6 +23,7 @@ class RunStatus(str, enum.Enum):
 
 class StepStatus(str, enum.Enum):
     """Step execution status enumeration."""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -31,6 +33,7 @@ class StepStatus(str, enum.Enum):
 
 class ModelStage(str, enum.Enum):
     """Model version stage enumeration."""
+
     PENDING = "pending"
     STAGING = "staging"
     PRODUCTION = "production"
@@ -39,6 +42,7 @@ class ModelStage(str, enum.Enum):
 
 class AlertSeverity(str, enum.Enum):
     """Alert severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -47,6 +51,7 @@ class AlertSeverity(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     """User role enumeration."""
+
     ADMIN = "admin"
     DATA_SCIENTIST = "data_scientist"
     VIEWER = "viewer"
@@ -54,6 +59,7 @@ class UserRole(str, enum.Enum):
 
 class Pipeline(Base):
     """ML Pipeline definition."""
+
     __tablename__ = "pipelines"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -63,9 +69,17 @@ class Pipeline(Base):
     config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    project_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("projects.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Relationships
@@ -77,35 +91,50 @@ class Pipeline(Base):
 # MetricLog — append-only time-series metric storage
 # ------------------------------------------------------------------
 
+
 class MetricLog(Base):
     """Append-only time-series log of scalar metric values per run/step."""
+
     __tablename__ = "metric_logs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[str] = mapped_column(String, ForeignKey("runs.id"), nullable=False, index=True)
-    step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True, index=True)
-    pipeline_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("pipelines.id"), nullable=True, index=True)
-    experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True, index=True)
+    step_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("steps.id"), nullable=True, index=True
+    )
+    pipeline_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("pipelines.id"), nullable=True, index=True
+    )
+    experiment_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("experiments.id"), nullable=True, index=True
+    )
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     step_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     value: Mapped[float] = mapped_column(Float, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-
-    __table_args__ = (
-        {"sqlite_autoincrement": False},
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), index=True
     )
+
+    __table_args__ = ({"sqlite_autoincrement": False},)
 
 
 class Run(Base):
     """Pipeline execution run."""
+
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     pipeline_id: Mapped[str] = mapped_column(String, ForeignKey("pipelines.id"), nullable=False)
-    experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True)
-    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.id"), nullable=True)
+    experiment_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("experiments.id"), nullable=True
+    )
+    project_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("projects.id"), nullable=True
+    )
     status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -120,11 +149,14 @@ class Run(Base):
     pipeline: Mapped["Pipeline"] = relationship("Pipeline", back_populates="runs")
     experiment: Mapped[Optional["Experiment"]] = relationship("Experiment", back_populates="runs")
     steps: Mapped[List["Step"]] = relationship("Step", back_populates="run", lazy="select")
-    artifacts: Mapped[List["Artifact"]] = relationship("Artifact", back_populates="run", lazy="select")
+    artifacts: Mapped[List["Artifact"]] = relationship(
+        "Artifact", back_populates="run", lazy="select"
+    )
 
 
 class Step(Base):
     """Pipeline step execution."""
+
     __tablename__ = "steps"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -132,7 +164,9 @@ class Step(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     step_type: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[StepStatus] = mapped_column(Enum(StepStatus), default=StepStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -150,6 +184,7 @@ class Step(Base):
 
 class Experiment(Base):
     """ML Experiment definition."""
+
     __tablename__ = "experiments"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -157,8 +192,14 @@ class Experiment(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     best_run_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     best_metric: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -170,26 +211,40 @@ class Experiment(Base):
 
 class Model(Base):
     """Registered ML Model."""
+
     __tablename__ = "models"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    framework: Mapped[str] = mapped_column(String(50), nullable=False)  # sklearn, pytorch, tensorflow, etc.
-    task_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # classification, regression, etc.
+    framework: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # sklearn, pytorch, tensorflow, etc.
+    task_type: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # classification, regression, etc.
     signature: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     current_stage: Mapped[ModelStage] = mapped_column(Enum(ModelStage), default=ModelStage.PENDING)
     latest_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Relationships
-    versions: Mapped[List["ModelVersion"]] = relationship("ModelVersion", back_populates="model", lazy="select")
+    versions: Mapped[List["ModelVersion"]] = relationship(
+        "ModelVersion", back_populates="model", lazy="select"
+    )
 
 
 class ModelVersion(Base):
     """Model version snapshot."""
+
     __tablename__ = "model_versions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -201,7 +256,9 @@ class ModelVersion(Base):
     artifact_path: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     run_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     transitioned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
 
@@ -216,6 +273,7 @@ class ModelVersion(Base):
 
 class DriftReport(Base):
     """Data drift detection report."""
+
     __tablename__ = "drift_reports"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -226,41 +284,57 @@ class DriftReport(Base):
     feature_drifts: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     reference_data_summary: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     current_data_summary: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     alert_generated: Mapped[bool] = mapped_column(default=False)
 
 
 class DriftAlert(Base):
     """Drift alert record."""
+
     __tablename__ = "drift_alerts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    drift_report_id: Mapped[str] = mapped_column(String, ForeignKey("drift_reports.id"), nullable=False)
+    drift_report_id: Mapped[str] = mapped_column(
+        String, ForeignKey("drift_reports.id"), nullable=False
+    )
     feature_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    severity: Mapped[AlertSeverity] = mapped_column(Enum(AlertSeverity), default=AlertSeverity.WARNING)
-    drift_type: Mapped[str] = mapped_column(String(50), nullable=False)  # feature, prediction, target
+    severity: Mapped[AlertSeverity] = mapped_column(
+        Enum(AlertSeverity), default=AlertSeverity.WARNING
+    )
+    drift_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # feature, prediction, target
     drift_metric: Mapped[str] = mapped_column(String(50), nullable=False)  # ks, psi, chi2, etc.
     drift_score: Mapped[float] = mapped_column(Float, nullable=False)
     threshold: Mapped[float] = mapped_column(Float, nullable=False)
     acknowledged: Mapped[bool] = mapped_column(default=False)
     acknowledged_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class Artifact(Base):
     """Run artifact (file, model, etc.)."""
+
     __tablename__ = "artifacts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
     step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    artifact_type: Mapped[str] = mapped_column(String(50), nullable=False)  # model, plot, metric, data
+    artifact_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # model, plot, metric, data
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     meta_data: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
     # Relationships
     run: Mapped[Optional["Run"]] = relationship("Run", back_populates="artifacts")
@@ -269,6 +343,7 @@ class Artifact(Base):
 
 class User(Base):
     """Dashboard user."""
+
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -280,39 +355,52 @@ class User(Base):
     api_key: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     preferences: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
 
 
 class DashboardMetric(Base):
     """Time-series metrics for dashboard widgets."""
+
     __tablename__ = "dashboard_metrics"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
     metric_value: Mapped[float] = mapped_column(Float, nullable=False)
-    metric_type: Mapped[str] = mapped_column(String(50), default="gauge")  # gauge, counter, histogram
+    metric_type: Mapped[str] = mapped_column(
+        String(50), default="gauge"
+    )  # gauge, counter, histogram
     tags: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
     run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
 
 
 class ActivityLog(Base):
     """User and system activity log."""
+
     __tablename__ = "activity_logs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.id"), nullable=True)
-    action: Mapped[str] = mapped_column(String(100), nullable=False)  # create_run, promote_model, etc.
+    action: Mapped[str] = mapped_column(
+        String(100), nullable=False
+    )  # create_run, promote_model, etc.
     resource_type: Mapped[str] = mapped_column(String(50), nullable=False)  # run, model, pipeline
     resource_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     details: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class Project(Base):
     """ML project container."""
+
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -321,21 +409,34 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(50), default="active")  # active, archived
     tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     starred: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 class ChartArtifact(Base):
     """Chart data artifact generated during pipeline runs."""
+
     __tablename__ = "chart_artifacts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
     step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True)
-    experiment_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("experiments.id"), nullable=True)
-    chart_type: Mapped[str] = mapped_column(String(50), nullable=False)  # line, bar, scatter, area, pie, heatmap
+    experiment_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("experiments.id"), nullable=True
+    )
+    chart_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # line, bar, scatter, area, pie, heatmap
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     data: Mapped[Dict] = mapped_column(JSON, nullable=False)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )

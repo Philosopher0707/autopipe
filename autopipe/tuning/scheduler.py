@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 @dataclass
 class ResourceStatus:
     """Resource status for scheduling."""
+
     cpu_available: float = 1.0
     memory_available_gb: float = 8.0
     gpu_available: int = 0
@@ -32,13 +33,13 @@ class EarlyStoppingCallback:
         self.mode = mode
         self.min_trials = min_trials
 
-        self.best_value = float('inf') if mode == "min" else float('-inf')
+        self.best_value = float("inf") if mode == "min" else float("-inf")
         self.counter = 0
         self.trial_count = 0
 
     def __call__(self, result: Any) -> bool:
         """Check if search should stop.
-        
+
         Returns True if search should stop.
         """
         self.trial_count += 1
@@ -67,11 +68,7 @@ class ResourceScheduler(ABC):
     """Abstract base class for resource-aware scheduling."""
 
     @abstractmethod
-    def recommend_resource(
-        self,
-        trial_id: int,
-        resource_status: ResourceStatus
-    ) -> Dict[str, Any]:
+    def recommend_resource(self, trial_id: int, resource_status: ResourceStatus) -> Dict[str, Any]:
         """Recommend resource allocation for a trial."""
 
     @abstractmethod
@@ -96,13 +93,9 @@ class AdaptiveScheduler(ResourceScheduler):
         self.average_time = None
         self.average_accuracy = None
 
-    def recommend_resource(
-        self,
-        trial_id: int,
-        resource_status: ResourceStatus
-    ) -> Dict[str, Any]:
+    def recommend_resource(self, trial_id: int, resource_status: ResourceStatus) -> Dict[str, Any]:
         """Recommend resources based on available capacity.
-        
+
         Increases batch size when resources are available,
         adjusts learning rate accordingly.
         """
@@ -147,7 +140,7 @@ class AdaptiveScheduler(ResourceScheduler):
 
 class PopulationBasedScheduler:
     """Population Based Training (PBT) scheduler.
-    
+
     Evolutionary approach to hyperparameter optimization that
     exploits and explores during training.
     """
@@ -175,9 +168,7 @@ class PopulationBasedScheduler:
     def select_parent(self) -> int:
         """Select a parent from the bottom exploit_fraction for exploitation."""
         sorted_pop = sorted(
-            self.population.items(),
-            key=lambda x: x[1].get("performance", 0),
-            reverse=True
+            self.population.items(), key=lambda x: x[1].get("performance", 0), reverse=True
         )
 
         cutoff = int(len(sorted_pop) * (1 - self.exploit_fraction))
@@ -188,6 +179,7 @@ class PopulationBasedScheduler:
 
         # Sample from bottom tier
         import random
+
         return random.choice(bottom_tier)[0]
 
     def mutate_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,11 +206,7 @@ class PopulationBasedScheduler:
         return new_params
 
     def update_population(
-        self,
-        member_id: int,
-        params: Dict[str, Any],
-        performance: float,
-        checkpoint_ref: str
+        self, member_id: int, params: Dict[str, Any], performance: float, checkpoint_ref: str
     ):
         """Update population with trial results."""
         self.population[member_id] = {
@@ -239,9 +227,7 @@ class PopulationBasedScheduler:
 
         # Identify bottom performers to replace
         sorted_pop = sorted(
-            self.population.items(),
-            key=lambda x: x[1].get("performance", 0),
-            reverse=True
+            self.population.items(), key=lambda x: x[1].get("performance", 0), reverse=True
         )
 
         cutoff = int(len(sorted_pop) * (1 - self.exploit_fraction))
@@ -269,7 +255,7 @@ class PopulationBasedScheduler:
 
         best_id = max(
             self.population.keys(),
-            key=lambda k: self.population[k].get("performance", float('-inf'))
+            key=lambda k: self.population[k].get("performance", float("-inf")),
         )
         return self.population[best_id]["params"]
 
@@ -309,10 +295,7 @@ class TrialScheduler:
 
     def can_schedule(self) -> bool:
         """Check if a new trial can be scheduled."""
-        return (
-            len(self.pending_trials) > 0 and
-            len(self.running_trials) < self.max_running
-        )
+        return len(self.pending_trials) > 0 and len(self.running_trials) < self.max_running
 
     def schedule_next(self) -> Optional[Dict]:
         """Get next trial to run."""
@@ -341,5 +324,7 @@ class TrialScheduler:
             "pending": len(self.pending_trials),
             "running": len(self.running_trials),
             "completed": len(self.completed_trials),
-            "total": len(self.pending_trials) + len(self.running_trials) + len(self.completed_trials),
+            "total": len(self.pending_trials)
+            + len(self.running_trials)
+            + len(self.completed_trials),
         }

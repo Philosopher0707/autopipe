@@ -17,13 +17,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-
 from app.core.config import settings
 from app.db.models import Run, RunStatus, Step, StepStatus
-from app.executor.registry import register_run, unregister_run, cancel_run as _cancel_signal
+from app.executor.registry import register_run, unregister_run
 from app.utils.datetime_utils import safe_duration_seconds
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 try:
     import psutil
@@ -77,6 +76,7 @@ def _load_pipeline(config: dict):
     if _PROJECT_ROOT not in sys.path:
         sys.path.insert(0, _PROJECT_ROOT)
     from autopipe.core.loader import load_pipeline_from_config
+
     return load_pipeline_from_config(config)
 
 
@@ -93,20 +93,21 @@ def _schedule_async(coro):
 def _broadcast_run_status(run_id: str, status: str, data: dict | None = None) -> None:
     """Broadcast a run status change via WebSocket."""
     from app.api.v1.endpoints.websocket import broadcast_run_status
+
     _schedule_async(broadcast_run_status(run_id, status, data))
 
 
 def _broadcast_step_status(run_id: str, step_id: str, step_name: str, status: str) -> None:
     """Broadcast a step status change via WebSocket as a run.log event."""
     from app.api.v1.endpoints.websocket import broadcast_run_log
-    _schedule_async(broadcast_run_log(
-        run_id, step_id, "info", f"Step {step_name}: {status}"
-    ))
+
+    _schedule_async(broadcast_run_log(run_id, step_id, "info", f"Step {step_name}: {status}"))
 
 
 def _broadcast_step_metric(run_id: str, step_id: str, metric_name: str, value: float) -> None:
     """Broadcast a step metric via WebSocket."""
     from app.api.v1.endpoints.websocket import broadcast_run_metric
+
     _schedule_async(broadcast_run_metric(run_id, step_id, metric_name, value))
 
 
@@ -258,7 +259,9 @@ def _finalize_run(
                 db, run_id, RunStatus.CANCELLED, error_message="Run cancelled by user"
             )
         elif run_failed:
-            error_msg = f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
+            error_msg = (
+                f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
+            )
             _update_run_status(db, run_id, RunStatus.FAILED, error_message=error_msg)
         else:
             run_metrics = _collect_run_metrics(pipeline, execution_order)
@@ -407,8 +410,12 @@ def _run_pipeline_in_thread(
 
                     with SessionLocal() as db:
                         _update_step_status(
-                            db, step_id, StepStatus.SUCCESS, metrics=step_metrics,
-                            run_id=run_id, step_name=step_name
+                            db,
+                            step_id,
+                            StepStatus.SUCCESS,
+                            metrics=step_metrics,
+                            run_id=run_id,
+                            step_name=step_name,
                         )
 
                 except Exception as e:
@@ -419,8 +426,12 @@ def _run_pipeline_in_thread(
 
                     with SessionLocal() as db:
                         _update_step_status(
-                            db, step_id, StepStatus.FAILED, error_message=step_error,
-                            run_id=run_id, step_name=step_name
+                            db,
+                            step_id,
+                            StepStatus.FAILED,
+                            error_message=step_error,
+                            run_id=run_id,
+                            step_name=step_name,
                         )
 
         # Finalize run status

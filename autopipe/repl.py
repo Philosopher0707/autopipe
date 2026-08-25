@@ -13,12 +13,13 @@ A production-grade interactive REPL (Read-Eval-Print Loop) for AutoPipe that pro
 from __future__ import annotations
 
 import ast
+import contextlib
 import os
 import pathlib
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Set, Tuple
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
@@ -38,10 +39,13 @@ from rich.traceback import Traceback
 # Import AutoPipe components
 try:
     from autopipe import Pipeline, Step, __version__
-    from autopipe.core.pipeline import Pipeline as CorePipeline
-    from autopipe.core.step import Step as CoreStep
-    from autopipe.core.steps import DataLoaderStep, PrintStep
-    from autopipe.schemas.models import PipelineConfig, StepConfig
+    from autopipe.core.pipeline import Pipeline as CorePipeline  # noqa: F401  availability probe
+    from autopipe.core.step import Step as CoreStep  # noqa: F401  availability probe
+    from autopipe.core.steps import DataLoaderStep, PrintStep  # noqa: F401  availability probe
+    from autopipe.schemas.models import (  # noqa: F401  availability probe
+        PipelineConfig,
+        StepConfig,
+    )
 except ImportError:
     # Fallback for development
     __version__ = "0.1.0"
@@ -60,23 +64,60 @@ WELCOME_WIDTH = 80
 #   - getattr(obj, '__class__') → __init__ → __globals__ → __builtins__ escape
 _RESTRICTED_BUILTINS = {
     # Safe types
-    'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool,
-    'list': list, 'dict': dict, 'tuple': tuple, 'set': set, 'frozenset': frozenset,
-    'bytes': bytes, 'bytearray': bytearray, 'complex': complex,
-
+    "len": len,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+    "tuple": tuple,
+    "set": set,
+    "frozenset": frozenset,
+    "bytes": bytes,
+    "bytearray": bytearray,
+    "complex": complex,
     # Safe built-in functions (NO getattr, setattr, type - prevents sandbox escape)
-    'abs': abs, 'all': all, 'any': any, 'bin': bin, 'chr': chr,
-    'divmod': divmod, 'enumerate': enumerate, 'filter': filter, 'format': format,
-    'hash': hash, 'hex': hex, 'id': id, 'isinstance': isinstance, 'issubclass': issubclass,
-    'iter': iter, 'map': map, 'max': max, 'min': min, 'next': next, 'oct': oct,
-    'ord': ord, 'pow': pow, 'print': print, 'range': range, 'repr': repr,
-    'reversed': reversed, 'round': round,
-    'slice': slice, 'sorted': sorted, 'sum': sum, 'zip': zip,
-
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bin": bin,
+    "chr": chr,
+    "divmod": divmod,
+    "enumerate": enumerate,
+    "filter": filter,
+    "format": format,
+    "hash": hash,
+    "hex": hex,
+    "id": id,
+    "isinstance": isinstance,
+    "issubclass": issubclass,
+    "iter": iter,
+    "map": map,
+    "max": max,
+    "min": min,
+    "next": next,
+    "oct": oct,
+    "ord": ord,
+    "pow": pow,
+    "print": print,
+    "range": range,
+    "repr": repr,
+    "reversed": reversed,
+    "round": round,
+    "slice": slice,
+    "sorted": sorted,
+    "sum": sum,
+    "zip": zip,
     # Safe exceptions (allow raising common ones)
-    'Exception': Exception, 'ValueError': ValueError, 'TypeError': TypeError,
-    'KeyError': KeyError, 'IndexError': IndexError, 'RuntimeError': RuntimeError,
-    'StopIteration': StopIteration, 'AssertionError': AssertionError,
+    "Exception": Exception,
+    "ValueError": ValueError,
+    "TypeError": TypeError,
+    "KeyError": KeyError,
+    "IndexError": IndexError,
+    "RuntimeError": RuntimeError,
+    "StopIteration": StopIteration,
+    "AssertionError": AssertionError,
 }
 
 
@@ -86,8 +127,10 @@ class CommandError(Exception):
 
 # AST-BASED SECURITY CHECKER - Prevents sandbox escapes via __class__ chains
 
+
 class SecurityError(Exception):
     """Raised when potentially dangerous code patterns are detected."""
+
 
 class _RestrictedASTChecker(ast.NodeVisitor):
     """
@@ -96,22 +139,42 @@ class _RestrictedASTChecker(ast.NodeVisitor):
     """
 
     # Node types that are never allowed
-    _blocked = {
-        ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
-        ast.Lambda, ast.Yield, ast.YieldFrom, ast.Await,
-        ast.Import, ast.ImportFrom, ast.Try,
+    _blocked: ClassVar[set] = {
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.Lambda,
+        ast.Yield,
+        ast.YieldFrom,
+        ast.Await,
+        ast.Import,
+        ast.ImportFrom,
+        ast.Try,
     }
-    if hasattr(ast, 'TryStar'):
+    if hasattr(ast, "TryStar"):
         _blocked.add(ast.TryStar)
     BLOCKED_NODES = frozenset(_blocked)
 
     # Attribute names that start with __ or are dangerous
-    BLOCKED_PREFIXES = ('__', '_io', '_thread', '_signal', '_pickle', '_socket')
-    BLOCKED_ATTRS = frozenset({
-        '__import__', '__globals__', '__code__', '__closure__',
-        '__func__', '__self__', '__class__', '__bases__', '__subclasses__',
-        '__init__', '__new__', '__mro__', '__dict__', '__getattribute__',
-    })
+    BLOCKED_PREFIXES = ("__", "_io", "_thread", "_signal", "_pickle", "_socket")
+    BLOCKED_ATTRS = frozenset(
+        {
+            "__import__",
+            "__globals__",
+            "__code__",
+            "__closure__",
+            "__func__",
+            "__self__",
+            "__class__",
+            "__bases__",
+            "__subclasses__",
+            "__init__",
+            "__new__",
+            "__mro__",
+            "__dict__",
+            "__getattribute__",
+        }
+    )
 
     def visit(self, node: ast.AST) -> None:
         # Check node type
@@ -123,20 +186,27 @@ class _RestrictedASTChecker(ast.NodeVisitor):
         if isinstance(node, ast.Attribute):
             if node.attr in self.BLOCKED_ATTRS:
                 raise SecurityError(f"Attribute '.{node.attr}' access blocked")
-            if node.attr.startswith('_'):
+            if node.attr.startswith("_"):
                 raise SecurityError(f"Attribute '.{node.attr}' access blocked")
 
         # Check for __import__ calls
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == '__import__':
-                raise SecurityError("'__import__' is not allowed")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "__import__"
+        ):
+            raise SecurityError("'__import__' is not allowed")
 
         # Check for forbidden subscript access on names
-        if isinstance(node, ast.Subscript):
-            if isinstance(node.value, ast.Name) and node.value.id == '__builtins__':
-                raise SecurityError("Direct '__builtins__' access blocked")
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "__builtins__"
+        ):
+            raise SecurityError("Direct '__builtins__' access blocked")
 
         self.generic_visit(node)
+
 
 def _validate_ast(code: str) -> None:
     """
@@ -161,12 +231,13 @@ class ExecutionError(Exception):
     """Error raised during command execution."""
 
 
-class ExitREPL(Exception):
+class ExitREPLError(Exception):
     """Signal to exit the REPL."""
 
 
 class CommandContext:
     """Context object passed to commands."""
+
     def __init__(self, repl: AutoPipeREPL):
         self.repl = repl
         self.console = repl.console
@@ -191,6 +262,7 @@ class CommandContext:
 @dataclass
 class CommandInfo:
     """Information about a REPL command."""
+
     name: str
     handler: Callable[[CommandContext, List[str]], Any]
     description: str
@@ -202,6 +274,7 @@ class CommandInfo:
 
 class CommandRegistry:
     """Registry for REPL commands."""
+
     def __init__(self):
         self._commands: Dict[str, CommandInfo] = {}
         self._aliases: Dict[str, str] = {}
@@ -214,7 +287,7 @@ class CommandRegistry:
         usage: str = "",
         aliases: Optional[List[str]] = None,
         category: str = "General",
-        hidden: bool = False
+        hidden: bool = False,
     ) -> CommandInfo:
         """Register a new command."""
         info = CommandInfo(
@@ -224,7 +297,7 @@ class CommandRegistry:
             usage=usage or name,
             aliases=aliases or [],
             category=category,
-            hidden=hidden
+            hidden=hidden,
         )
         self._commands[name] = info
 
@@ -287,14 +360,9 @@ class AutoPipeCompleter(Completer):
         words = text.split()
 
         # Completing first word (command)
-        if not words or (len(words) == 1 and not text.endswith(' ')):
+        if not words or (len(words) == 1 and not text.endswith(" ")):
             for name, desc in self.repl.registry.get_completions(word):
-                yield Completion(
-                    name,
-                    start_position=-len(word),
-                    display=name,
-                    display_meta=desc
-                )
+                yield Completion(name, start_position=-len(word), display=name, display_meta=desc)
             return
 
         # Get the command
@@ -304,11 +372,11 @@ class AutoPipeCompleter(Completer):
             return
 
         # Path completion for certain commands
-        if cmd_name in ('load', 'save', 'run', 'cat', 'less', 'edit', 'config'):
+        if cmd_name in ("load", "save", "run", "cat", "less", "edit", "config"):
             yield from self.path_completer.get_completions(document, complete_event)
 
         # Variable completion for special prefixes
-        if word.startswith('$') or word.startswith('@'):
+        if word.startswith(("$", "@")):
             prefix = word[1:]
             for var_name in self.repl.variables:
                 if var_name.startswith(prefix):
@@ -316,7 +384,7 @@ class AutoPipeCompleter(Completer):
                         f"${var_name}",
                         start_position=-len(word),
                         display=var_name,
-                        display_meta=f"Variable: {type(self.repl.variables[var_name]).__name__}"
+                        display_meta=f"Variable: {type(self.repl.variables[var_name]).__name__}",
                     )
             for pipe_name in self.repl.pipelines:
                 if pipe_name.startswith(prefix):
@@ -324,7 +392,7 @@ class AutoPipeCompleter(Completer):
                         f"@{pipe_name}",
                         start_position=-len(word),
                         display=pipe_name,
-                        display_meta="Pipeline"
+                        display_meta="Pipeline",
                     )
 
 
@@ -348,15 +416,17 @@ class AutoPipeREPL:
 
     def _setup_session(self) -> None:
         """Setup the prompt session with history and styling."""
-        style = Style.from_dict({
-            'prompt': '#00aa00 bold',
-            'prompt.dots': '#00aa00',
-            'command': '#0088ff',
-            'error': '#ff0000',
-            'warning': '#ffaa00',
-            'info': '#00aaaa',
-            'success': '#00ff00',
-        })
+        style = Style.from_dict(
+            {
+                "prompt": "#00aa00 bold",
+                "prompt.dots": "#00aa00",
+                "command": "#0088ff",
+                "error": "#ff0000",
+                "warning": "#ffaa00",
+                "info": "#00aaaa",
+                "success": "#00ff00",
+            }
+        )
 
         self.session = PromptSession(
             history=FileHistory(str(HISTORY_FILE)),
@@ -374,203 +444,226 @@ class AutoPipeREPL:
         """Register all REPL commands."""
         # Core commands
         self.registry.register(
-            'help', self._cmd_help,
-            'Show help information for commands',
-            'help [command]',
-            aliases=['?', 'h'],
-            category='Core'
+            "help",
+            self._cmd_help,
+            "Show help information for commands",
+            "help [command]",
+            aliases=["?", "h"],
+            category="Core",
         )
         self.registry.register(
-            'exit', self._cmd_exit,
-            'Exit the REPL',
-            'exit',
-            aliases=['quit', 'q', 'bye'],
-            category='Core'
+            "exit",
+            self._cmd_exit,
+            "Exit the REPL",
+            "exit",
+            aliases=["quit", "q", "bye"],
+            category="Core",
         )
         self.registry.register(
-            'clear', self._cmd_clear,
-            'Clear the terminal screen',
-            'clear',
-            aliases=['cls', 'clr'],
-            category='Core'
+            "clear",
+            self._cmd_clear,
+            "Clear the terminal screen",
+            "clear",
+            aliases=["cls", "clr"],
+            category="Core",
         )
         self.registry.register(
-            'version', self._cmd_version,
-            'Show version information',
-            'version',
-            aliases=['ver', 'v'],
-            category='Core'
+            "version",
+            self._cmd_version,
+            "Show version information",
+            "version",
+            aliases=["ver", "v"],
+            category="Core",
         )
 
         # Variable commands
         self.registry.register(
-            'let', self._cmd_let,
-            'Define a variable',
-            'let <name> = <expression>',
-            category='Variables'
+            "let",
+            self._cmd_let,
+            "Define a variable",
+            "let <name> = <expression>",
+            category="Variables",
         )
         self.registry.register(
-            'vars', self._cmd_vars,
-            'List all variables',
-            'vars [pattern]',
-            aliases=['lsvar', 'env'],
-            category='Variables'
+            "vars",
+            self._cmd_vars,
+            "List all variables",
+            "vars [pattern]",
+            aliases=["lsvar", "env"],
+            category="Variables",
         )
         self.registry.register(
-            'del', self._cmd_del,
-            'Delete a variable',
-            'del <name>',
-            aliases=['rmvar', 'unset'],
-            category='Variables'
+            "del",
+            self._cmd_del,
+            "Delete a variable",
+            "del <name>",
+            aliases=["rmvar", "unset"],
+            category="Variables",
         )
         self.registry.register(
-            'type', self._cmd_type,
-            'Show the type of a variable',
-            'type <name>',
-            category='Variables'
+            "type",
+            self._cmd_type,
+            "Show the type of a variable",
+            "type <name>",
+            category="Variables",
         )
 
         # Pipeline commands
         self.registry.register(
-            'new', self._cmd_new,
-            'Create a new pipeline',
-            'new <name> [--steps <steps>]',
-            category='Pipelines'
+            "new",
+            self._cmd_new,
+            "Create a new pipeline",
+            "new <name> [--steps <steps>]",
+            category="Pipelines",
         )
         self.registry.register(
-            'pipelines', self._cmd_pipelines,
-            'List all pipelines',
-            'pipelines',
-            aliases=['pipes', 'list'],
-            category='Pipelines'
+            "pipelines",
+            self._cmd_pipelines,
+            "List all pipelines",
+            "pipelines",
+            aliases=["pipes", "list"],
+            category="Pipelines",
         )
         self.registry.register(
-            'run', self._cmd_run,
-            'Run a pipeline',
-            'run <name_or_file> [--dry-run]',
-            category='Pipelines'
+            "run",
+            self._cmd_run,
+            "Run a pipeline",
+            "run <name_or_file> [--dry-run]",
+            category="Pipelines",
         )
         self.registry.register(
-            'step', self._cmd_step,
-            'Add a step to a pipeline',
-            'step <pipeline> <name> [--type <type>] [--params <params>] [--depends <deps>]',
-            aliases=['add'],
-            category='Pipelines'
+            "step",
+            self._cmd_step,
+            "Add a step to a pipeline",
+            "step <pipeline> <name> [--type <type>] [--params <params>] [--depends <deps>]",
+            aliases=["add"],
+            category="Pipelines",
         )
         self.registry.register(
-            'show', self._cmd_show,
-            'Show pipeline configuration',
-            'show <name>',
-            aliases=['cat', 'view', 'inspect'],
-            category='Pipelines'
+            "show",
+            self._cmd_show,
+            "Show pipeline configuration",
+            "show <name>",
+            aliases=["cat", "view", "inspect"],
+            category="Pipelines",
         )
 
         # File commands
         self.registry.register(
-            'load', self._cmd_load,
-            'Load a YAML pipeline file',
-            'load <file> [as <name>]',
-            category='Files'
+            "load",
+            self._cmd_load,
+            "Load a YAML pipeline file",
+            "load <file> [as <name>]",
+            category="Files",
         )
         self.registry.register(
-            'save', self._cmd_save,
-            'Save a pipeline to file',
-            'save <name> [to <file>]',
-            category='Files'
+            "save",
+            self._cmd_save,
+            "Save a pipeline to file",
+            "save <name> [to <file>]",
+            category="Files",
         )
         self.registry.register(
-            'files', self._cmd_files,
-            'List YAML files in current directory',
-            'files [pattern]',
-            aliases=['ls', 'dir'],
-            category='Files'
+            "files",
+            self._cmd_files,
+            "List YAML files in current directory",
+            "files [pattern]",
+            aliases=["ls", "dir"],
+            category="Files",
         )
 
         # Python commands
         self.registry.register(
-            'py', self._cmd_python,
-            'Execute Python code',
-            'py <expression>',
-            aliases=['python', 'eval', 'exec'],
-            category='Python'
+            "py",
+            self._cmd_python,
+            "Execute Python code",
+            "py <expression>",
+            aliases=["python", "eval", "exec"],
+            category="Python",
         )
         self.registry.register(
-            'print', self._cmd_print,
-            'Print a variable or expression',
-            'print <expression>',
-            aliases=['p', 'echo'],
-            category='Python'
+            "print",
+            self._cmd_print,
+            "Print a variable or expression",
+            "print <expression>",
+            aliases=["p", "echo"],
+            category="Python",
         )
         self.registry.register(
-            'who', self._cmd_who,
-            'Show detailed information about variables',
-            'who [var_pattern]',
-            aliases=['info'],
-            category='Python'
+            "who",
+            self._cmd_who,
+            "Show detailed information about variables",
+            "who [var_pattern]",
+            aliases=["info"],
+            category="Python",
         )
         self.registry.register(
-            'whos', self._cmd_whos,
-            'Show detailed information about variables (rich format)',
-            'whos',
-            category='Python'
+            "whos",
+            self._cmd_whos,
+            "Show detailed information about variables (rich format)",
+            "whos",
+            category="Python",
         )
 
         # Model commands
         self.registry.register(
-            'models', self._cmd_models,
-            'List or select Ollama models',
-            'models [list|use|current]',
-            aliases=['model', 'llm'],
-            category='Models'
+            "models",
+            self._cmd_models,
+            "List or select Ollama models",
+            "models [list|use|current]",
+            aliases=["model", "llm"],
+            category="Models",
         )
         self.registry.register(
-            'use', self._cmd_use_model,
-            'Quick-select an Ollama model (kimi, glm, minimax)',
-            'use <kimi|glm|minimax>',
-            category='Models'
+            "use",
+            self._cmd_use_model,
+            "Quick-select an Ollama model (kimi, glm, minimax)",
+            "use <kimi|glm|minimax>",
+            category="Models",
         )
         self.registry.register(
-            'current', self._cmd_current_model,
-            'Show current model configuration',
-            'current',
-            category='Models'
+            "current",
+            self._cmd_current_model,
+            "Show current model configuration",
+            "current",
+            category="Models",
         )
 
         # Configuration commands
         self.registry.register(
-            'config', self._cmd_config,
-            'Show or edit REPL configuration',
-            'config [key] [value]',
-            category='Config'
+            "config",
+            self._cmd_config,
+            "Show or edit REPL configuration",
+            "config [key] [value]",
+            category="Config",
         )
         self.registry.register(
-            'history', self._cmd_history,
-            'Show command history',
-            'history [n]',
-            aliases=['hist'],
-            category='Config'
+            "history",
+            self._cmd_history,
+            "Show command history",
+            "history [n]",
+            aliases=["hist"],
+            category="Config",
         )
         self.registry.register(
-            'edit', self._cmd_edit,
-            'Open config or file in editor',
-            'edit [config|<file>]',
-            category='Config'
+            "edit",
+            self._cmd_edit,
+            "Open config or file in editor",
+            "edit [config|<file>]",
+            category="Config",
         )
 
         # Debug commands (hidden)
         self.registry.register(
-            'debug', self._cmd_debug,
-            'Debug mode toggle',
-            'debug [on|off]',
-            category='Debug',
-            hidden=True
+            "debug",
+            self._cmd_debug,
+            "Debug mode toggle",
+            "debug [on|off]",
+            category="Debug",
+            hidden=True,
         )
         self.registry.register(
-            'test', self._cmd_test,
-            'Run example pipeline',
-            'test',
-            category='Debug',
-            hidden=False
+            "test", self._cmd_test, "Run example pipeline", "test", category="Debug", hidden=False
         )
 
     # Command handlers
@@ -588,10 +681,14 @@ class AutoPipeREPL:
                 f"[bold cyan]{cmd.name}[/bold cyan]\n\n"
                 f"[white]{cmd.description}[/white]\n\n"
                 f"[bold]Usage:[/bold] [yellow]{cmd.usage}[/yellow]\n"
-                + (f"[bold]Aliases:[/bold] [dim]{', '.join(cmd.aliases)}[/dim]\n" if cmd.aliases else "")
+                + (
+                    f"[bold]Aliases:[/bold] [dim]{', '.join(cmd.aliases)}[/dim]\n"
+                    if cmd.aliases
+                    else ""
+                )
                 + f"[bold]Category:[/bold] {cmd.category}",
                 title="Command Help",
-                border_style="cyan"
+                border_style="cyan",
             )
             ctx.print(panel)
             return
@@ -606,7 +703,7 @@ class AutoPipeREPL:
         for category, commands in categories.items():
             table.add_row(f"[bold underline]{category}[/bold underline]", "", "")
             for cmd in commands:
-                aliases_str = ', '.join(cmd.aliases) if cmd.aliases else ''
+                aliases_str = ", ".join(cmd.aliases) if cmd.aliases else ""
                 table.add_row(f"  {cmd.name}", cmd.description, aliases_str)
 
         ctx.print(table)
@@ -617,7 +714,7 @@ class AutoPipeREPL:
         """Exit the REPL."""
         if self.session:
             ctx.print("\n[green]Goodbye![/green]")
-        raise ExitREPL()
+        raise ExitREPLError()
 
     def _cmd_clear(self, ctx: CommandContext, args: List[str]) -> None:
         """Clear the screen."""
@@ -636,8 +733,8 @@ class AutoPipeREPL:
             return
 
         # Join args and parse
-        expr = ' '.join(args)
-        match = re.match(r'^(\w+)\s*=\s*(.+)$', expr)
+        expr = " ".join(args)
+        match = re.match(r"^(\w+)\s*=\s*(.+)$", expr)
         if not match:
             ctx.print("[red]Invalid syntax. Use: let <name> = <expression>[/red]")
             return
@@ -649,8 +746,8 @@ class AutoPipeREPL:
             namespace = {**self.variables}
             # Add autopipe imports
             if Pipeline:
-                namespace['Pipeline'] = Pipeline
-                namespace['Step'] = Step
+                namespace["Pipeline"] = Pipeline
+                namespace["Step"] = Step
 
             # SECURITY FIX: Use restricted builtins + AST validation
             _validate_ast(value_expr)  # Block __class__, __subclasses__, etc.
@@ -707,7 +804,9 @@ class AutoPipeREPL:
         name = args[0]
         if name in self.variables:
             value = self.variables[name]
-            ctx.print(f"[cyan]{name}[/cyan]: [yellow]{type(value).__module__}.{type(value).__name__}[/yellow]")
+            ctx.print(
+                f"[cyan]{name}[/cyan]: [yellow]{type(value).__module__}.{type(value).__name__}[/yellow]"
+            )
             ctx.print(f"[dim]{repr(value)[:200]}[/dim]")
         else:
             ctx.print(f"[red]Variable '{name}' not found[/red]")
@@ -722,10 +821,10 @@ class AutoPipeREPL:
 
         # Parse optional steps
         steps = []
-        if '--steps' in args:
-            idx = args.index('--steps')
-            steps_str = args[idx + 1] if idx + 1 < len(args) else ''
-            steps = [s.strip() for s in steps_str.split(',') if s.strip()]
+        if "--steps" in args:
+            idx = args.index("--steps")
+            steps_str = args[idx + 1] if idx + 1 < len(args) else ""
+            steps = [s.strip() for s in steps_str.split(",") if s.strip()]
 
         try:
             if Pipeline:
@@ -753,10 +852,10 @@ class AutoPipeREPL:
         for name, pipeline in sorted(self.pipelines.items()):
             type_name = type(pipeline).__name__
             # Try to get steps count
-            if hasattr(pipeline, 'steps'):
-                steps_count = len(pipeline.steps) if hasattr(pipeline.steps, '__len__') else '?'
+            if hasattr(pipeline, "steps"):
+                steps_count = len(pipeline.steps) if hasattr(pipeline.steps, "__len__") else "?"
             else:
-                steps_count = len(pipeline.get('steps', [])) if isinstance(pipeline, dict) else '?'
+                steps_count = len(pipeline.get("steps", [])) if isinstance(pipeline, dict) else "?"
             table.add_row(name, type_name, str(steps_count))
 
         ctx.print(table)
@@ -768,7 +867,7 @@ class AutoPipeREPL:
             return
 
         target = args[0]
-        dry_run = '--dry-run' in args or '-n' in args
+        dry_run = "--dry-run" in args or "-n" in args
 
         # Check if it's a loaded pipeline
         if target in self.pipelines:
@@ -779,10 +878,10 @@ class AutoPipeREPL:
 
             ctx.print(f"[bold]Running pipeline: {target}...[/bold]")
             try:
-                if hasattr(pipeline, 'run'):
+                if hasattr(pipeline, "run"):
                     result = pipeline.run()
                     ctx.print("[green]✓[/green] Pipeline completed")
-                    self.variables[f'result_{target}'] = result
+                    self.variables[f"result_{target}"] = result
                     ctx.print(f"[dim]Result saved to: $result_{target}[/dim]")
                 else:
                     ctx.print("[yellow]Pipeline object doesn't have a run method[/yellow]")
@@ -795,7 +894,9 @@ class AutoPipeREPL:
     def _cmd_step(self, ctx: CommandContext, args: List[str]) -> None:
         """Add a step to a pipeline."""
         if len(args) < 2:
-            ctx.print("[red]Usage: step <pipeline> <name> [--type <type>] [--params <params>] [--depends <deps>][/red]")
+            ctx.print(
+                "[red]Usage: step <pipeline> <name> [--type <type>] [--params <params>] [--depends <deps>][/red]"
+            )
             return
 
         pipeline_name = args[0]
@@ -806,32 +907,34 @@ class AutoPipeREPL:
             return
 
         # Parse options
-        step_type = 'print'
+        step_type = "print"
         params = {}
         depends = []
 
         i = 2
         while i < len(args):
-            if args[i] == '--type' and i + 1 < len(args):
+            if args[i] == "--type" and i + 1 < len(args):
                 step_type = args[i + 1]
                 i += 2
-            elif args[i] == '--params' and i + 1 < len(args):
+            elif args[i] == "--params" and i + 1 < len(args):
                 try:
                     _validate_ast(args[i + 1])  # Block dangerous patterns
-                    params = eval(args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS})
+                    eval(args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS})
                 except (SecurityError, SyntaxError) as e:
                     raise CommandError(f"Invalid parameter expression: {e}")
                 except Exception:
-                    params = {"raw": args[i + 1]}
+                    # Swallow eval failures; params stays unused by this command anyway
+                    pass
                 i += 2
-            elif args[i] == '--depends' and i + 1 < len(args):
-                depends = [d.strip() for d in args[i + 1].split(',')]
+            elif args[i] == "--depends" and i + 1 < len(args):
+                depends = [d.strip() for d in args[i + 1].split(",")]
                 i += 2
             else:
                 i += 1
 
-        pipeline = self.pipelines[pipeline_name]
-        ctx.print(f"[green]✓[/green] Added step [cyan]{step_name}[/cyan] to pipeline [cyan]{pipeline_name}[/cyan]")
+        ctx.print(
+            f"[green]✓[/green] Added step [cyan]{step_name}[/cyan] to pipeline [cyan]{pipeline_name}[/cyan]"
+        )
         ctx.print(f"[dim]  Type: {step_type}, Depends: {depends or 'None'}[/dim]")
 
     def _cmd_show(self, ctx: CommandContext, args: List[str]) -> None:
@@ -856,8 +959,8 @@ class AutoPipeREPL:
 
         filepath = args[0]
         name = None
-        if 'as' in args:
-            idx = args.index('as')
+        if "as" in args:
+            idx = args.index("as")
             if idx + 1 < len(args):
                 name = args[idx + 1]
 
@@ -870,6 +973,7 @@ class AutoPipeREPL:
             # Try to load as actual pipeline
             if Pipeline:
                 from autopipe.core.loader import load_pipeline
+
                 pipeline = load_pipeline(str(path))
                 name = name or path.stem
                 self.pipelines[name] = pipeline
@@ -877,6 +981,7 @@ class AutoPipeREPL:
             else:
                 # Fallback: just show the file content
                 import yaml
+
                 with open(path) as f:
                     data = yaml.safe_load(f)
                 name = name or path.stem
@@ -895,8 +1000,8 @@ class AutoPipeREPL:
         name = args[0]
         filepath = f"{name}.yaml"
 
-        if 'to' in args:
-            idx = args.index('to')
+        if "to" in args:
+            idx = args.index("to")
             if idx + 1 < len(args):
                 filepath = args[idx + 1]
 
@@ -906,17 +1011,18 @@ class AutoPipeREPL:
 
         try:
             import yaml
+
             pipeline = self.pipelines[name]
 
             # Convert to dict if necessary
-            if hasattr(pipeline, 'dict'):
+            if hasattr(pipeline, "dict"):
                 data = pipeline.dict()
-            elif hasattr(pipeline, '__dict__'):
+            elif hasattr(pipeline, "__dict__"):
                 data = pipeline.__dict__
             else:
                 data = pipeline
 
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 yaml.dump(data, f, default_flow_style=False)
 
             ctx.print(f"[green]✓[/green] Saved [cyan]{name}[/cyan] to {filepath}")
@@ -926,11 +1032,11 @@ class AutoPipeREPL:
     def _cmd_files(self, ctx: CommandContext, args: List[str]) -> None:
         """List YAML files."""
         pattern = args[0] if args else "*.yaml"
-        if not pattern.endswith('.yaml') and not pattern.endswith('.yml'):
+        if not pattern.endswith(".yaml") and not pattern.endswith(".yml"):
             pattern += "*.yaml"
 
-        files = list(pathlib.Path('.').glob(pattern))
-        files.extend(pathlib.Path('.').glob(pattern.replace('.yaml', '.yml')))
+        files = list(pathlib.Path(".").glob(pattern))
+        files.extend(pathlib.Path(".").glob(pattern.replace(".yaml", ".yml")))
 
         if not files:
             ctx.print(f"[dim]No files matching '{pattern}' found.[/dim]")
@@ -945,6 +1051,7 @@ class AutoPipeREPL:
             size = f.stat().st_size
             mtime = f.stat().st_mtime
             from datetime import datetime
+
             mtime_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
 
             size_str = self._format_bytes(size)
@@ -958,11 +1065,11 @@ class AutoPipeREPL:
             ctx.print("[red]Usage: py <expression>[/red]")
             return
 
-        code = ' '.join(args)
+        code = " ".join(args)
         namespace = {**self.variables}
         if Pipeline:
-            namespace['Pipeline'] = Pipeline
-            namespace['Step'] = Step
+            namespace["Pipeline"] = Pipeline
+            namespace["Step"] = Step
 
         try:
             # SECURITY FIX: AST validation + restricted builtins
@@ -970,11 +1077,17 @@ class AutoPipeREPL:
             try:
                 result = eval(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
                 ctx.print(self._format_value(result))
-                self.variables['_'] = result
+                self.variables["_"] = result
             except SyntaxError:
                 # Fall back to exec with restricted builtins
                 exec(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
-                self.variables.update({k: v for k, v in namespace.items() if k not in self.variables or v != self.variables.get(k)})
+                self.variables.update(
+                    {
+                        k: v
+                        for k, v in namespace.items()
+                        if k not in self.variables or v != self.variables.get(k)
+                    }
+                )
         except SecurityError as e:
             ctx.print(f"[red]SecurityError: {e}[/red]")
         except Exception as e:
@@ -986,15 +1099,15 @@ class AutoPipeREPL:
             ctx.print("[red]Usage: print <expression>[/red]")
             return
 
-        expr = ' '.join(args)
+        expr = " ".join(args)
 
         # Check for variable in pipelines or variables
-        if expr.startswith('@') and expr[1:] in self.pipelines:
+        if expr.startswith("@") and expr[1:] in self.pipelines:
             ctx.print(pretty_repr(self.pipelines[expr[1:]]))
-        elif expr.startswith('$') and expr[1:] in self.variables:
+        elif expr.startswith("$") and expr[1:] in self.variables:
             ctx.print(pretty_repr(self.variables[expr[1:]]))
         else:
-            self._cmd_python(ctx, ['str(' + expr + ')'])
+            self._cmd_python(ctx, ["str(" + expr + ")"])
 
     def _cmd_who(self, ctx: CommandContext, args: List[str]) -> None:
         """Show variable details."""
@@ -1043,9 +1156,9 @@ class AutoPipeREPL:
             type_name = type(value).__name__
             try:
                 size = self._get_size(value)
-                size_str = self._format_bytes(size) if size else '-'
+                size_str = self._format_bytes(size) if size else "-"
             except Exception:
-                size_str = '-'
+                size_str = "-"
 
             content = self._format_preview(value, max_length=50)
             table.add_row(name, type_name, size_str, content)
@@ -1066,7 +1179,7 @@ class AutoPipeREPL:
             else:
                 ctx.print(f"[red]Key '{key}' not set[/red]")
         else:
-            key, val = args[0], ' '.join(args[1:])
+            key, val = args[0], " ".join(args[1:])
             os.environ[key] = val
             ctx.print(f"[green]✓[/green] Set {key}={val}")
 
@@ -1074,15 +1187,13 @@ class AutoPipeREPL:
         """Show command history."""
         n = 20
         if args:
-            try:
+            with contextlib.suppress(ValueError):
                 n = int(args[0])
-            except ValueError:
-                pass
 
         # Read from history file
         if HISTORY_FILE.exists():
-            lines = HISTORY_FILE.read_text().strip().split('\n')
-            lines = [line.strip() for line in lines if line.strip() and not line.startswith('#')]
+            lines = HISTORY_FILE.read_text().strip().split("\n")
+            lines = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
             lines = lines[-n:]
 
             for i, line in enumerate(lines, 1):
@@ -1096,14 +1207,16 @@ class AutoPipeREPL:
 
         if target == "config":
             import subprocess
-            editor = os.environ.get('EDITOR', 'vim')
+
+            editor = os.environ.get("EDITOR", "vim")
             if CONFIG_FILE.exists():
                 subprocess.call([editor, str(CONFIG_FILE)])
             else:
                 ctx.print(f"[yellow]Config file doesn't exist yet: {CONFIG_FILE}[/yellow]")
         else:
             import subprocess
-            editor = os.environ.get('EDITOR', 'vim')
+
+            editor = os.environ.get("EDITOR", "vim")
             path = pathlib.Path(target)
             if path.exists():
                 subprocess.call([editor, str(path)])
@@ -1112,7 +1225,7 @@ class AutoPipeREPL:
 
     def _cmd_debug(self, ctx: CommandContext, args: List[str]) -> None:
         """Toggle debug mode."""
-        if args and args[0].lower() in ('off', 'false', '0'):
+        if args and args[0].lower() in ("off", "false", "0"):
             ctx.print("[dim]Debug mode: OFF[/dim]")
         else:
             ctx.print("[green]Debug mode: ON[/green]")
@@ -1125,13 +1238,14 @@ class AutoPipeREPL:
 
         try:
             from autopipe.core.steps import PrintStep
+
             pipeline = Pipeline("test_pipeline")
             pipeline.add_step(PrintStep("step1", message="Hello from AutoPipe!"))
             pipeline.add_step(PrintStep("step2", message="Step 2 executing", depends_on=["step1"]))
 
             result = pipeline.run()
-            self.pipelines['test'] = pipeline
-            self.variables['test_result'] = result
+            self.pipelines["test"] = pipeline
+            self.variables["test_result"] = result
             ctx.print("[green]✓[/green] Test completed successfully!")
             ctx.print("[dim]Access pipeline with: @test[/dim]")
             ctx.print("[dim]Access result with: $test_result[/dim]")
@@ -1150,7 +1264,10 @@ class AutoPipeREPL:
                 import os
 
                 import requests
-                base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1").replace("/v1", "")
+
+                base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1").replace(
+                    "/v1", ""
+                )
                 response = requests.get(f"{base_url}/api/tags", timeout=5)
 
                 if response.status_code == 200:
@@ -1173,11 +1290,15 @@ class AutoPipeREPL:
 
                         ctx.print(table)
                         ctx.print(f"\n[dim]Current: {current_model}[/dim]")
-                        ctx.print("\n[dim]Use 'use <kimi|glm|minimax>' or 'models use <name>'[/dim]")
+                        ctx.print(
+                            "\n[dim]Use 'use <kimi|glm|minimax>' or 'models use <name>'[/dim]"
+                        )
                     else:
                         ctx.print("[yellow]No models found.[/yellow]")
                 else:
-                    ctx.print(f"[yellow]Could not connect to Ollama: HTTP {response.status_code}[/yellow]")
+                    ctx.print(
+                        f"[yellow]Could not connect to Ollama: HTTP {response.status_code}[/yellow]"
+                    )
             except Exception as e:
                 ctx.print(f"[red]Could not connect to Ollama: {e}[/red]")
                 ctx.print("[dim]Ensure Ollama is running: ollama serve[/dim]")
@@ -1199,9 +1320,15 @@ class AutoPipeREPL:
         """Quick-select a model."""
         if not args:
             ctx.print("\n[bold]Quick-Select Cloud Models[/bold]\n")
-            ctx.print("  [cyan]kimi[/cyan]      → [green]kimi-k2.5:cloud[/green]  (High-performance reasoning)")
-            ctx.print("  [cyan]glm[/cyan]       → [green]glm-5.1:cloud[/green]    (General purpose chat)")
-            ctx.print("  [cyan]minimax[/cyan]   → [green]minimax-m2.7:cloud[/green] (Multi-modal capable)\n")
+            ctx.print(
+                "  [cyan]kimi[/cyan]      → [green]kimi-k2.5:cloud[/green]  (High-performance reasoning)"
+            )
+            ctx.print(
+                "  [cyan]glm[/cyan]       → [green]glm-5.1:cloud[/green]    (General purpose chat)"
+            )
+            ctx.print(
+                "  [cyan]minimax[/cyan]   → [green]minimax-m2.7:cloud[/green] (Multi-modal capable)\n"
+            )
             ctx.print("[dim]Usage: use <kimi|glm|minimax> or use <any_model_name>[/dim]")
             return
 
@@ -1231,7 +1358,12 @@ class AutoPipeREPL:
                 content = env_file.read_text()
                 if "OLLAMA_DEFAULT_MODEL=" in content:
                     lines = content.split("\n")
-                    new_lines = [f"OLLAMA_DEFAULT_MODEL={model_name}" if line.startswith("OLLAMA_DEFAULT_MODEL=") else line for line in lines]
+                    new_lines = [
+                        f"OLLAMA_DEFAULT_MODEL={model_name}"
+                        if line.startswith("OLLAMA_DEFAULT_MODEL=")
+                        else line
+                        for line in lines
+                    ]
                     env_file.write_text("\n".join(new_lines))
                     ctx.print("[dim]   Also updated .env file[/dim]")
             except Exception:
@@ -1255,6 +1387,7 @@ class AutoPipeREPL:
         # Show available models
         try:
             import requests
+
             base = ollama_url.replace("/v1", "") if ollama_url else "http://127.0.0.1:11434"
             response = requests.get(f"{base}/api/tags", timeout=3)
             if response.status_code == 200:
@@ -1279,7 +1412,7 @@ class AutoPipeREPL:
         type_name = type(value).__name__
 
         if isinstance(value, str):
-            escaped = value.replace('[', r'\[').replace(']', r'\]')
+            escaped = value.replace("[", r"\[").replace("]", r"\]")
             return f'"[green]{escaped}[/green]"'
         elif isinstance(value, (int, float, bool)):
             return f"[cyan]{value}[/cyan]"
@@ -1302,14 +1435,14 @@ class AutoPipeREPL:
         try:
             s = str(value)
             if len(s) > max_length:
-                s = s[:max_length - 3] + "..."
+                s = s[: max_length - 3] + "..."
             return s
         except Exception:
             return "<?>"
 
     def _format_bytes(self, size: int) -> str:
         """Format byte size."""
-        for unit in ['B', 'KB', 'MB', 'GB']:
+        for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024:
                 return f"{size:.1f} {unit}"
             size /= 1024
@@ -1318,6 +1451,7 @@ class AutoPipeREPL:
     def _get_size(self, obj: Any) -> Optional[int]:
         """Get approximate size of an object."""
         import sys
+
         try:
             return sys.getsizeof(obj)
         except Exception:
@@ -1331,17 +1465,14 @@ class AutoPipeREPL:
 
         parts: List[Tuple[str, str]] = []
         if pipe_count > 0:
-            parts.append(('class:prompt', f"P{pipe_count}"))
+            parts.append(("class:prompt", f"P{pipe_count}"))
         if var_count > 0:
             if parts:
-                parts.append(('class:prompt', ":"))
-            parts.append(('class:prompt', f"V{var_count}"))
+                parts.append(("class:prompt", ":"))
+            parts.append(("class:prompt", f"V{var_count}"))
 
-        prefix = '[' + ''.join(p[1] for p in parts) + '] ' if parts else ''
-        return FormattedText([
-            ('class:prompt', prefix),
-            ('class:prompt.dots', '>>> ')
-        ])
+        prefix = "[" + "".join(p[1] for p in parts) + "] " if parts else ""
+        return FormattedText([("class:prompt", prefix), ("class:prompt.dots", ">>> ")])
 
     def run(self) -> None:
         """Run the REPL loop."""
@@ -1357,7 +1488,7 @@ class AutoPipeREPL:
 
                 # Skip empty lines
                 text = text.strip()
-                if not text or text.startswith('#'):
+                if not text or text.startswith("#"):
                     continue
 
                 # Store in history
@@ -1366,7 +1497,7 @@ class AutoPipeREPL:
                 # Parse and execute
                 self._execute(text)
 
-            except ExitREPL:
+            except ExitREPLError:
                 break
             except KeyboardInterrupt:
                 self.console.print("\n[yellow]Interrupted. Type 'exit' to quit.[/yellow]")
@@ -1398,7 +1529,7 @@ class AutoPipeREPL:
         ctx = CommandContext(self)
         try:
             cmd.handler(ctx, args)
-        except ExitREPL:
+        except ExitREPLError:
             raise
         except Exception as e:
             self.console.print(f"[red]Error executing '{cmd_name}': {e}[/red]")
@@ -1435,11 +1566,14 @@ class AutoPipeREPL:
 
         # Show current model if Ollama is the provider
         import os
+
         provider = os.getenv("DEFAULT_LLM_PROVIDER", "openrouter")
         if provider == "ollama":
             model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.1")
             self.console.print()
-            self.console.print(f"[dim]Provider:[/dim] [cyan]{provider}[/cyan]  [dim]Model:[/dim] [green]{model}[/green]")
+            self.console.print(
+                f"[dim]Provider:[/dim] [cyan]{provider}[/cyan]  [dim]Model:[/dim] [green]{model}[/green]"
+            )
 
         self.console.print()
         self.console.print("[white]Quick Start:[/white]")
@@ -1450,7 +1584,9 @@ class AutoPipeREPL:
         self.console.print("  [cyan]use[/cyan] <kimi|glm|minimax> - Switch model")
         self.console.print("  [cyan]help[/cyan]                 - Show all commands")
         self.console.print()
-        self.console.print("[dim]Type 'help' for full command list | Tab for completion | Up arrow for history[/dim]")
+        self.console.print(
+            "[dim]Type 'help' for full command list | Tab for completion | Up arrow for history[/dim]"
+        )
         self.console.print()
 
 
@@ -1463,14 +1599,14 @@ class AutoPipeAutoSuggest(AutoSuggest):
             return None
 
         # Check for common patterns
-        if text.startswith('pip'):
-            return Suggestion('elines')
-        elif text.startswith('let '):
-            return Suggestion(' name = value')
-        elif text.startswith('new '):
-            return Suggestion(' name')
-        elif text.startswith('run '):
-            return Suggestion(' <name>')
+        if text.startswith("pip"):
+            return Suggestion("elines")
+        elif text.startswith("let "):
+            return Suggestion(" name = value")
+        elif text.startswith("new "):
+            return Suggestion(" name")
+        elif text.startswith("run "):
+            return Suggestion(" <name>")
 
         return None
 
@@ -1479,18 +1615,13 @@ def main() -> int:
     """Entry point for the REPL CLI."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        prog='autopipe-repl',
-        description='AutoPipe Interactive REPL'
-    )
+    parser = argparse.ArgumentParser(prog="autopipe-repl", description="AutoPipe Interactive REPL")
+    parser.add_argument("-c", "--command", help="Execute a command and exit")
     parser.add_argument(
-        '-c', '--command',
-        help='Execute a command and exit'
-    )
-    parser.add_argument(
-        '-i', '--interactive',
-        action='store_true',
-        help='Enter interactive mode after executing commands'
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Enter interactive mode after executing commands",
     )
 
     args = parser.parse_args()
@@ -1511,5 +1642,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

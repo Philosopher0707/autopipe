@@ -20,6 +20,7 @@ from autopipe.core.step import Step
 @dataclass
 class ValidationReport:
     """Comprehensive data validation report."""
+
     is_valid: bool = True
     missing_columns: List[str] = field(default_factory=list)
     null_counts: Dict[str, int] = field(default_factory=dict)
@@ -34,7 +35,7 @@ class ValidationReport:
 
 class DataLoaderStep(Step):
     """Load data from various sources.
-    
+
     Supports CSV, Parquet, JSON, SQL databases, and cloud storage.
     """
 
@@ -46,7 +47,7 @@ class DataLoaderStep(Step):
         sql_connection: Optional[str] = None,
         sql_query: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.source = source
@@ -58,10 +59,11 @@ class DataLoaderStep(Step):
     def run(self, **kwargs) -> pd.DataFrame:
         """Load data from specified source."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         # Get source from kwargs if not set
-        source = self.source or kwargs.get('source')
+        source = self.source or kwargs.get("source")
 
         if not source and not self.sql_query:
             raise ValueError("Data source must be specified")
@@ -78,6 +80,7 @@ class DataLoaderStep(Step):
             df = pd.read_excel(source, **self.options)
         elif self.format == "sql":
             import sqlalchemy
+
             engine = sqlalchemy.create_engine(self.sql_connection)
             df = pd.read_sql(self.sql_query, engine, **self.options)
         elif self.format == "feather":
@@ -92,7 +95,7 @@ class DataLoaderStep(Step):
         self.log_metrics(
             rows_loaded=len(df),
             columns_loaded=len(df.columns),
-            memory_usage_mb=df.memory_usage(deep=True).sum() / 1024 / 1024
+            memory_usage_mb=df.memory_usage(deep=True).sum() / 1024 / 1024,
         )
 
         logger.info(f"Loaded {len(df)} rows and {len(df.columns)} columns")
@@ -101,18 +104,19 @@ class DataLoaderStep(Step):
     def visualize(self, **kwargs):
         """Generate data loading visualization."""
         from autopipe.visualization import ChartGenerator
+
         chart = ChartGenerator()
 
         if self.metrics:
             chart.plot_metrics(
                 {k: [v] for k, v in self.metrics.items() if isinstance(v, (int, float))},
-                title=f"Data Loading Metrics - {self.name}"
+                title=f"Data Loading Metrics - {self.name}",
             )
 
 
 class DataValidatorStep(Step):
     """Comprehensive data validation step.
-    
+
     Validates data schema, nulls, duplicates, outliers, and data types.
     """
 
@@ -127,7 +131,7 @@ class DataValidatorStep(Step):
         outlier_method: str = "iqr",
         outlier_threshold: float = 1.5,
         value_ranges: Optional[Dict[str, Tuple]] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.required_columns = required_columns or []
@@ -143,6 +147,7 @@ class DataValidatorStep(Step):
     def run(self, **kwargs) -> pd.DataFrame:
         """Validate input data and return cleaned DataFrame."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         # Get DataFrame from inputs
@@ -172,8 +177,9 @@ class DataValidatorStep(Step):
         report.null_counts = null_counts.to_dict()
         report.null_percentages = null_percentages
 
-        high_null_cols = [col for col, pct in null_percentages.items()
-                         if pct > self.max_null_ratio * 100]
+        high_null_cols = [
+            col for col, pct in null_percentages.items() if pct > self.max_null_ratio * 100
+        ]
         if high_null_cols:
             report.warnings.append(f"High null ratio in columns: {high_null_cols}")
 
@@ -207,7 +213,9 @@ class DataValidatorStep(Step):
                 # Simple type checking
                 if expected_type == "numeric" and not pd.api.types.is_numeric_dtype(df[col]):
                     report.type_violations[col] = [f"Expected numeric, got {actual_type}"]
-                elif expected_type == "categorical" and not pd.api.types.is_categorical_dtype(df[col]):
+                elif expected_type == "categorical" and not pd.api.types.is_categorical_dtype(
+                    df[col]
+                ):
                     if not pd.api.types.is_object_dtype(df[col]):
                         report.type_violations[col] = [f"Expected categorical, got {actual_type}"]
 
@@ -220,14 +228,16 @@ class DataValidatorStep(Step):
             duplicate_count=report.duplicate_count,
             total_outliers=sum(report.outliers_detected.values()),
             warnings=len(report.warnings),
-            errors=len(report.errors)
+            errors=len(report.errors),
         )
 
-        logger.info(f"Validation complete: valid={report.is_valid}, errors={len(report.errors)}, warnings={len(report.warnings)}")
+        logger.info(
+            f"Validation complete: valid={report.is_valid}, errors={len(report.errors)}, warnings={len(report.warnings)}"
+        )
 
         # Add validation context
-        if 'context' in kwargs:
-            kwargs['context']['validation_results'] = report
+        if "context" in kwargs:
+            kwargs["context"]["validation_results"] = report
 
         return df
 
@@ -257,6 +267,7 @@ class DataValidatorStep(Step):
     def visualize(self, **kwargs):
         """Generate validation report visualization."""
         from autopipe.visualization import ChartGenerator
+
         chart = ChartGenerator()
 
         if self.validation_report:
@@ -265,14 +276,14 @@ class DataValidatorStep(Step):
                 "Missing Columns": [len(self.validation_report.missing_columns)],
                 "Duplicates": [self.validation_report.duplicate_count],
                 "Warnings": [len(self.validation_report.warnings)],
-                "Errors": [len(self.validation_report.errors)]
+                "Errors": [len(self.validation_report.errors)],
             }
             chart.plot_metrics(metrics, title=f"Validation Summary - {self.name}")
 
 
 class DataPreprocessorStep(Step):
     """Comprehensive data preprocessing step.
-    
+
     Handles scaling, encoding, and imputation with proper fit/transform separation.
     """
 
@@ -286,7 +297,7 @@ class DataPreprocessorStep(Step):
         imputation_categorical: Optional[str] = None,
         handle_unknown: str = "ignore",
         passthrough_columns: Optional[List[str]] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.numeric_scaling = numeric_scaling
@@ -307,6 +318,7 @@ class DataPreprocessorStep(Step):
     def run(self, **kwargs) -> pd.DataFrame:
         """Preprocess data with scaling, encoding, and imputation."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         df = None
@@ -322,7 +334,7 @@ class DataPreprocessorStep(Step):
 
         # Separate columns
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
 
         # Remove passthrough columns
         numeric_cols = [c for c in numeric_cols if c not in self.passthrough_columns]
@@ -343,14 +355,15 @@ class DataPreprocessorStep(Step):
             original_columns=len(df.columns),
             numeric_scaled=len(numeric_cols),
             categorical_encoded=len(categorical_cols),
-            final_columns=len(df.columns)
+            final_columns=len(df.columns),
         )
 
         logger.info(f"Preprocessing complete: {len(df.columns)} columns")
         return df
 
-    def _apply_imputation(self, df: pd.DataFrame, numeric_cols: List[str],
-                         categorical_cols: List[str]) -> pd.DataFrame:
+    def _apply_imputation(
+        self, df: pd.DataFrame, numeric_cols: List[str], categorical_cols: List[str]
+    ) -> pd.DataFrame:
         """Apply imputation to missing values."""
         from sklearn.impute import SimpleImputer
 
@@ -374,7 +387,7 @@ class DataPreprocessorStep(Step):
             "standard": StandardScaler(),
             "minmax": MinMaxScaler(),
             "robust": RobustScaler(),
-            "maxabs": MaxAbsScaler()
+            "maxabs": MaxAbsScaler(),
         }
 
         if self.numeric_scaling not in scalers:
@@ -395,7 +408,7 @@ class DataPreprocessorStep(Step):
 
         for col in categorical_cols:
             if self.categorical_encoding == "onehot":
-                encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+                encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
                 encoded = encoder.fit_transform(df[[col]])
 
                 # Create feature names
@@ -411,7 +424,7 @@ class DataPreprocessorStep(Step):
                 self._encoders[col] = encoder
 
             elif self.categorical_encoding == "ordinal":
-                encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+                encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
                 df[f"{col}_encoded"] = encoder.fit_transform(df[[col]])
                 df = df.drop(columns=[col])
                 self._encoders[col] = encoder
@@ -434,18 +447,19 @@ class DataPreprocessorStep(Step):
     def visualize(self, **kwargs):
         """Generate preprocessing visualization."""
         from autopipe.visualization import ChartGenerator
+
         chart = ChartGenerator()
 
         if self.metrics:
             chart.plot_metrics(
                 {k: [v] for k, v in self.metrics.items() if isinstance(v, (int, float))},
-                title=f"Preprocessing Metrics - {self.name}"
+                title=f"Preprocessing Metrics - {self.name}",
             )
 
 
 class FeatureSelectionStep(Step):
     """Feature selection using statistical and model-based methods.
-    
+
     Supports variance threshold, correlation, KBest, RFE, and model-based selection.
     """
 
@@ -457,7 +471,7 @@ class FeatureSelectionStep(Step):
         score_func: str = "mutual_info",
         threshold: float = 0.01,
         model_based_estimator: Optional[Any] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.method = method
@@ -471,6 +485,7 @@ class FeatureSelectionStep(Step):
     def run(self, **kwargs) -> pd.DataFrame:
         """Select features using specified method."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         df = None
@@ -502,6 +517,7 @@ class FeatureSelectionStep(Step):
 
         if self.method == "variance_threshold":
             from sklearn.feature_selection import VarianceThreshold
+
             self._selector = VarianceThreshold(threshold=self.threshold)
             X_selected = self._selector.fit_transform(X)
             selected_mask = self._selector.get_support()
@@ -523,6 +539,7 @@ class FeatureSelectionStep(Step):
             else:
                 # Use variance as fallback
                 from sklearn.feature_selection import VarianceThreshold
+
                 self._selector = VarianceThreshold(threshold=self.threshold)
                 X_selected = self._selector.fit_transform(X)
 
@@ -532,7 +549,9 @@ class FeatureSelectionStep(Step):
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.feature_selection import RFE
 
-            estimator = self.model_based_estimator or RandomForestClassifier(n_estimators=10, random_state=42)
+            estimator = self.model_based_estimator or RandomForestClassifier(
+                n_estimators=10, random_state=42
+            )
             self._selector = RFE(estimator=estimator, n_features_to_select=min(self.k, X.shape[1]))
 
             if target_col is not None:
@@ -547,8 +566,12 @@ class FeatureSelectionStep(Step):
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.feature_selection import SelectFromModel
 
-            estimator = self.model_based_estimator or RandomForestClassifier(n_estimators=10, random_state=42)
-            self._selector = SelectFromModel(estimator, max_features=self.k, threshold=self.threshold)
+            estimator = self.model_based_estimator or RandomForestClassifier(
+                n_estimators=10, random_state=42
+            )
+            self._selector = SelectFromModel(
+                estimator, max_features=self.k, threshold=self.threshold
+            )
 
             if target_col is not None:
                 X_selected = self._selector.fit_transform(X, y)
@@ -583,28 +606,31 @@ class FeatureSelectionStep(Step):
         self.log_metrics(
             original_features=X.shape[1],
             selected_features=len(self.selected_features),
-            dropped_features=X.shape[1] - len(self.selected_features)
+            dropped_features=X.shape[1] - len(self.selected_features),
         )
 
-        logger.info(f"Selected {len(self.selected_features)} features: {self.selected_features[:10]}...")
+        logger.info(
+            f"Selected {len(self.selected_features)} features: {self.selected_features[:10]}..."
+        )
 
         # Add selection info to context
-        if 'context' in kwargs:
-            kwargs['context']['selected_features'] = self.selected_features
+        if "context" in kwargs:
+            kwargs["context"]["selected_features"] = self.selected_features
 
         return result_df
 
     def visualize(self, **kwargs):
         """Generate feature selection visualization."""
         from autopipe.visualization import ChartGenerator
+
         chart = ChartGenerator()
 
         if self.metrics:
             chart.plot_metrics(
                 {k: [v] for k, v in self.metrics.items() if isinstance(v, (int, float))},
-                title=f"Feature Selection Metrics - {self.name}"
+                title=f"Feature Selection Metrics - {self.name}",
             )
 
         if self.selected_features and len(self.selected_features) > 0:
-            importance_dict = {f: 1.0 for f in self.selected_features}
+            importance_dict = dict.fromkeys(self.selected_features, 1.0)
             chart.plot_feature_importance(importance_dict, title=f"Selected Features - {self.name}")

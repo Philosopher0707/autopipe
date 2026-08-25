@@ -2,17 +2,21 @@
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from autopipe.core.step import Step
 from autopipe.exceptions import PipelineError
 
 from .search_space import SearchSpace
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 @dataclass
 class TrialResult:
     """Result from a single trial."""
+
     trial_id: int
     params: Dict[str, Any]
     value: float
@@ -26,6 +30,7 @@ class TrialResult:
 @dataclass
 class OptunaPruner:
     """Pruning strategy for early stopping."""
+
     n_warmup_steps: int = 5
     n_startup_trials: int = 10
     min_resource: int = 1
@@ -63,7 +68,7 @@ class OptunaPruner:
 
 class OptunaSearchStep(Step):
     """World-class Optuna-based hyperparameter search step.
-    
+
     Features:
     - TPE (Tree-structured Parzen Estimator) sampler
     - CMA-ES sampler for continuous optimization
@@ -79,8 +84,8 @@ class OptunaSearchStep(Step):
         self,
         name: str = "optuna_search",
         search_space: Optional[SearchSpace] = None,
-        objective: Union[str, List[str]] = "accuracy",
-        direction: Union[str, List[str]] = "maximize",
+        objective: str | List[str] = "accuracy",
+        direction: str | List[str] = "maximize",
         n_trials: int = 100,
         timeout: Optional[int] = None,
         sampler: str = "tpe",
@@ -93,11 +98,11 @@ class OptunaSearchStep(Step):
         seed: int = 42,
         show_progress_bar: bool = True,
         # AutoPipe specific
-        evaluator_class = None,
+        evaluator_class=None,
         evaluator_kwargs: Optional[Dict] = None,
     ):
         """Initialize Optuna search step.
-        
+
         Args:
             name: Step name
             search_space: Parameter search space
@@ -210,15 +215,19 @@ class OptunaSearchStep(Step):
                 params[name] = distribution.to_optuna(trial)
             except AttributeError:
                 # Fallback: use suggest methods directly
-                if hasattr(distribution, 'choices'):
+                if hasattr(distribution, "choices"):
                     params[name] = trial.suggest_categorical(name, distribution.choices)
-                elif hasattr(distribution, 'low'):
-                    if hasattr(distribution, 'log_scale') and distribution.log_scale:
-                        params[name] = trial.suggest_float(name, distribution.low, distribution.high, log=True)
+                elif hasattr(distribution, "low"):
+                    if hasattr(distribution, "log_scale") and distribution.log_scale:
+                        params[name] = trial.suggest_float(
+                            name, distribution.low, distribution.high, log=True
+                        )
                     elif isinstance(distribution.low, int) and isinstance(distribution.high, int):
                         params[name] = trial.suggest_int(name, distribution.low, distribution.high)
                     else:
-                        params[name] = trial.suggest_float(name, distribution.low, distribution.high)
+                        params[name] = trial.suggest_float(
+                            name, distribution.low, distribution.high
+                        )
 
         # Run evaluation
         evaluator = self.evaluator_class(**self.evaluator_kwargs)
@@ -235,7 +244,10 @@ class OptunaSearchStep(Step):
 
         # Return objective values
         if len(self.objective) == 1:
-            return metrics.get(self.objective[0], float('-inf') if self.direction[0] == "maximize" else float('inf'))
+            return metrics.get(
+                self.objective[0],
+                float("-inf") if self.direction[0] == "maximize" else float("inf"),
+            )
 
         return tuple(metrics.get(obj, 0.0) for obj in self.objective)
 
@@ -249,7 +261,9 @@ class OptunaSearchStep(Step):
         try:
             import optuna
         except ImportError:
-            raise PipelineError("Optuna is required for hyperparameter tuning. Install with: pip install optuna")
+            raise PipelineError(
+                "Optuna is required for hyperparameter tuning. Install with: pip install optuna"
+            )
 
         # Set verbosity
         optuna.logging.set_verbosity(optuna.logging.INFO)
@@ -278,9 +292,9 @@ class OptunaSearchStep(Step):
                     trial_id=trial.number,
                     params=trial.params,
                     value=trial.value if not isinstance(trial.value, tuple) else trial.value[0],
-                    objective_values={
-                        k: v for k, v in trial.params.items()
-                    } if trial.params else {},
+                    objective_values={k: v for k, v in trial.params.items()}
+                    if trial.params
+                    else {},
                     runtime=trial.user_attrs.get("runtime", 0),
                     state=trial.state.name,
                     user_attrs=dict(trial.user_attrs),
@@ -293,7 +307,9 @@ class OptunaSearchStep(Step):
             self.best_trial = TrialResult(
                 trial_id=self.study.best_trial.number,
                 params=self.study.best_trial.params,
-                value=self.study.best_trial.value if not isinstance(self.study.best_trial.value, tuple) else self.study.best_trial.value[0],
+                value=self.study.best_trial.value
+                if not isinstance(self.study.best_trial.value, tuple)
+                else self.study.best_trial.value[0],
                 runtime=0,
                 state="COMPLETE",
             )
@@ -316,9 +332,15 @@ class OptunaSearchStep(Step):
             },
             "study_statistics": {
                 "n_total_trials": len(self.study.trials),
-                "n_complete_trials": len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]),
-                "n_pruned_trials": len([t for t in self.study.trials if t.state == optuna.trial.TrialState.PRUNED]),
-                "n_failed_trials": len([t for t in self.study.trials if t.state == optuna.trial.TrialState.FAIL]),
+                "n_complete_trials": len(
+                    [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+                ),
+                "n_pruned_trials": len(
+                    [t for t in self.study.trials if t.state == optuna.trial.TrialState.PRUNED]
+                ),
+                "n_failed_trials": len(
+                    [t for t in self.study.trials if t.state == optuna.trial.TrialState.FAIL]
+                ),
                 "best_value": self.study.best_value if self.study.best_trial else None,
             },
             "trial_results": [
@@ -371,6 +393,7 @@ class OptunaSearchStep(Step):
         """Plot optimization history using Optuna visualizations."""
         try:
             import optuna.visualization as vis
+
             return vis.plot_optimization_history(self.study)
         except ImportError:
             raise PipelineError("Optuna visualization requires plotly")
@@ -379,6 +402,7 @@ class OptunaSearchStep(Step):
         """Plot parallel coordinate visualization."""
         try:
             import optuna.visualization as vis
+
             return vis.plot_parallel_coordinate(self.study)
         except ImportError:
             raise PipelineError("Optuna visualization requires plotly")
@@ -387,6 +411,7 @@ class OptunaSearchStep(Step):
         """Plot parameter importances."""
         try:
             import optuna.visualization as vis
+
             return vis.plot_param_importances(self.study)
         except ImportError:
             raise PipelineError("Optuna visualization requires plotly")
@@ -397,11 +422,11 @@ def suggest_hyperparameters(
     search_space: SearchSpace,
 ) -> Dict[str, Any]:
     """Utility function to suggest hyperparameters from a search space.
-    
+
     Args:
         trial: Optuna trial object
         search_space: Search space to sample from
-        
+
     Returns:
         Dictionary of suggested parameters
     """

@@ -1,4 +1,5 @@
 """Observability module for monitoring and metrics."""
+
 from .logging import configure_logging, get_logger
 from .metrics import (
     MetricsCollector,
@@ -8,10 +9,10 @@ from .metrics import (
 )
 
 __all__ = [
-    "configure_logging",
-    "get_logger",
     "MetricsCollector",
     "PipelineMetrics",
-    "init_metrics",
+    "configure_logging",
+    "get_logger",
     "get_metrics_collector",
+    "init_metrics",
 ]

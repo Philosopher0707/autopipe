@@ -1,9 +1,11 @@
 """Tests for credentials module."""
-import pytest
+
 import os
 from unittest.mock import patch
 
-from autopipe.credentials.manager import CredentialManager, Credentials, get_credential_manager
+import pytest
+
+from autopipe.credentials.manager import CredentialManager, Credentials
 from autopipe.exceptions import ConfigurationError
 
 
@@ -73,8 +75,5 @@ class TestCredentials:
 
     def test_base_url(self):
         """Test credentials with base URL."""
-        creds = Credentials(
-            api_key="sk-test123",
-            base_url="https://custom.api.com"
-        )
+        creds = Credentials(api_key="sk-test123", base_url="https://custom.api.com")
         assert creds.base_url == "https://custom.api.com"

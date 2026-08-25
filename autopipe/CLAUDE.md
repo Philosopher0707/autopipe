@@ -32,10 +32,10 @@ cd autopipe/dashboard/backend && source .venv/bin/activate  # Backend env
 ### Core Library (autopipe Python package)
 ```bash
 conda run -n pipeline pip install -e ".[dev]"   # Install with dev dependencies
-conda run -n pipeline pytest tests/unit -q       # Unit tests (33 pass, 10 known failures)
+conda run -n pipeline pytest tests/unit -q       # Unit tests (150 pass)
 conda run -n pipeline pytest tests/integration -m integration  # Integration tests
 conda run -n pipeline ruff check autopipe tests   # Lint
-conda run -n pipeline black --check autopipe tests # Format check
+conda run -n pipeline ruff format --check autopipe tests  # Format check (ruff-format is the only formatter)
 conda run -n pipeline mypy autopipe               # Type check
 ```
 
@@ -45,7 +45,7 @@ cd autopipe/dashboard/backend
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload  # Dev server
 .venv/bin/python -m app.seed                                                     # Seed database
-.venv/bin/python -m pytest tests/ -v                                            # Run 80 tests
+.venv/bin/python -m pytest tests/ -v                                            # Run backend tests
 ```
 - API docs: `http://localhost:8765/api/v1/docs`
 - Default credentials: `admin` / `admin123`
@@ -130,7 +130,7 @@ Three independent subsystems sharing data concepts but not code:
 - DB session (`app/db/session.py`) auto-detects SQLite vs Postgres and uses appropriate async driver (aiosqlite vs asyncpg)
 - Backend `requirements.txt` includes both `aiosqlite` (dev/SQLite) and `asyncpg`+`psycopg2-binary` (Docker/Postgres)
 - `/dashboard/health` endpoint performs real DB connectivity check (`select(1)`) and autopipe_core import check; no fake Redis check
-- 82 backend tests (including 11 auth tests + 25 security tests covering password hashing, rate limiting, file security, security headers; 1 known failure: `test_secure_upload_path_prevents_traversal`)
+- Backend tests live in `dashboard/backend/tests/` and run via the dedicated `backend` CI job
 - 34 frontend tests
 
 ### Workspace Panels
@@ -156,33 +156,14 @@ Panel renderers receive `{ panel }` prop with `PanelLayout` type (id, type, titl
 - Tests in `tests/test_security.py` (25 tests covering all three modules)
 
 ### CI (GitHub Actions)
-- `test` job: 3 OS × 4 Python versions, ruff/black/mypy/bandit, pytest with coverage
-- `integration` job: runs on push to main only
+- `test` job: 3 OS × 3 Python (3.10–3.12), ruff lint + ruff-format + advisory mypy + bandit, pytest with coverage
+- `integration` job: runs on every push and PR (uses pytest-timeout)
 - `build` job: package build + twine check
 - `frontend` job: pnpm install/typecheck/test/build in `autopipe/dashboard/frontend/`
 
 ## Port Configuration
 
 The backend dev server runs on **8765** (not 8000). The frontend Vite proxy targets `:8765`. Docker-compose also maps backend to 8765.
-
-## Live TUI Dashboard
-
-Textual-based terminal dashboard for real-time pipeline execution monitoring.
-
-```bash
-conda run -n pipeline autopipe run pipeline.yaml --tui
-```
-
-**3-panel layout (mirrors wandb_tui.py):**
-- **Left (width 30)** — InfoPanel with 4 stacked sections: Run Overview, Environment, Config, Summary
-- **Center (1fr)** — MetricsPanel with 3×2 grid of ASCII mini line charts: train/accuracy, train/loss, train/epoch_accuracy, train/epoch_loss, val/accuracy, val/loss
-- **Right (width 28)** — SystemPanel with 6 sparklines: CPU, GPU Utilization, GPU Temp, CPU Temp, CPU Power, Disk I/O
-
-**Key bindings:** `q` quit, `p` pause/resume
-
-**Metrics:** Since `PipelineState` has no live metric streams, metrics are simulated converging curves per step completion (same approach as wandb_tui `RunState.tick`). System metrics sampled via `psutil` every 2s.
-
-**Files:** `autopipe/dashboard/state.py` (PipelineState + metric/systat histories), `autopipe/dashboard/widgets.py` (sparkline, mini_chart_text, KVRow), `autopipe/dashboard/tui.py` (PipelineDashboard app), `autopipe/dashboard/__init__.py` (re-exports)
 
 ## Eval Command
 
@@ -194,7 +175,7 @@ autopipe eval --task pipeline-generation --model kimi-k2.5:cloud
 autopipe eval --compare --output eval-results.json
 ```
 
-Requires Node.js + promptfoo (or Ollama running for fallback). Provider aliases: `kimi-k2.5:cloud` → `ollama-kimi`, `glm-5.1:cloud` → `ollama-glm`, `minimax-m2.7:cloud` → `ollama-minimax`.
+Requires Node.js + promptfoo. NOTE: the `--provider` alias filter (`ollama-kimi` etc.) does not currently match the provider IDs declared in `promptfoo/promptfooconfig.yaml` — known issue, scheduled for the P3 safety pass.
 
 ## Commit Style
 

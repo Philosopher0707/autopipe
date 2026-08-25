@@ -1,4 +1,5 @@
 """Pydantic models for configuration validation."""
+
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class StepConfig(BaseModel):
     """Configuration for a pipeline step."""
+
     name: str = Field(..., min_length=1, description="Unique step name")
     type: str = Field(default="autopipe.core.steps.PrintStep", description="Step class path")
     params: Dict[str, Any] = Field(default_factory=dict, description="Step parameters")
@@ -29,6 +31,7 @@ class StepConfig(BaseModel):
 
 class PipelineConfig(BaseModel):
     """Configuration for a pipeline."""
+
     name: str = Field(default="default_pipeline", description="Pipeline name")
     env: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
     settings: Dict[str, Any] = Field(default_factory=dict, description="Pipeline settings")
@@ -39,6 +42,7 @@ class PipelineConfig(BaseModel):
         names = [step.name for step in self.steps]
         if len(names) != len(set(names)):
             from collections import Counter
+
             duplicates = [name for name, count in Counter(names).items() if count > 1]
             raise ValueError(f"Duplicate step names found: {duplicates}")
         return self
@@ -49,26 +53,28 @@ class PipelineConfig(BaseModel):
         for step in self.steps:
             missing = set(step.depends_on) - names
             if missing:
-                raise ValueError(
-                    f"Step '{step.name}' depends on non-existent step(s): {missing}"
-                )
+                raise ValueError(f"Step '{step.name}' depends on non-existent step(s): {missing}")
         return self
 
 
 class LLMProviderConfig(BaseModel):
     """Configuration for an LLM provider."""
+
     name: Literal["openai", "anthropic", "openrouter", "ollama", "mock"]
     api_key: Optional[str] = Field(default=None, description="API key for the provider")
     base_url: Optional[str] = Field(default=None, description="Custom base URL")
     timeout: int = Field(default=120, ge=1, le=600, description="Request timeout in seconds")
     max_retries: int = Field(default=3, ge=0, le=10, description="Maximum retry attempts")
     retry_delay: float = Field(default=1.0, ge=0, description="Delay between retries in seconds")
-    rate_limit_rpm: Optional[int] = Field(default=None, description="Rate limit (requests per minute)")
+    rate_limit_rpm: Optional[int] = Field(
+        default=None, description="Rate limit (requests per minute)"
+    )
     model_mappings: Dict[str, str] = Field(default_factory=dict, description="Model name mappings")
 
 
 class CacheConfig(BaseModel):
     """Configuration for caching."""
+
     enabled: bool = Field(default=True, description="Whether caching is enabled")
     backend: Literal["memory", "disk", "redis"] = Field(default="memory")
     ttl: int = Field(default=3600, ge=0, description="Cache TTL in seconds")
@@ -79,6 +85,7 @@ class CacheConfig(BaseModel):
 
 class LoggingConfig(BaseModel):
     """Configuration for logging."""
+
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
     format: Literal["text", "json"] = Field(default="text")
     output: Literal["stdout", "stderr", "file"] = Field(default="stdout")
@@ -90,6 +97,7 @@ class LoggingConfig(BaseModel):
 
 class MetricsConfig(BaseModel):
     """Configuration for metrics collection."""
+
     enabled: bool = Field(default=True, description="Whether metrics are enabled")
     prometheus_port: Optional[int] = Field(default=None, description="Prometheus metrics port")
     export_json: bool = Field(default=False, description="Export metrics to JSON file")
@@ -98,6 +106,7 @@ class MetricsConfig(BaseModel):
 
 class TracingConfig(BaseModel):
     """Configuration for distributed tracing."""
+
     enabled: bool = Field(default=False, description="Whether tracing is enabled")
     service_name: str = Field(default="autopipe", description="Service name for tracing")
     jaeger_endpoint: Optional[str] = Field(default=None, description="Jaeger endpoint")
@@ -107,6 +116,7 @@ class TracingConfig(BaseModel):
 
 class AutoPipeGlobalConfig(BaseModel):
     """Global AutoPipe configuration."""
+
     debug: bool = Field(default=False, description="Enable debug mode")
     version: str = Field(default="0.1.0", description="Configuration version")
     providers: List[LLMProviderConfig] = Field(default_factory=list)
@@ -120,6 +130,7 @@ class AutoPipeGlobalConfig(BaseModel):
         names = [p.name for p in self.providers]
         if len(names) != len(set(names)):
             from collections import Counter
+
             duplicates = [name for name, count in Counter(names).items() if count > 1]
             raise ValueError(f"Duplicate provider names found: {duplicates}")
         return self
@@ -127,6 +138,7 @@ class AutoPipeGlobalConfig(BaseModel):
 
 class StepOutput(BaseModel):
     """Represents step execution output."""
+
     step_name: str = Field(..., description="Step name")
     status: Literal["pending", "running", "success", "failed", "skipped"] = Field(default="pending")
     output: Any = Field(default=None, description="Step output")
@@ -139,6 +151,7 @@ class StepOutput(BaseModel):
 
 class PipelineRunResult(BaseModel):
     """Represents a pipeline run result."""
+
     pipeline_name: str = Field(..., description="Pipeline name")
     run_id: str = Field(..., description="Unique run identifier")
     status: Literal["pending", "running", "success", "failed", "partial"] = Field(default="pending")

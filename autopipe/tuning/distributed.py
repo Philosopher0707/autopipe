@@ -13,6 +13,7 @@ from autopipe.exceptions import PipelineError
 @dataclass
 class DistributedConfig:
     """Configuration for distributed search."""
+
     backend: str = "multiprocessing"  # multiprocessing, thread, ray, kubernetes
     n_workers: int = 4
     resources_per_worker: Dict[str, Any] = field(default_factory=dict)
@@ -24,7 +25,7 @@ class DistributedConfig:
 
 class DistributedSearch:
     """Distributed hyperparameter search across multiple workers.
-    
+
     Supports multiple backends:
     - multiprocessing: Local process pool
     - thread: Local thread pool (for I/O bound tasks)
@@ -45,11 +46,7 @@ class DistributedSearch:
         self.results: List[Dict] = []
         self.errors: List[Dict] = []
 
-    def _trial_worker(
-        self,
-        trial_config: Dict[str, Any],
-        worker_id: int
-    ) -> Dict:
+    def _trial_worker(self, trial_config: Dict[str, Any], worker_id: int) -> Dict:
         """Worker function for a single trial."""
         trial_id = trial_config.get("trial_id", 0)
 
@@ -108,18 +105,22 @@ class DistributedSearch:
                         result = future.result()
                     results.append(result)
                 except TimeoutError:
-                    results.append({
-                        "trial_id": config.get("trial_id"),
-                        "status": "timeout",
-                        "error": f"Trial exceeded {self.config.timeout_per_trial}s",
-                    })
+                    results.append(
+                        {
+                            "trial_id": config.get("trial_id"),
+                            "status": "timeout",
+                            "error": f"Trial exceeded {self.config.timeout_per_trial}s",
+                        }
+                    )
                     future.cancel()
                 except Exception as e:
-                    results.append({
-                        "trial_id": config.get("trial_id"),
-                        "status": "error",
-                        "error": str(e),
-                    })
+                    results.append(
+                        {
+                            "trial_id": config.get("trial_id"),
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    )
 
         return results
 
@@ -142,10 +143,12 @@ class DistributedSearch:
                     result = future.result(timeout=self.config.timeout_per_trial)
                     results.append(result)
                 except Exception as e:
-                    results.append({
-                        "status": "error",
-                        "error": str(e),
-                    })
+                    results.append(
+                        {
+                            "status": "error",
+                            "error": str(e),
+                        }
+                    )
 
         return results
 
@@ -173,10 +176,9 @@ class DistributedSearch:
         def objective(config):
             trial_config = config.copy()
             result = self._trial_worker(trial_config, ray.get_runtime_context().get_worker_id())
-            tune.report(**{
-                k: v for k, v in result.get("result", {}).items()
-                if isinstance(v, (int, float))
-            })
+            tune.report(
+                **{k: v for k, v in result.get("result", {}).items() if isinstance(v, (int, float))}
+            )
 
         # Run with ASHA scheduling
         scheduler = ASHAScheduler(
@@ -199,12 +201,14 @@ class DistributedSearch:
         # Convert results
         results = []
         for trial in analysis.trials:
-            results.append({
-                "trial_id": trial.trial_id,
-                "status": trial.status,
-                "config": trial.config,
-                "last_result": trial.last_result,
-            })
+            results.append(
+                {
+                    "trial_id": trial.trial_id,
+                    "status": trial.status,
+                    "config": trial.config,
+                    "last_result": trial.last_result,
+                }
+            )
 
         return results
 
@@ -244,15 +248,15 @@ class DistributedSearch:
             "success_rate": len(successful) / len(results) if results else 0.0,
             "best_result": max(
                 successful,
-                key=lambda x: x.get("result", {}).get("best_value", float('-inf')),
-                default=None
+                key=lambda x: x.get("result", {}).get("best_value", float("-inf")),
+                default=None,
             ),
         }
 
 
 class ParallelSearch:
     """Parallel search for faster hyperparameter optimization.
-    
+
     Uses multiple strategies:
     - Asynchronous parallel evaluation
     - Successive halving / Hyperband
@@ -280,7 +284,7 @@ class ParallelSearch:
         evaluate_fn: Callable[[Dict], float],
     ) -> Dict:
         """Run successive halving algorithm.
-        
+
         Trains multiple configurations with minimal resources,
         eliminates worst performers, and continues with top.
         """
@@ -291,7 +295,7 @@ class ParallelSearch:
 
         for round_idx in range(n_rounds):
             # Calculate resources for this round
-            resources = self.min_resource * (self.reduction_factor ** round_idx)
+            resources = self.min_resource * (self.reduction_factor**round_idx)
 
             # Evaluate all active configs
             scores = []
@@ -321,25 +325,23 @@ class ParallelSearch:
         eta: int = 3,
     ) -> Dict:
         """Run Hyperband algorithm.
-        
+
         More efficient than pure successive halving by trying
         different tradeoffs between number of configs and resources.
         """
         max_iter = _log(max_resource, eta)
 
         best_config = None
-        best_score = float('-inf')
+        best_score = float("-inf")
 
         for s in range(max_iter):
             # Number of configs
-            n = int((max_resource / max_resource) * ((eta ** max_iter) / (s + 1)))
+            n = int((max_resource / max_resource) * ((eta**max_iter) / (s + 1)))
             r = max_resource * (eta ** (-s))
 
             # Successive halving with (n, r)
             configs = [config_generator() for _ in range(n)]
-            result = self.successive_halving_with_budget(
-                configs, evaluate_fn, r, eta
-            )
+            result = self.successive_halving_with_budget(configs, evaluate_fn, r, eta)
 
             if result["score"] > best_score:
                 best_score = result["score"]
@@ -382,6 +384,7 @@ class ParallelSearch:
 def _log(x: float, base: int) -> int:
     """Compute log with integer result."""
     import math
+
     return int(math.log(x) / math.log(base))
 
 
@@ -465,28 +468,23 @@ class GridSearchParallel:
 
         # Generate all combinations
         from itertools import product
+
         keys = list(param_grid.keys())
         values = [param_grid[k] for k in keys]
 
-        self.combinations = [
-            dict(zip(keys, combo))
-            for combo in product(*values)
-        ]
+        self.combinations = [dict(zip(keys, combo, strict=False)) for combo in product(*values)]
 
     def search(
         self,
         evaluate_fn: Callable[[Dict], float],
     ) -> Dict:
         """Run parallel grid search."""
-        best_score = float('-inf')
+        best_score = float("-inf")
         best_config = None
         all_results = []
 
         with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-            futures = {
-                executor.submit(evaluate_fn, config): config
-                for config in self.combinations
-            }
+            futures = {executor.submit(evaluate_fn, config): config for config in self.combinations}
 
             for future in as_completed(futures):
                 config = futures[future]

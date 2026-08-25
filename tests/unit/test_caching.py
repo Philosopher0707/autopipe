@@ -1,9 +1,10 @@
 """Tests for the caching module."""
-import time
-import pytest
-from pathlib import Path
 
-from autopipe.caching.manager import MemoryCache, DiskCache, CacheManager
+import time
+
+import pytest
+
+from autopipe.caching.manager import CacheManager, DiskCache, MemoryCache
 from autopipe.exceptions import CacheError
 
 
@@ -145,11 +146,11 @@ class TestCacheManager:
     def test_cached_decorator(self):
         """Test the cached decorator."""
         manager = CacheManager()
-        
+
         @manager.cached(ttl=3600)
         def expensive_function(x):
             return x * 2
-        
+
         # First call should compute
         result1 = expensive_function(5)
         assert result1 == 10
@@ -158,12 +159,12 @@ class TestCacheManager:
         """Test decorator when cache is disabled."""
         manager = CacheManager(enabled=False)
         call_count = [0]
-        
+
         @manager.cached()
         def expensive_function(x):
             call_count[0] += 1
             return x * 2
-        
+
         # Both calls should execute
         expensive_function(5)
         expensive_function(5)

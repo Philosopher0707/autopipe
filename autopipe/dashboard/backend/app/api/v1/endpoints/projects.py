@@ -1,15 +1,14 @@
 """Project management endpoints."""
 
 from datetime import datetime
-from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.db.models import Project, Run
 from app.db.session import get_db
 from app.schemas import ProjectCreate, ProjectList, ProjectResponse, ProjectUpdate
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -47,8 +46,7 @@ async def list_projects(
 
     if search:
         query = query.filter(
-            (Project.name.ilike(f"%{search}%")) |
-            (Project.description.ilike(f"%{search}%"))
+            (Project.name.ilike(f"%{search}%")) | (Project.description.ilike(f"%{search}%"))
         )
 
     if status:
@@ -65,7 +63,11 @@ async def list_projects(
     run_stats = {}
     if project_ids:
         stats_result = await db.execute(
-            select(Run.project_id, func.count(Run.id).label("run_count"), func.max(Run.completed_at).label("last_run_at"))
+            select(
+                Run.project_id,
+                func.count(Run.id).label("run_count"),
+                func.max(Run.completed_at).label("last_run_at"),
+            )
             .where(Run.project_id.in_(project_ids))
             .group_by(Run.project_id)
         )
@@ -122,8 +124,9 @@ async def get_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     stats_result = await db.execute(
-        select(func.count(Run.id).label("run_count"), func.max(Run.completed_at).label("last_run_at"))
-        .where(Run.project_id == project_id)
+        select(
+            func.count(Run.id).label("run_count"), func.max(Run.completed_at).label("last_run_at")
+        ).where(Run.project_id == project_id)
     )
     row = stats_result.one_or_none()
     run_count = row.run_count if row else 0

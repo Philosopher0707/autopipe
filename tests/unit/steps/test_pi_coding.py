@@ -3,10 +3,10 @@
 These tests use extensive mocking so they run fast without needing a
 real ``pi`` binary (or even Node.js).
 """
+
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import List
 from unittest.mock import MagicMock, patch
@@ -14,8 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from autopipe.core.pipeline import Pipeline
-from autopipe.core.step import Step
-from autopipe.steps.pi_coding import PiCodingStep, _JsonModeParser, _elapsed_ms
+from autopipe.steps.pi_coding import PiCodingStep, _elapsed_ms, _JsonModeParser
 from autopipe.steps.pi_coding_models import PiCodingResult, PiToolCall, PiTurn
 
 
@@ -322,8 +321,16 @@ class TestPiCodingStep:
         )
         parser = _JsonModeParser()
         parser.feed(json.dumps({"type": "text_delta", "text_delta": "hi"}).encode() + b"\n")
-        parser.feed(json.dumps({"type": "tool_execution_start", "toolName": "read", "input": {}}).encode() + b"\n")
-        parser.feed(json.dumps({"type": "tool_execution_end", "isError": False, "finalOutput": "x"}).encode() + b"\n")
+        parser.feed(
+            json.dumps({"type": "tool_execution_start", "toolName": "read", "input": {}}).encode()
+            + b"\n"
+        )
+        parser.feed(
+            json.dumps(
+                {"type": "tool_execution_end", "isError": False, "finalOutput": "x"}
+            ).encode()
+            + b"\n"
+        )
         parser.feed(json.dumps({"type": "turn_end"}).encode() + b"\n")
         result = parser.result()
         # Callback tested via actual subprocess in integration; unit test
@@ -368,6 +375,7 @@ class TestPiCodingStepPipelineIntegration:
 class TestHelpers:
     def test_elapsed_ms(self) -> None:
         import time
+
         t0 = time.perf_counter()
         time.sleep(0.005)
         ms = _elapsed_ms(t0)

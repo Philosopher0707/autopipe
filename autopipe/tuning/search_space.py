@@ -2,11 +2,12 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
 
 class SearchStrategy(Enum):
     """Search strategies for hyperparameter tuning."""
+
     BAYESIAN = "bayesian"
     RANDOM = "random"
     GRID = "grid"
@@ -17,6 +18,7 @@ class SearchStrategy(Enum):
 @dataclass
 class SearchParameter:
     """Base class for search parameters."""
+
     name: str
     param_type: str
 
@@ -27,6 +29,7 @@ class SearchParameter:
 @dataclass
 class Continuous:
     """Continuous parameter with range."""
+
     name: str
     low: float
     high: float
@@ -38,38 +41,31 @@ class Continuous:
             "type": "continuous",
             "low": self.low,
             "high": self.high,
-            "log_scale": self.log_scale
+            "log_scale": self.log_scale,
         }
 
 
 @dataclass
 class Discrete:
     """Discrete parameter with range."""
+
     name: str
     low: int
     high: int
 
     def to_dict(self) -> Dict:
-        return {
-            "name": self.name,
-            "type": "discrete",
-            "low": self.low,
-            "high": self.high
-        }
+        return {"name": self.name, "type": "discrete", "low": self.low, "high": self.high}
 
 
 @dataclass
 class Categorical:
     """Categorical parameter with choices."""
+
     name: str
     choices: List[Any]
 
     def to_dict(self) -> Dict:
-        return {
-            "name": self.name,
-            "type": "categorical",
-            "choices": self.choices
-        }
+        return {"name": self.name, "type": "categorical", "choices": self.choices}
 
 
 class SearchSpace:
@@ -78,18 +74,20 @@ class SearchSpace:
     def __init__(self):
         self.parameters: Dict[str, Any] = {}
 
-    def add(self, param: Union[Continuous, Discrete, Categorical]):
+    def add(self, param: Continuous | Discrete | Categorical):
         """Add a parameter to the search space."""
         self.parameters[param.name] = param
 
     def sample(self, strategy: SearchStrategy = SearchStrategy.RANDOM) -> Dict[str, Any]:
         """Sample a point from the search space."""
         import random
+
         sample = {}
         for name, param in self.parameters.items():
             if isinstance(param, Continuous):
                 if param.log_scale:
                     import math
+
                     log_low = math.log(param.low)
                     log_high = math.log(param.high)
                     sample[name] = math.exp(random.uniform(log_low, log_high))

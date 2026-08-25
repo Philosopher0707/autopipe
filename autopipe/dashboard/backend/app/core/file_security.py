@@ -6,9 +6,8 @@ import re
 from pathlib import Path
 from typing import Optional, Set, Tuple
 
-from fastapi import HTTPException, UploadFile, status
-
 from app.core.config import settings
+from fastapi import HTTPException, UploadFile, status
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +24,27 @@ ALL_ALLOWED_EXTENSIONS = set().union(*ALLOWED_EXTENSIONS.values())
 
 # Dangerous extensions that should never be allowed
 DANGEROUS_EXTENSIONS = {
-    "exe", "dll", "bat", "sh", "py", "rb", "pl", "php", "jsp", "asp", "aspx",
-    "jar", "war", "ear", "cmd", "ps1", "vbs", "js", "htm", "html", "xhtml",
+    "exe",
+    "dll",
+    "bat",
+    "sh",
+    "py",
+    "rb",
+    "pl",
+    "php",
+    "jsp",
+    "asp",
+    "aspx",
+    "jar",
+    "war",
+    "ear",
+    "cmd",
+    "ps1",
+    "vbs",
+    "js",
+    "htm",
+    "html",
+    "xhtml",
 }
 
 # Dangerous MIME types
@@ -48,10 +66,10 @@ DANGEROUS_MIME_TYPES = {
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize filename to prevent path traversal and other attacks.
-    
+
     Args:
         filename: Original filename
-        
+
     Returns:
         Sanitized filename safe for filesystem use
     """
@@ -60,24 +78,24 @@ def sanitize_filename(filename: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename cannot be empty",
         )
-    
+
     # Remove path components
     filename = os.path.basename(filename)
-    
+
     # Remove null bytes
     filename = filename.replace("\x00", "")
-    
+
     # Replace dangerous characters
     filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
-    
+
     # Remove leading dots (hidden files)
     filename = filename.lstrip(".")
-    
+
     # Limit length
     if len(filename) > 255:
         name, ext = os.path.splitext(filename)
-        filename = name[:255 - len(ext)] + ext
-    
+        filename = name[: 255 - len(ext)] + ext
+
     return filename
 
 
@@ -87,22 +105,22 @@ def validate_file_extension(
 ) -> Tuple[str, str]:
     """
     Validate and extract file extension.
-    
+
     Args:
         filename: Filename to validate
         allowed_extensions: Set of allowed extensions (defaults to ALL_ALLOWED_EXTENSIONS)
-        
+
     Returns:
         Tuple of (sanitized_filename, extension)
-        
+
     Raises:
         HTTPException: If extension is not allowed or dangerous
     """
     if allowed_extensions is None:
         allowed_extensions = ALL_ALLOWED_EXTENSIONS
-    
+
     filename = sanitize_filename(filename)
-    
+
     # Extract extension
     ext_match = re.search(r"\.([a-zA-Z0-9]+)$", filename)
     if not ext_match:
@@ -110,9 +128,9 @@ def validate_file_extension(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must have an extension",
         )
-    
+
     extension = ext_match.group(1).lower()
-    
+
     # Check for dangerous extensions
     if extension in DANGEROUS_EXTENSIONS:
         logger.warning(f"Dangerous file extension attempted: {extension}")
@@ -120,14 +138,14 @@ def validate_file_extension(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File type not allowed",
         )
-    
+
     # Check allowed extensions
     if extension not in allowed_extensions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File extension '.{extension}' not allowed. Allowed: {', '.join(sorted(allowed_extensions))}",
         )
-    
+
     return filename, extension
 
 
@@ -137,11 +155,11 @@ def validate_file_size(
 ) -> None:
     """
     Validate file size.
-    
+
     Args:
         file_size: Size of file in bytes
         max_size: Maximum allowed size in bytes
-        
+
     Raises:
         HTTPException: If file exceeds max size
     """
@@ -160,11 +178,11 @@ def validate_mime_type(
 ) -> None:
     """
     Validate MIME type against extension.
-    
+
     Args:
         content_type: Content-Type header value
         extension: File extension
-        
+
     Raises:
         HTTPException: If MIME type is dangerous or doesn't match extension
     """
@@ -175,7 +193,7 @@ def validate_mime_type(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File type not allowed",
         )
-    
+
     # Expected MIME types by extension
     expected_types = {
         "png": ["image/png"],
@@ -198,12 +216,10 @@ def validate_mime_type(
         "gz": ["application/gzip"],
         "bz2": ["application/x-bzip2"],
     }
-    
+
     expected = expected_types.get(extension.lower())
     if expected and content_type not in expected:
-        logger.warning(
-            f"MIME type mismatch: expected {expected}, got {content_type}"
-        )
+        logger.warning(f"MIME type mismatch: expected {expected}, got {content_type}")
         # Note: This is a warning but not blocking - MIME sniffing can be unreliable
 
 
@@ -214,15 +230,15 @@ async def validate_upload_file(
 ) -> Tuple[str, int]:
     """
     Comprehensive validation of uploaded file.
-    
+
     Args:
         file: FastAPI UploadFile
         allowed_extensions: Optional set of allowed extensions
         max_size: Maximum file size in bytes
-        
+
     Returns:
         Tuple of (sanitized_filename, file_size)
-        
+
     Raises:
         HTTPException: If any validation fails
     """
@@ -231,16 +247,14 @@ async def validate_upload_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File name is required",
         )
-    
+
     # Validate extension
-    sanitized_name, extension = validate_file_extension(
-        file.filename, allowed_extensions
-    )
-    
+    sanitized_name, extension = validate_file_extension(file.filename, allowed_extensions)
+
     # Validate MIME type (best effort)
     if file.content_type:
         validate_mime_type(file.content_type, extension)
-    
+
     # Get file size (read content if unknown)
     file_size = 0
     if hasattr(file, "file"):
@@ -248,9 +262,9 @@ async def validate_upload_file(
         content = await file.read()
         file_size = len(content)
         await file.seek(0)  # Reset position
-        
+
         validate_file_size(file_size, max_size)
-    
+
     return sanitized_name, file_size
 
 
@@ -260,27 +274,27 @@ def get_secure_upload_path(
 ) -> Path:
     """
     Get a secure path for file upload.
-    
+
     Args:
         filename: Sanitized filename
         upload_dir: Base upload directory
-        
+
     Returns:
         Secure Path object
     """
     upload_path = Path(upload_dir)
     upload_path.mkdir(parents=True, exist_ok=True)
-    
+
     # Ensure filename is within upload directory
     target_path = upload_path / filename
     resolved = target_path.resolve()
     upload_resolved = upload_path.resolve()
-    
+
     # Check for path traversal
     if not str(resolved).startswith(str(upload_resolved)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file path",
         )
-    
+
     return resolved

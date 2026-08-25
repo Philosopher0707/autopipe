@@ -1,10 +1,8 @@
 """Tests for pipeline endpoints."""
 
 import pytest
-from httpx import AsyncClient
-
 from app.db.models import Pipeline
-
+from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
 
@@ -20,12 +18,15 @@ async def test_list_pipelines_empty(client: AsyncClient):
 
 async def test_create_pipeline(client: AsyncClient):
     """POST /pipelines creates a pipeline."""
-    resp = await client.post("/api/v1/pipelines", json={
-        "name": "my-pipeline",
-        "description": "A test pipeline",
-        "config": {"steps": [{"name": "step1", "type": "print"}]},
-        "tags": ["test"],
-    })
+    resp = await client.post(
+        "/api/v1/pipelines",
+        json={
+            "name": "my-pipeline",
+            "description": "A test pipeline",
+            "config": {"steps": [{"name": "step1", "type": "print"}]},
+            "tags": ["test"],
+        },
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "my-pipeline"
@@ -50,9 +51,12 @@ async def test_get_pipeline_not_found(client: AsyncClient):
 
 async def test_update_pipeline(client: AsyncClient, seed_pipeline: Pipeline):
     """PUT /pipelines/{id} updates the pipeline."""
-    resp = await client.put(f"/api/v1/pipelines/{seed_pipeline.id}", json={
-        "description": "Updated description",
-    })
+    resp = await client.put(
+        f"/api/v1/pipelines/{seed_pipeline.id}",
+        json={
+            "description": "Updated description",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["description"] == "Updated description"

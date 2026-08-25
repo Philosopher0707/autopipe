@@ -1,4 +1,5 @@
 """Pipeline runner."""
+
 import importlib.util
 import logging
 import sys
@@ -8,6 +9,7 @@ from .pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
+
 def run_pipeline(pipeline: Pipeline, initial_inputs: Dict[str, Any] = None) -> Dict[str, Any]:
     """Run a pipeline and return outputs."""
     return pipeline.run(initial_inputs)
@@ -15,7 +17,7 @@ def run_pipeline(pipeline: Pipeline, initial_inputs: Dict[str, Any] = None) -> D
 
 def load_pipeline_from_module(filepath: str) -> Pipeline:
     """Load a pipeline defined in a Python module.
-    
+
     The module should define a variable `pipeline` that is an instance of Pipeline.
     """
     spec = importlib.util.spec_from_file_location("pipeline_module", filepath)
@@ -43,7 +45,8 @@ def load_pipeline_from_yaml(filepath: str) -> Pipeline:
     import yaml
 
     from .loader import load_pipeline_from_config
-    with open(filepath, 'r') as f:
+
+    with open(filepath, "r") as f:
         config = yaml.safe_load(f)
 
     return load_pipeline_from_config(config)
@@ -51,12 +54,12 @@ def load_pipeline_from_yaml(filepath: str) -> Pipeline:
 
 def run(filepath: str, initial_inputs: Dict[str, Any] = None) -> Dict[str, Any]:
     """Run a pipeline from a file.
-    
+
     Supports .py (module) and .yaml/.yml (YAML config).
     """
-    if filepath.endswith('.py'):
+    if filepath.endswith(".py"):
         pipeline = load_pipeline_from_module(filepath)
-    elif filepath.endswith('.yaml') or filepath.endswith('.yml'):
+    elif filepath.endswith((".yaml", ".yml")):
         pipeline = load_pipeline_from_yaml(filepath)
     else:
         raise ValueError("Unsupported file format. Use .py or .yaml")

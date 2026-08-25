@@ -42,46 +42,29 @@ from .pi_coding import PiCodingStep
 from .training import HyperparameterTunerStep, SklearnTrainerStep
 
 __all__ = [
-    # Base
-    "Step",
-
-    # Data
+    "AttentionVisualizerStep",
+    "BootstrapValidatorStep",
+    "CrossValidationStep",
     "DataLoaderStep",
-
-    # Training
-    "SklearnTrainerStep",
+    "DataSplitterStep",
+    "ExplainabilityPipeline",
+    "FeatureEngineeringStep",
+    "FeatureImportanceStep",
     "HyperparameterTunerStep",
-
-    # Deep Learning
+    "LIMEExplainerStep",
+    "LLMStep",
+    "ModelEvaluatorStep",
+    "NestedCrossValidationStep",
+    "PartialDependenceStep",
+    "PermutationImportanceStep",
+    "PiCodingStep",
+    "PrintStep",
     "PyTorchTrainerStep",
+    "SHAPExplainerStep",
+    "SklearnTrainerStep",
+    "Step",
+    "StratifiedGroupKFoldStep",
     "TensorFlowTrainerStep",
     "TransferLearningStep",
-
-    # Cross Validation
-    "CrossValidationStep",
-    "NestedCrossValidationStep",
-    "DataSplitterStep",
-    "StratifiedGroupKFoldStep",
-    "BootstrapValidatorStep",
-
-    # Explainability
-    "SHAPExplainerStep",
-    "LIMEExplainerStep",
-    "PermutationImportanceStep",
-    "PartialDependenceStep",
-    "FeatureImportanceStep",
-    "AttentionVisualizerStep",
-    "ExplainabilityPipeline",
-
-    # Feature Engineering
-    "FeatureEngineeringStep",
-    "PrintStep",
-    "LLMStep",
     "VisualizationStep",
-
-    # Evaluation
-    "ModelEvaluatorStep",
-
-    # Pi Coding
-    "PiCodingStep",
 ]

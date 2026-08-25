@@ -10,7 +10,7 @@ This module provides training steps for:
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -21,6 +21,7 @@ from autopipe.core.step import Step
 @dataclass
 class TrainingConfig:
     """Configuration for deep learning training."""
+
     epochs: int = 100
     batch_size: int = 32
     learning_rate: float = 0.001
@@ -39,7 +40,7 @@ class TrainingConfig:
 
 class SklearnTrainerStep(Step):
     """Scikit-learn model training step with cross-validation support.
-    
+
     Trains any sklearn-compatible estimator with optional cross-validation,
     hyperparameter tracking, and automatic metrics logging.
     """
@@ -52,11 +53,11 @@ class SklearnTrainerStep(Step):
         use_cross_validation: bool = False,
         cv_folds: int = 5,
         cv_strategy: str = "stratified",
-        scoring: Union[str, List[str]] = None,
+        scoring: str | List[str] = None,
         fit_params: Optional[Dict] = None,
         save_path: Optional[str] = None,
         n_jobs: int = 1,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.model_class = model_class
@@ -84,8 +85,8 @@ class SklearnTrainerStep(Step):
         X_train, y_train = None, None
 
         for key, value in kwargs.items():
-            if isinstance(value, dict) and 'train' in value:
-                train_data = value.get('train')
+            if isinstance(value, dict) and "train" in value:
+                train_data = value.get("train")
                 if isinstance(train_data, pd.DataFrame):
                     if y_train is None:
                         y_train = train_data.iloc[:, -1].values
@@ -107,6 +108,7 @@ class SklearnTrainerStep(Step):
         # Initialize model
         if self.model_class is None:
             from sklearn.ensemble import RandomForestClassifier
+
             self.model = RandomForestClassifier(**self.model_params, random_state=42)
         else:
             self.model = self.model_class(**self.model_params)
@@ -122,17 +124,22 @@ class SklearnTrainerStep(Step):
 
             scoring = self.scoring if isinstance(self.scoring, list) else [self.scoring]
             self.cv_results = cross_validate(
-                self.model, X_train, y_train,
-                cv=cv, scoring=scoring, return_train_score=True, n_jobs=self.n_jobs
+                self.model,
+                X_train,
+                y_train,
+                cv=cv,
+                scoring=scoring,
+                return_train_score=True,
+                n_jobs=self.n_jobs,
             )
 
             for metric in scoring:
-                train_scores = self.cv_results.get(f'train_{metric}', [])
-                val_scores = self.cv_results.get(f'test_{metric}', [])
+                train_scores = self.cv_results.get(f"train_{metric}", [])
+                val_scores = self.cv_results.get(f"test_{metric}", [])
 
                 self.log_metrics(
                     **{f"cv_train_{metric}_mean": np.mean(train_scores)},
-                    **{f"cv_val_{metric}_mean": np.mean(val_scores)}
+                    **{f"cv_val_{metric}_mean": np.mean(val_scores)},
                 )
 
         self.model.fit(X_train, y_train, **self.fit_params)
@@ -140,11 +147,12 @@ class SklearnTrainerStep(Step):
         self.log_metrics(
             training_samples=len(X_train),
             n_features=X_train.shape[1],
-            model_type=self.model.__class__.__name__
+            model_type=self.model.__class__.__name__,
         )
 
         if self.save_path:
             import joblib
+
             Path(self.save_path).parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(self.model, self.save_path)
 
@@ -153,7 +161,7 @@ class SklearnTrainerStep(Step):
 
 class _PyTorchTrainerStepStub(Step):
     """DEPRECATED: PyTorch model training step.
-    
+
     .. deprecated::
         Use :class:`autopipe.steps.deep_learning.PyTorchTrainerStep` instead.
         This stub provides minimal functionality. Import from deep_learning module
@@ -167,25 +175,25 @@ class _PyTorchTrainerStepStub(Step):
         config: Optional[TrainingConfig] = None,
         loss_fn: Optional[str] = None,
         task_type: str = "classification",
-        **kwargs
+        **kwargs,
     ):
         warnings.warn(
             "PyTorchTrainerStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.PyTorchTrainerStep for full training support.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(name, **kwargs)
         self.model_builder = model_builder
         self.config = config or TrainingConfig()
         self.loss_fn_name = loss_fn or ("cross_entropy" if task_type == "classification" else "mse")
         self.task_type = task_type
-        self.history = {'train_loss': [], 'val_loss': []}
+        self.history = {"train_loss": [], "val_loss": []}
 
     def run(self, **kwargs) -> Any:
         """Build model without training. Use deep_learning.PyTorchTrainerStep for training."""
         try:
-            import torch
+            import torch  # noqa: F401  (availability probe)
             import torch.nn as nn
         except ImportError:
             raise ImportError("PyTorch is required. Install with: pip install torch")
@@ -205,22 +213,18 @@ PyTorchTrainerStep = _PyTorchTrainerStepStub
 
 class _TensorFlowTrainerStepStub(Step):
     """DEPRECATED: TensorFlow/Keras model training step.
-    
+
     .. deprecated::
         Use :class:`autopipe.steps.deep_learning.TensorFlowTrainerStep` instead.
         This stub provides minimal functionality.
     """
 
-    def __init__(
-        self,
-        name: str = "tensorflow_trainer",
-        **kwargs
-    ):
+    def __init__(self, name: str = "tensorflow_trainer", **kwargs):
         warnings.warn(
             "TensorFlowTrainerStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.TensorFlowTrainerStep for full training support.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(name, **kwargs)
         self.history = None
@@ -253,7 +257,7 @@ class HyperparameterTunerStep(Step):
         cv: int = 5,
         scoring: Optional[str] = None,
         n_jobs: int = -1,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.model_class = model_class
@@ -301,13 +305,16 @@ class HyperparameterTunerStep(Step):
 
         self.best_estimator_ = searcher.best_estimator_
         self.best_params_ = searcher.best_params_
-        self.log_metrics(best_score=searcher.best_score_, **{f"best_{k}": v for k, v in self.best_params_.items() if isinstance(v, (int, float))})
+        self.log_metrics(
+            best_score=searcher.best_score_,
+            **{f"best_{k}": v for k, v in self.best_params_.items() if isinstance(v, (int, float))},
+        )
         return self.best_estimator_
 
 
 class _TransferLearningStepStub(Step):
     """DEPRECATED: Transfer learning step for pretrained models.
-    
+
     .. deprecated::
         Use :class:`autopipe.steps.deep_learning.TransferLearningStep` instead.
     """
@@ -317,13 +324,13 @@ class _TransferLearningStepStub(Step):
         name: str = "transfer_learning",
         base_model: str = "resnet50",
         num_classes: int = 10,
-        **kwargs
+        **kwargs,
     ):
         warnings.warn(
             "TransferLearningStep from training module is deprecated. "
             "Use autopipe.steps.deep_learning.TransferLearningStep for full support.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(name, **kwargs)
         self.base_model = base_model

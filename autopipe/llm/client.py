@@ -1,8 +1,9 @@
 """LLM client supporting multiple providers."""
+
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional
 
 import requests
 
@@ -23,16 +24,13 @@ class LLMClient(ABC):
 
 class OllamaClient(LLMClient):
     """Ollama API client (OpenAI-compatible).
-    
+
     Supports local Ollama server and Ollama Cloud.
     Uses OpenAI-compatible API with custom base URL.
     """
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model: str = "llama3.1",
-        base_url: Optional[str] = None
+        self, api_key: Optional[str] = None, model: str = "llama3.1", base_url: Optional[str] = None
     ):
         self.api_key = api_key or os.getenv("OLLAMA_API_KEY", "ollama")
         self.model = model
@@ -55,7 +53,7 @@ class OllamaClient(LLMClient):
             response = requests.get(
                 f"{self.base_url}/models",
                 headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {},
-                timeout=5
+                timeout=5,
             )
             if response.status_code == 404:
                 # Alternative health check for some Ollama versions
@@ -76,7 +74,7 @@ class OllamaClient(LLMClient):
             response = requests.get(
                 f"{self.base_url}/models",
                 headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {},
-                timeout=5
+                timeout=5,
             )
             if response.status_code == 200:
                 data = response.json()
@@ -109,27 +107,21 @@ class OllamaClient(LLMClient):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        data = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-            **kwargs
-        }
+        data = {"model": self.model, "messages": messages, "stream": False, **kwargs}
 
         try:
             response = requests.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=data,
-                timeout=kwargs.get("timeout", 120)
+                timeout=kwargs.get("timeout", 120),
             )
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
         except requests.exceptions.ConnectionError as e:
             raise ValueError(
-                f"Cannot connect to Ollama at {self.base_url}. "
-                "Is Ollama running? Run: ollama serve"
+                f"Cannot connect to Ollama at {self.base_url}. Is Ollama running? Run: ollama serve"
             ) from e
         except requests.exceptions.HTTPError as e:
             if response.status_code == 404:
@@ -142,8 +134,7 @@ class OllamaClient(LLMClient):
                     ) from e
                 else:
                     raise ValueError(
-                        f"Model '{self.model}' not found. "
-                        "Run 'ollama pull <model>' to download."
+                        f"Model '{self.model}' not found. Run 'ollama pull <model>' to download."
                     ) from e
             raise
 
@@ -167,12 +158,9 @@ class OpenAIClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Chat completion."""
         import openai
+
         openai.api_key = self.api_key
-        response = openai.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **kwargs
-        )
+        response = openai.chat.completions.create(model=self.model, messages=messages, **kwargs)
         return response.choices[0].message.content
 
 
@@ -193,19 +181,18 @@ class AnthropicClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Anthropic messages API."""
         import anthropic
+
         client = anthropic.Anthropic(api_key=self.api_key)
-        response = client.messages.create(
-            model=self.model,
-            messages=messages,
-            **kwargs
-        )
+        response = client.messages.create(model=self.model, messages=messages, **kwargs)
         return response.content[0].text
 
 
 class OpenRouterClient(LLMClient):
     """OpenRouter API client."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "google/gemma-4-26b-a4b-it:free"):
+    def __init__(
+        self, api_key: Optional[str] = None, model: str = "google/gemma-4-26b-a4b-it:free"
+    ):
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY not set in environment")
@@ -223,13 +210,9 @@ class OpenRouterClient(LLMClient):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/autopipe",
-            "X-Title": "AutoPipe"
+            "X-Title": "AutoPipe",
         }
-        data = {
-            "model": self.model,
-            "messages": messages,
-            **kwargs
-        }
+        data = {"model": self.model, "messages": messages, **kwargs}
         response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=data)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
@@ -239,20 +222,31 @@ class LLMFactory:
     """Factory to create LLM clients based on provider."""
 
     # Auto-detect Ollama models by name pattern
-    OLLAMA_MODEL_PATTERNS = [
-        "llama", "mistral", "codellama", "deepseek",
-        "phi", "gemma", "qwen", "mixtral", "neural-chat",
-        "nous-hermes", "wizard", "dolphin", "yi", "falcon"
+    OLLAMA_MODEL_PATTERNS: ClassVar[List[str]] = [
+        "llama",
+        "mistral",
+        "codellama",
+        "deepseek",
+        "phi",
+        "gemma",
+        "qwen",
+        "mixtral",
+        "neural-chat",
+        "nous-hermes",
+        "wizard",
+        "dolphin",
+        "yi",
+        "falcon",
     ]
 
     @staticmethod
     def create_client(provider: str, **kwargs) -> LLMClient:
         """Create an LLM client.
-        
+
         Args:
             provider: One of 'openai', 'anthropic', 'openrouter', 'ollama'.
             **kwargs: Passed to client constructor.
-            
+
         Returns:
             LLMClient instance.
         """
@@ -271,10 +265,10 @@ class LLMFactory:
     @classmethod
     def detect_provider(cls, model_name: Optional[str] = None) -> str:
         """Auto-detect provider based on model name or environment.
-        
+
         Args:
             model_name: Optional model name to check patterns against.
-            
+
         Returns:
             Provider name string.
         """

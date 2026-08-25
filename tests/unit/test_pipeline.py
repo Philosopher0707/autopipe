@@ -1,15 +1,17 @@
 """Tests for core pipeline functionality."""
+
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, patch
 
 from autopipe.core.pipeline import Pipeline
 from autopipe.core.step import Step
 from autopipe.core.steps import PrintStep
-from autopipe.exceptions import PipelineError, StepError
 
 
 class MockStep(Step):
     """Mock step for testing purposes."""
+
     def run(self, **kwargs):
         return None
 
@@ -53,10 +55,10 @@ class TestPipeline:
         pipeline = Pipeline("test")
         step1 = PrintStep("step1", message="Hello")
         step2 = PrintStep("step2", message="World")
-        
+
         pipeline.add_step(step1)
         pipeline.add_step(step2)
-        
+
         assert len(pipeline.steps) == 2
         assert pipeline.get_step("step1") == step1
         assert pipeline.get_step("step2") == step2
@@ -72,7 +74,7 @@ class TestPipeline:
         pipeline = Pipeline("test")
         pipeline.add_step(PrintStep("step1"))
         pipeline.add_step(PrintStep("step2", depends_on=["step1"]))
-        
+
         # Check dependency resolution - execution_order is now a property returning names
         order = pipeline.execution_order
         assert "step1" in order
@@ -85,10 +87,10 @@ class TestPipeline:
         pipeline = Pipeline("test")
         step1 = PrintStep("step1", depends_on=["step2"])
         step2 = PrintStep("step2", depends_on=["step1"])
-        
+
         pipeline.add_step(step1)
         pipeline.add_step(step2)
-        
+
         # Should raise when trying to get execution order
         with pytest.raises(Exception):
             _ = pipeline.execution_order
@@ -106,9 +108,9 @@ class TestPipeline:
         step.name = "step1"
         step.depends_on = []
         step.run.return_value = "output"
-        
+
         pipeline.add_step(step)
         results = pipeline.run()
-        
+
         assert "step1" in results
         step.run.assert_called_once()

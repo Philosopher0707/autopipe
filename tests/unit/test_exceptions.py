@@ -1,14 +1,12 @@
 """Tests for exceptions."""
-import pytest
+
 
 from autopipe.exceptions import (
+    AuthenticationError,
     AutoPipeError,
-    ConfigurationError,
-    PipelineError,
-    StepError,
     LLMError,
     RateLimitError,
-    AuthenticationError,
+    StepError,
 )
 
 
@@ -24,10 +22,7 @@ class TestAutoPipeError:
 
     def test_error_with_details(self):
         """Test error with additional details."""
-        error = AutoPipeError(
-            "Config error",
-            details={"key": "invalid", "expected": "string"}
-        )
+        error = AutoPipeError("Config error", details={"key": "invalid", "expected": "string"})
         assert error.details["key"] == "invalid"
 
 
@@ -53,10 +48,7 @@ class TestLLMError:
     def test_llm_error(self):
         """Test creating an LLM error."""
         error = LLMError(
-            provider="openai",
-            model="gpt-4",
-            message="API failed",
-            details={"status_code": 500}
+            provider="openai", model="gpt-4", message="API failed", details={"status_code": 500}
         )
         assert error.provider == "openai"
         assert error.model == "gpt-4"
@@ -64,10 +56,7 @@ class TestLLMError:
 
     def test_rate_limit_error(self):
         """Test rate limit error."""
-        error = RateLimitError(
-            provider="openai",
-            message="Rate limit exceeded"
-        )
+        error = RateLimitError(provider="openai", message="Rate limit exceeded")
         assert isinstance(error, LLMError)
         assert "Rate limit" in error.message
 

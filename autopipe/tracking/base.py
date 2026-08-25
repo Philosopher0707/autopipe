@@ -3,12 +3,16 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
 class Run:
     """Single experiment run representation."""
+
     run_id: str
     experiment_id: str
     run_name: Optional[str] = None
@@ -77,6 +81,7 @@ class Run:
 @dataclass
 class Experiment:
     """Experiment representation."""
+
     experiment_id: str
     name: str
     artifact_location: Optional[str] = None
@@ -175,22 +180,27 @@ class BaseTracker(ABC):
 
         import psutil
 
-        self.log_params({
-            "system_platform": platform.platform(),
-            "system_processor": platform.processor(),
-            "system_cores": psutil.cpu_count(),
-            "system_memory_gb": psutil.virtual_memory().total / (1024 ** 3),
-        })
+        self.log_params(
+            {
+                "system_platform": platform.platform(),
+                "system_processor": platform.processor(),
+                "system_cores": psutil.cpu_count(),
+                "system_memory_gb": psutil.virtual_memory().total / (1024**3),
+            }
+        )
 
         # Log GPU info if available
         try:
             import GPUtil
+
             gpus = GPUtil.getGPUs()
             for i, gpu in enumerate(gpus):
-                self.log_params({
-                    f"gpu_{i}_name": gpu.name,
-                    f"gpu_{i}_memory_mb": gpu.memoryTotal,
-                })
+                self.log_params(
+                    {
+                        f"gpu_{i}_name": gpu.name,
+                        f"gpu_{i}_memory_mb": gpu.memoryTotal,
+                    }
+                )
         except ImportError:
             pass
 
@@ -216,7 +226,7 @@ class BaseTracker(ABC):
 
 class LocalTracker(BaseTracker):
     """Simple local experiment tracker.
-    
+
     Stores experiments in memory with optional persistence.
     """
 
@@ -224,11 +234,12 @@ class LocalTracker(BaseTracker):
         self,
         experiment_name: str = "default",
         artifact_dir: str = "./.autopipe_artifacts",
-        **kwargs
+        **kwargs,
     ):
         super().__init__(experiment_name, **kwargs)
         self.artifact_dir = artifact_dir
         import os
+
         os.makedirs(artifact_dir, exist_ok=True)
 
         # Create experiment
@@ -244,6 +255,7 @@ class LocalTracker(BaseTracker):
     def _generate_id(self) -> str:
         """Generate unique ID."""
         import uuid
+
         return str(uuid.uuid4())
 
     def start_run(
@@ -309,11 +321,7 @@ class LocalTracker(BaseTracker):
         import shutil
 
         if self.current_run:
-            dest_dir = os.path.join(
-                self.artifact_dir,
-                self.current_run.run_id,
-                artifact_path or ""
-            )
+            dest_dir = os.path.join(self.artifact_dir, self.current_run.run_id, artifact_path or "")
             os.makedirs(dest_dir, exist_ok=True)
 
             if os.path.isfile(local_path):

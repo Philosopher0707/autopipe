@@ -1,10 +1,8 @@
 """Tests for run endpoints."""
 
 import pytest
+from app.db.models import Pipeline
 from httpx import AsyncClient
-
-from app.db.models import Pipeline, Run, RunStatus
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -48,9 +46,12 @@ async def test_get_run_not_found(client: AsyncClient):
 async def test_update_run_status(client: AsyncClient, seed_pipeline: Pipeline):
     """PATCH /runs/{id} updates run status."""
     run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.patch(f"/api/v1/runs/{run_data['id']}", json={
-        "status": "running",
-    })
+    resp = await client.patch(
+        f"/api/v1/runs/{run_data['id']}",
+        json={
+            "status": "running",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] in ("running", "RUNNING")
 
@@ -58,9 +59,12 @@ async def test_update_run_status(client: AsyncClient, seed_pipeline: Pipeline):
 async def test_cancel_run(client: AsyncClient, seed_pipeline: Pipeline):
     """PATCH /runs/{id} with status=cancelled cancels the run."""
     run_data = await _create_run(client, seed_pipeline.id)
-    resp = await client.patch(f"/api/v1/runs/{run_data['id']}", json={
-        "status": "cancelled",
-    })
+    resp = await client.patch(
+        f"/api/v1/runs/{run_data['id']}",
+        json={
+            "status": "cancelled",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] in ("cancelled", "CANCELLED")
 
@@ -93,18 +97,22 @@ async def test_compare_runs(client: AsyncClient, seed_pipeline: Pipeline):
     run_id_b = run_b["id"]
 
     # Patch runs with distinct configs and metrics for comparison
-    await client.patch(f"/api/v1/runs/{run_id_a}", json={
-        "config": {"lr": 0.001, "epochs": 10, "batch_size": 32},
-        "metrics": {"accuracy": 0.85, "loss": 0.25},
-    })
-    await client.patch(f"/api/v1/runs/{run_id_b}", json={
-        "config": {"lr": 0.01, "epochs": 10, "batch_size": 64},
-        "metrics": {"accuracy": 0.88, "loss": 0.20},
-    })
+    await client.patch(
+        f"/api/v1/runs/{run_id_a}",
+        json={
+            "config": {"lr": 0.001, "epochs": 10, "batch_size": 32},
+            "metrics": {"accuracy": 0.85, "loss": 0.25},
+        },
+    )
+    await client.patch(
+        f"/api/v1/runs/{run_id_b}",
+        json={
+            "config": {"lr": 0.01, "epochs": 10, "batch_size": 64},
+            "metrics": {"accuracy": 0.88, "loss": 0.20},
+        },
+    )
 
-    resp = await client.post("/api/v1/runs/compare", json={
-        "run_ids": [run_id_a, run_id_b]
-    })
+    resp = await client.post("/api/v1/runs/compare", json={"run_ids": [run_id_a, run_id_b]})
     assert resp.status_code == 200
     data = resp.json()
 
@@ -163,7 +171,13 @@ async def test_compare_runs_less_than_two(client: AsyncClient):
 
 async def test_compare_runs_missing(client: AsyncClient):
     """POST /runs/compare with nonexistent run IDs returns 404."""
-    resp = await client.post("/api/v1/runs/compare", json={
-        "run_ids": ["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]
-    })
+    resp = await client.post(
+        "/api/v1/runs/compare",
+        json={
+            "run_ids": [
+                "00000000-0000-0000-0000-000000000000",
+                "00000000-0000-0000-0000-000000000001",
+            ]
+        },
+    )
     assert resp.status_code == 404

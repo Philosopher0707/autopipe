@@ -1,4 +1,5 @@
 """Enhanced CLI for AutoPipe with modern features."""
+
 import os
 import sys
 from pathlib import Path
@@ -30,25 +31,25 @@ def print_banner():
 
 @click.group()
 @click.version_option(version=__import__("autopipe").__version__, prog_name="autopipe")
-@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
-@click.option('--config', '-c', type=click.Path(), help='Path to config file')
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+@click.option("--config", "-c", type=click.Path(), help="Path to config file")
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool, config: Optional[str]):
     """AutoPipe CLI - Manage and run ML/DL pipelines."""
     ctx.ensure_object(dict)
-    ctx.obj['verbose'] = verbose
-    ctx.obj['config'] = config
+    ctx.obj["verbose"] = verbose
+    ctx.obj["config"] = config
 
     if verbose:
         console.print("[dim]Verbose mode enabled[/dim]")
 
 
 @cli.command()
-@click.argument('pipeline_file', type=click.Path(exists=True))
-@click.option('--output', '-o', type=click.Path(), help='Output directory for results')
-@click.option('--cache/--no-cache', default=True, help='Enable/disable caching')
-@click.option('--parallel', '-p', is_flag=True, help='Run steps in parallel where possible')
-@click.option('--step', '-s', multiple=True, help='Run only specific steps')
+@click.argument("pipeline_file", type=click.Path(exists=True))
+@click.option("--output", "-o", type=click.Path(), help="Output directory for results")
+@click.option("--cache/--no-cache", default=True, help="Enable/disable caching")
+@click.option("--parallel", "-p", is_flag=True, help="Run steps in parallel where possible")
+@click.option("--step", "-s", multiple=True, help="Run only specific steps")
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -61,7 +62,7 @@ def run(
     """Run a pipeline from a YAML file."""
     import yaml
 
-    with open(pipeline_file, 'r') as f:
+    with open(pipeline_file, "r") as f:
         config_dict = yaml.safe_load(f)
 
     pipeline = load_pipeline_from_config(config_dict)
@@ -69,7 +70,6 @@ def run(
     print_banner()
 
     try:
-
         console.print(f"[bold green]Pipeline loaded:[/bold green] {pipeline.name}")
         console.print(f"[dim]Steps: {len(pipeline.steps)}[/dim]")
 
@@ -97,19 +97,20 @@ def run(
 
     except AutoPipeError as e:
         console.print(f"[bold red]✗ Pipeline error: {e}[/bold red]")
-        if ctx.obj.get('verbose'):
+        if ctx.obj.get("verbose"):
             raise
         sys.exit(1)
     except Exception as e:
         console.print(f"[bold red]✗ Error: {e}[/bold red]")
-        if ctx.obj.get('verbose'):
+        if ctx.obj.get("verbose"):
             import traceback
+
             console.print(traceback.format_exc())
         sys.exit(1)
 
 
 @cli.command()
-@click.argument('pipeline_file', type=click.Path(exists=True))
+@click.argument("pipeline_file", type=click.Path(exists=True))
 def validate(pipeline_file: str):
     """Validate a pipeline configuration file."""
     print_banner()
@@ -119,16 +120,18 @@ def validate(pipeline_file: str):
 
         console.print(f"[bold blue]Validating:[/bold blue] {pipeline_file}")
 
-        with open(pipeline_file, 'r') as f:
+        with open(pipeline_file, "r") as f:
             config_dict = yaml.safe_load(f)
 
         # Validate with Pydantic
         from autopipe.schemas.models import PipelineConfig
+
         config = PipelineConfig.model_validate(config_dict)
 
         # Validate step types can be imported
         for step_config in config.steps:
             from autopipe.core.loader import import_class
+
             try:
                 import_class(step_config.type)
                 console.print(f"  [green]✓[/green] {step_config.name}: {step_config.type}")
@@ -143,9 +146,9 @@ def validate(pipeline_file: str):
 
 
 @cli.command()
-@click.option('--providers', is_flag=True, help='Show LLM provider status')
-@click.option('--cache', is_flag=True, help='Show cache status')
-@click.option('--metrics', is_flag=True, help='Show metrics status')
+@click.option("--providers", is_flag=True, help="Show LLM provider status")
+@click.option("--cache", is_flag=True, help="Show cache status")
+@click.option("--metrics", is_flag=True, help="Show metrics status")
 def status(providers: bool, cache: bool, metrics: bool):
     """Check system status and configuration."""
     print_banner()
@@ -155,7 +158,6 @@ def status(providers: bool, cache: bool, metrics: bool):
 
     if show_all or providers:
         console.print("\n[bold]LLM Providers[/bold]")
-
 
         provider_status = [
             ("OpenAI", "OPENAI_API_KEY"),
@@ -170,6 +172,7 @@ def status(providers: bool, cache: bool, metrics: bool):
                 ollama_url = os.environ.get(env_var, "http://127.0.0.1:11434/v1")
                 try:
                     import requests
+
                     # Try native Ollama API
                     base = ollama_url.replace("/v1", "")
                     response = requests.get(f"{base}/api/tags", timeout=2)
@@ -177,11 +180,17 @@ def status(providers: bool, cache: bool, metrics: bool):
                         models = response.json().get("models", [])
                         model_names = [m.get("name", "unknown") for m in models[:3]]
                         models_str = ", ".join(model_names) if model_names else "no models"
-                        console.print(f"  [green]✓[/green] {name}: Running at {ollama_url} ({models_str})")
+                        console.print(
+                            f"  [green]✓[/green] {name}: Running at {ollama_url} ({models_str})"
+                        )
                     else:
-                        console.print(f"  [yellow]○[/yellow] {name}: Configured ({ollama_url}) but not responding")
+                        console.print(
+                            f"  [yellow]○[/yellow] {name}: Configured ({ollama_url}) but not responding"
+                        )
                 except Exception:
-                    console.print(f"  [red]✗[/red] {name}: Not running ({ollama_url}) - Run: ollama serve")
+                    console.print(
+                        f"  [red]✗[/red] {name}: Not running ({ollama_url}) - Run: ollama serve"
+                    )
             elif os.environ.get(env_var):
                 console.print(f"  [green]✓[/green] {name}: Configured")
             else:
@@ -202,17 +211,17 @@ def status(providers: bool, cache: bool, metrics: bool):
 
 
 @cli.command()
-@click.option('--force', is_flag=True, help='Force clean without confirmation')
+@click.option("--force", is_flag=True, help="Force clean without confirmation")
 def clean(force: bool):
     """Clean temporary files and caches."""
-    if not force:
-        if not click.confirm("This will remove all cached results. Continue?"):
-            console.print("[dim]Cancelled.[/dim]")
-            return
+    if not force and not click.confirm("This will remove all cached results. Continue?"):
+        console.print("[dim]Cancelled.[/dim]")
+        return
 
     cache_dir = Path("./.autopipe_cache")
     if cache_dir.exists():
         import shutil
+
         shutil.rmtree(cache_dir)
         console.print(f"[green]✓ Removed cache directory: {cache_dir}[/green]")
 
@@ -226,12 +235,12 @@ def clean(force: bool):
 
 
 @cli.command()
-@click.argument('name')
+@click.argument("name")
 def create(name: str):
     """Create a new pipeline from a template."""
     print_banner()
 
-    template = f'''name: {name}
+    template = f"""name: {name}
 description: A sample AutoPipe pipeline
 
 env:
@@ -261,14 +270,14 @@ steps:
 # To use Ollama instead, set OLLAMA_BASE_URL and change:
 #   provider: ollama
 #   model: llama3.1  # or mistral, codellama, etc.
-'''
+"""
 
     filename = f"{name}.yaml"
     if Path(filename).exists():
         console.print(f"[red]Error: {filename} already exists![/red]")
         sys.exit(1)
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         f.write(template)
 
     console.print(f"[green]✓ Created new pipeline: {filename}[/green]")
@@ -281,7 +290,7 @@ def models():
 
 
 @models.command(name="list")
-@click.option('--provider', '-p', default='ollama', help='Provider to list models for')
+@click.option("--provider", "-p", default="ollama", help="Provider to list models for")
 def models_list(provider: str):
     """List available models from the provider."""
     print_banner()
@@ -294,6 +303,7 @@ def models_list(provider: str):
         # Try to fetch from Ollama server
         try:
             import requests
+
             base = Config.OLLAMA_BASE_URL.replace("/v1", "")
             response = requests.get(f"{base}/api/tags", timeout=5)
             if response.status_code == 200:
@@ -311,28 +321,36 @@ def models_list(provider: str):
                         name = model.get("name", "unknown")
                         size = model.get("size", 0)
                         size_str = f"{size / 1e9:.1f} GB" if size else "N/A"
-                        modified = model.get("modified_at", "")[:10] if model.get("modified_at") else "N/A"
+                        modified = (
+                            model.get("modified_at", "")[:10] if model.get("modified_at") else "N/A"
+                        )
                         is_current = "★" if name == current_model else ""
                         table.add_row(str(i), name, size_str, modified, is_current)
 
                     console.print(table)
                     console.print(f"\n[dim]Current default: {current_model or 'Not set'}[/dim]")
-                    console.print("\nUse [bold]autopipe models set <model_name>[/bold] to change default")
+                    console.print(
+                        "\nUse [bold]autopipe models set <model_name>[/bold] to change default"
+                    )
                 else:
-                    console.print("[yellow]No models found. Run 'ollama pull <model>' to download.[/yellow]")
+                    console.print(
+                        "[yellow]No models found. Run 'ollama pull <model>' to download.[/yellow]"
+                    )
             else:
                 console.print(f"[red]Failed to fetch models: HTTP {response.status_code}[/red]")
         except Exception as e:
             console.print(f"[red]Could not connect to Ollama: {e}[/red]")
             console.print("[dim]Ensure Ollama is running: ollama serve[/dim]")
     else:
-        console.print(f"[yellow]Model listing for provider '{provider}' not yet implemented.[/yellow]")
+        console.print(
+            f"[yellow]Model listing for provider '{provider}' not yet implemented.[/yellow]"
+        )
 
 
 @models.command(name="set")
-@click.argument('model_name')
-@click.option('--provider', '-p', default='ollama', help='Provider to set model for')
-@click.option('--persist', is_flag=True, help='Persist to .env file')
+@click.argument("model_name")
+@click.option("--provider", "-p", default="ollama", help="Provider to set model for")
+@click.option("--persist", is_flag=True, help="Persist to .env file")
 def models_set(model_name: str, provider: str, persist: bool):
     """Set the default model for a provider."""
     print_banner()
@@ -343,6 +361,7 @@ def models_set(model_name: str, provider: str, persist: bool):
             import requests
 
             from autopipe.config.load import Config
+
             base = Config.OLLAMA_BASE_URL.replace("/v1", "")
             response = requests.get(f"{base}/api/tags", timeout=5)
 
@@ -381,7 +400,9 @@ def models_set(model_name: str, provider: str, persist: bool):
                     console.print("[green]✓ Persisted to .env file[/green]")
                 else:
                     env_file.write_text(f"OLLAMA_DEFAULT_MODEL={model_name}\n")
-                    console.print(f"[green]✓ Created .env file with OLLAMA_DEFAULT_MODEL={model_name}[/green]")
+                    console.print(
+                        f"[green]✓ Created .env file with OLLAMA_DEFAULT_MODEL={model_name}[/green]"
+                    )
             else:
                 console.print("[dim]Tip: Use --persist to save to .env file[/dim]")
 
@@ -390,14 +411,15 @@ def models_set(model_name: str, provider: str, persist: bool):
             # Still set it anyway
             os.environ["OLLAMA_DEFAULT_MODEL"] = model_name
     else:
-        console.print(f"[yellow]Setting model for provider '{provider}' not yet supported.[/yellow]")
+        console.print(
+            f"[yellow]Setting model for provider '{provider}' not yet supported.[/yellow]"
+        )
 
 
 @models.command(name="current")
 def models_current():
     """Show the current default model configuration."""
     print_banner()
-
 
     console.print("\n[bold]Current Model Configuration[/bold]\n")
 
@@ -421,6 +443,7 @@ def models_current():
     # Try to fetch Ollama models
     try:
         import requests
+
         base = Config.OLLAMA_BASE_URL.replace("/v1", "")
         response = requests.get(f"{base}/api/tags", timeout=3)
         if response.status_code == 200:
@@ -436,20 +459,19 @@ def models_current():
 
 
 @models.command(name="use")
-@click.argument('alias', required=False)
-@click.option('--kimi', is_flag=True, help='Use kimi-k2.5:cloud')
-@click.option('--glm', is_flag=True, help='Use glm-5.1:cloud')
-@click.option('--minimax', is_flag=True, help='Use minimax-m2.7:cloud')
+@click.argument("alias", required=False)
+@click.option("--kimi", is_flag=True, help="Use kimi-k2.5:cloud")
+@click.option("--glm", is_flag=True, help="Use glm-5.1:cloud")
+@click.option("--minimax", is_flag=True, help="Use minimax-m2.7:cloud")
 def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
     """Quick-select a cloud model by alias.
-    
+
     Available aliases:
     • kimi - kimi-k2.5:cloud
     • glm - glm-5.1:cloud
     • minimax - minimax-m2.7:cloud
     """
     print_banner()
-
 
     # Map aliases to model names
     alias_map = {
@@ -473,9 +495,15 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
     else:
         # Show help
         console.print("\n[bold]Quick-Select Cloud Models[/bold]\n")
-        console.print("  [cyan]kimi[/cyan]      → [green]kimi-k2.5:cloud[/green]  (High-performance reasoning)")
-        console.print("  [cyan]glm[/cyan]       → [green]glm-5.1:cloud[/green]    (General purpose chat)")
-        console.print("  [cyan]minimax[/cyan]   → [green]minimax-m2.7:cloud[/green] (Multi-modal capable)\n")
+        console.print(
+            "  [cyan]kimi[/cyan]      → [green]kimi-k2.5:cloud[/green]  (High-performance reasoning)"
+        )
+        console.print(
+            "  [cyan]glm[/cyan]       → [green]glm-5.1:cloud[/green]    (General purpose chat)"
+        )
+        console.print(
+            "  [cyan]minimax[/cyan]   → [green]minimax-m2.7:cloud[/green] (Multi-modal capable)\n"
+        )
         console.print("Examples:")
         console.print("  autopipe models use kimi")
         console.print("  autopipe models use --glm")

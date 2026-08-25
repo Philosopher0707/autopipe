@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class CrossValidationStep(Step):
     """Cross-validation step for robust model evaluation.
-    
+
     Supports various CV strategies:
     - K-Fold
     - Stratified K-Fold
@@ -40,7 +40,7 @@ class CrossValidationStep(Step):
         metrics: Optional[List[str]] = None,
         return_train_score: bool = True,
         n_jobs: int = -1,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -62,7 +62,7 @@ class CrossValidationStep(Step):
         self.random_state = random_state
         self.stratify = stratify
         self.groups = groups
-        self.metric_names = metrics or ['accuracy']
+        self.metric_names = metrics or ["accuracy"]
         self.return_train_score = return_train_score
         self.n_jobs = n_jobs
 
@@ -72,9 +72,13 @@ class CrossValidationStep(Step):
     def get_cv_splitter(self, y: np.ndarray = None) -> Any:
         """Get the appropriate CV splitter."""
         if self.strategy == "kfold":
-            return KFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state)
+            return KFold(
+                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
+            )
         elif self.strategy == "stratified":
-            return StratifiedKFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state)
+            return StratifiedKFold(
+                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
+            )
         elif self.strategy == "timeseries":
             return TimeSeriesSplit(n_splits=self.n_splits)
         elif self.strategy == "group":
@@ -89,17 +93,17 @@ class CrossValidationStep(Step):
         y: np.ndarray,
         groups: Optional[np.ndarray] = None,
         fit_params: Optional[Dict] = None,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """Run cross-validation.
-        
+
         Args:
             model_builder: Callable that returns an unfitted model
             X: Feature matrix
             y: Target values
             groups: Optional group labels
             fit_params: Additional parameters for model.fit()
-            
+
         Returns:
             Dictionary with CV results
         """
@@ -126,40 +130,40 @@ class CrossValidationStep(Step):
             val_score = self._score_model(model, X_val, y_val)
 
             fold_result = {
-                'fold': fold_idx,
-                'train_score': train_score,
-                'val_score': val_score,
-                'train_size': len(train_idx),
-                'val_size': len(val_idx)
+                "fold": fold_idx,
+                "train_score": train_score,
+                "val_score": val_score,
+                "train_size": len(train_idx),
+                "val_size": len(val_idx),
             }
             fold_results.append(fold_result)
             fold_models.append(model)
 
             self.log_metrics(
-                **{f'fold_{fold_idx}_train_score': train_score},
-                **{f'fold_{fold_idx}_val_score': val_score}
+                **{f"fold_{fold_idx}_train_score": train_score},
+                **{f"fold_{fold_idx}_val_score": val_score},
             )
 
         # Aggregate results
-        train_scores = [r['train_score'] for r in fold_results]
-        val_scores = [r['val_score'] for r in fold_results]
+        train_scores = [r["train_score"] for r in fold_results]
+        val_scores = [r["val_score"] for r in fold_results]
 
         self.cv_results = {
-            'fold_results': fold_results,
-            'fold_models': fold_models,
-            'mean_train_score': np.mean(train_scores),
-            'std_train_score': np.std(train_scores),
-            'mean_val_score': np.mean(val_scores),
-            'std_val_score': np.std(val_scores),
-            'best_fold_idx': np.argmax(val_scores),
-            'worst_fold_idx': np.argmin(val_scores)
+            "fold_results": fold_results,
+            "fold_models": fold_models,
+            "mean_train_score": np.mean(train_scores),
+            "std_train_score": np.std(train_scores),
+            "mean_val_score": np.mean(val_scores),
+            "std_val_score": np.std(val_scores),
+            "best_fold_idx": np.argmax(val_scores),
+            "worst_fold_idx": np.argmin(val_scores),
         }
 
         self.log_metrics(
-            mean_train_score=self.cv_results['mean_train_score'],
-            std_train_score=self.cv_results['std_train_score'],
-            mean_val_score=self.cv_results['mean_val_score'],
-            std_val_score=self.cv_results['std_val_score']
+            mean_train_score=self.cv_results["mean_train_score"],
+            std_train_score=self.cv_results["std_train_score"],
+            mean_val_score=self.cv_results["mean_val_score"],
+            std_val_score=self.cv_results["std_val_score"],
         )
 
         return self.cv_results
@@ -177,8 +181,8 @@ class CrossValidationStep(Step):
         if self.cv_results is None:
             raise ValueError("Cross-validation has not been run")
 
-        best_idx = self.cv_results['best_fold_idx']
-        return self.cv_results['fold_models'][best_idx]
+        best_idx = self.cv_results["best_fold_idx"]
+        return self.cv_results["fold_models"][best_idx]
 
     def visualize(self, **kwargs):
         """Visualize CV results."""
@@ -187,44 +191,64 @@ class CrossValidationStep(Step):
 
         import matplotlib.pyplot as plt
 
-        fold_results = self.cv_results['fold_results']
+        fold_results = self.cv_results["fold_results"]
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Plot 1: Train vs Val scores
-        folds = [r['fold'] for r in fold_results]
-        train_scores = [r['train_score'] for r in fold_results]
-        val_scores = [r['val_score'] for r in fold_results]
+        folds = [r["fold"] for r in fold_results]
+        train_scores = [r["train_score"] for r in fold_results]
+        val_scores = [r["val_score"] for r in fold_results]
 
-        ax1.plot(folds, train_scores, 'o-', label='Train', linewidth=2)
-        ax1.plot(folds, val_scores, 's-', label='Validation', linewidth=2)
-        ax1.axhline(self.cv_results['mean_val_score'], color='r', linestyle='--',
-                   label=f"Mean Val: {self.cv_results['mean_val_score']:.4f}")
-        ax1.fill_between(folds,
-                        self.cv_results['mean_val_score'] - self.cv_results['std_val_score'],
-                        self.cv_results['mean_val_score'] + self.cv_results['std_val_score'],
-                        alpha=0.2, color='r')
-        ax1.set_xlabel('Fold')
-        ax1.set_ylabel('Score')
-        ax1.set_title(f'{self.name} - Cross-Validation Scores')
+        ax1.plot(folds, train_scores, "o-", label="Train", linewidth=2)
+        ax1.plot(folds, val_scores, "s-", label="Validation", linewidth=2)
+        ax1.axhline(
+            self.cv_results["mean_val_score"],
+            color="r",
+            linestyle="--",
+            label=f"Mean Val: {self.cv_results['mean_val_score']:.4f}",
+        )
+        ax1.fill_between(
+            folds,
+            self.cv_results["mean_val_score"] - self.cv_results["std_val_score"],
+            self.cv_results["mean_val_score"] + self.cv_results["std_val_score"],
+            alpha=0.2,
+            color="r",
+        )
+        ax1.set_xlabel("Fold")
+        ax1.set_ylabel("Score")
+        ax1.set_title(f"{self.name} - Cross-Validation Scores")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
 
         # Plot 2: Score distribution
-        ax2.hist(val_scores, bins=10, alpha=0.7, edgecolor='black')
-        ax2.axvline(self.cv_results['mean_val_score'], color='r', linestyle='--', linewidth=2,
-                   label=f"Mean: {self.cv_results['mean_val_score']:.4f}")
-        ax2.axvline(self.cv_results['mean_val_score'] + self.cv_results['std_val_score'],
-                   color='orange', linestyle=':', alpha=0.7)
-        ax2.axvline(self.cv_results['mean_val_score'] - self.cv_results['std_val_score'],
-                   color='orange', linestyle=':', alpha=0.7)
-        ax2.set_xlabel('Validation Score')
-        ax2.set_ylabel('Frequency')
-        ax2.set_title('Score Distribution')
+        ax2.hist(val_scores, bins=10, alpha=0.7, edgecolor="black")
+        ax2.axvline(
+            self.cv_results["mean_val_score"],
+            color="r",
+            linestyle="--",
+            linewidth=2,
+            label=f"Mean: {self.cv_results['mean_val_score']:.4f}",
+        )
+        ax2.axvline(
+            self.cv_results["mean_val_score"] + self.cv_results["std_val_score"],
+            color="orange",
+            linestyle=":",
+            alpha=0.7,
+        )
+        ax2.axvline(
+            self.cv_results["mean_val_score"] - self.cv_results["std_val_score"],
+            color="orange",
+            linestyle=":",
+            alpha=0.7,
+        )
+        ax2.set_xlabel("Validation Score")
+        ax2.set_ylabel("Frequency")
+        ax2.set_title("Score Distribution")
         ax2.legend()
 
         plt.tight_layout()
-        plt.savefig(f'{self.name}_cv_results.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_cv_results.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
@@ -237,7 +261,7 @@ class NestedCrossValidationStep(Step):
         outer_splits: int = 5,
         inner_splits: int = 3,
         random_state: int = 42,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.outer_splits = outer_splits
@@ -250,7 +274,7 @@ class NestedCrossValidationStep(Step):
         param_grid: Dict[str, List],
         X: np.ndarray,
         y: np.ndarray,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """Run nested cross-validation with grid search."""
         from itertools import product
@@ -266,15 +290,16 @@ class NestedCrossValidationStep(Step):
             y_train, y_test = y[train_idx], y[test_idx]
 
             # Inner CV for hyperparameter selection
-            inner_cv = KFold(n_splits=self.inner_splits, shuffle=True, random_state=self.random_state)
+            inner_cv = KFold(
+                n_splits=self.inner_splits, shuffle=True, random_state=self.random_state
+            )
 
             # Grid search on inner CV
-            best_score = -float('inf')
+            best_score = -float("inf")
             best_params = None
 
             param_combinations = [
-                dict(zip(param_grid.keys(), v))
-                for v in product(*param_grid.values())
+                dict(zip(param_grid.keys(), v, strict=False)) for v in product(*param_grid.values())
             ]
 
             for params in param_combinations:
@@ -304,32 +329,34 @@ class NestedCrossValidationStep(Step):
             # Evaluate on test set
             test_score = final_model.score(X_test, y_test)
 
-            outer_results.append({
-                'outer_fold': outer_fold,
-                'best_params': best_params,
-                'inner_cv_score': best_score,
-                'outer_test_score': test_score
-            })
+            outer_results.append(
+                {
+                    "outer_fold": outer_fold,
+                    "best_params": best_params,
+                    "inner_cv_score": best_score,
+                    "outer_test_score": test_score,
+                }
+            )
 
             self.log_metrics(
-                **{f'outer_{outer_fold}_inner_score': best_score},
-                **{f'outer_{outer_fold}_test_score': test_score}
+                **{f"outer_{outer_fold}_inner_score": best_score},
+                **{f"outer_{outer_fold}_test_score": test_score},
             )
 
         # Aggregate results
-        test_scores = [r['outer_test_score'] for r in outer_results]
+        test_scores = [r["outer_test_score"] for r in outer_results]
 
         return {
-            'outer_results': outer_results,
-            'mean_test_score': np.mean(test_scores),
-            'std_test_score': np.std(test_scores),
-            'all_test_scores': test_scores
+            "outer_results": outer_results,
+            "mean_test_score": np.mean(test_scores),
+            "std_test_score": np.std(test_scores),
+            "all_test_scores": test_scores,
         }
 
 
 class DataSplitterStep(Step):
     """Comprehensive data splitting step.
-    
+
     Supports various splitting strategies:
     - Train/Val/Test split
     - Stratified splitting
@@ -347,7 +374,7 @@ class DataSplitterStep(Step):
         random_state: int = 42,
         shuffle: bool = True,
         time_column: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -373,17 +400,14 @@ class DataSplitterStep(Step):
         self.splits = None
 
     def run(
-        self,
-        data: pd.DataFrame,
-        target_column: Optional[str] = None,
-        **kwargs
+        self, data: pd.DataFrame, target_column: Optional[str] = None, **kwargs
     ) -> Dict[str, Any]:
         """Split data into train/val/test sets.
-        
+
         Args:
             data: DataFrame with features and optional target
             target_column: Name of target column
-            
+
         Returns:
             Dictionary with splits
         """
@@ -411,7 +435,7 @@ class DataSplitterStep(Step):
                 test_size=self.test_size,
                 stratify=y if self.stratify else None,
                 random_state=self.random_state,
-                shuffle=self.shuffle
+                shuffle=self.shuffle,
             )
 
             # Second split: separate train and val
@@ -427,16 +451,16 @@ class DataSplitterStep(Step):
                 test_size=val_ratio,
                 stratify=y_train_val if self.stratify else None,
                 random_state=self.random_state,
-                shuffle=self.shuffle
+                shuffle=self.shuffle,
             )
 
         self.splits = {
-            'train': train_data,
-            'val': val_data,
-            'test': test_data,
-            'train_size': len(train_data),
-            'val_size': len(val_data),
-            'test_size': len(test_data)
+            "train": train_data,
+            "val": val_data,
+            "test": test_data,
+            "train_size": len(train_data),
+            "val_size": len(val_data),
+            "test_size": len(test_data),
         }
 
         self.log_metrics(
@@ -445,7 +469,7 @@ class DataSplitterStep(Step):
             test_size=len(test_data),
             train_ratio=len(train_data) / len(data),
             val_ratio=len(val_data) / len(data),
-            test_ratio=len(test_data) / len(data)
+            test_ratio=len(test_data) / len(data),
         )
 
         return self.splits
@@ -454,7 +478,7 @@ class DataSplitterStep(Step):
         """Get train, validation, and test data."""
         if self.splits is None:
             raise ValueError("Data has not been split")
-        return self.splits['train'], self.splits['val'], self.splits['test']
+        return self.splits["train"], self.splits["val"], self.splits["test"]
 
     def visualize(self, **kwargs):
         """Visualize data splits."""
@@ -463,68 +487,61 @@ class DataSplitterStep(Step):
 
         import matplotlib.pyplot as plt
 
-        splits = ['Train', 'Validation', 'Test']
-        sizes = [self.splits['train_size'], self.splits['val_size'], self.splits['test_size']]
-        colors = ['#2ecc71', '#f39c12', '#e74c3c']
+        splits = ["Train", "Validation", "Test"]
+        sizes = [self.splits["train_size"], self.splits["val_size"], self.splits["test_size"]]
+        colors = ["#2ecc71", "#f39c12", "#e74c3c"]
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+        _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Pie chart
-        ax1.pie(sizes, labels=splits, autopct='%1.1f%%', colors=colors, startangle=90)
-        ax1.set_title(f'{self.name} - Data Split Distribution')
+        ax1.pie(sizes, labels=splits, autopct="%1.1f%%", colors=colors, startangle=90)
+        ax1.set_title(f"{self.name} - Data Split Distribution")
 
         # Bar chart with sizes
-        bars = ax2.bar(splits, sizes, color=colors, alpha=0.7, edgecolor='black')
-        ax2.set_ylabel('Number of Samples')
-        ax2.set_title('Split Sizes')
+        bars = ax2.bar(splits, sizes, color=colors, alpha=0.7, edgecolor="black")
+        ax2.set_ylabel("Number of Samples")
+        ax2.set_title("Split Sizes")
 
         # Add value labels on bars
         for bar in bars:
             height = bar.get_height()
-            ax2.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{int(height):,}',
-                    ha='center', va='bottom')
+            ax2.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                height,
+                f"{int(height):,}",
+                ha="center",
+                va="bottom",
+            )
 
         plt.tight_layout()
-        plt.savefig(f'{self.name}_splits.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_splits.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
 class StratifiedGroupKFoldStep(Step):
     """Custom CV step for stratified group k-fold.
-    
+
     Ensures that:
     - Groups don't appear in multiple folds
     - Class distribution is similar across folds
     """
 
     def __init__(
-        self,
-        name: str,
-        n_splits: int = 5,
-        shuffle: bool = True,
-        random_state: int = 42,
-        **kwargs
+        self, name: str, n_splits: int = 5, shuffle: bool = True, random_state: int = 42, **kwargs
     ):
         super().__init__(name, **kwargs)
         self.n_splits = n_splits
         self.shuffle = shuffle
         self.random_state = random_state
 
-    def run(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        groups: np.ndarray,
-        **kwargs
-    ) -> Dict[str, Any]:
+    def run(self, X: np.ndarray, y: np.ndarray, groups: np.ndarray, **kwargs) -> Dict[str, Any]:
         """Create stratified group k-fold splits.
-        
+
         Args:
             X: Features
             y: Targets
             groups: Group labels
-            
+
         Returns:
             Dictionary with fold indices
         """
@@ -543,13 +560,13 @@ class StratifiedGroupKFoldStep(Step):
 
         # Use stratified k-fold on groups
         skf = StratifiedKFold(
-            n_splits=self.n_splits,
-            shuffle=self.shuffle,
-            random_state=self.random_state
+            n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
         )
 
         folds = []
-        for fold_idx, (train_group_idx, val_group_idx) in enumerate(skf.split(unique_groups, group_labels)):
+        for fold_idx, (train_group_idx, val_group_idx) in enumerate(
+            skf.split(unique_groups, group_labels)
+        ):
             train_groups = unique_groups[train_group_idx]
             val_groups = unique_groups[val_group_idx]
 
@@ -557,18 +574,17 @@ class StratifiedGroupKFoldStep(Step):
             train_idx = np.where(np.isin(groups, train_groups))[0]
             val_idx = np.where(np.isin(groups, val_groups))[0]
 
-            folds.append({
-                'fold': fold_idx,
-                'train_idx': train_idx,
-                'val_idx': val_idx,
-                'train_size': len(train_idx),
-                'val_size': len(val_idx)
-            })
+            folds.append(
+                {
+                    "fold": fold_idx,
+                    "train_idx": train_idx,
+                    "val_idx": val_idx,
+                    "train_size": len(train_idx),
+                    "val_size": len(val_idx),
+                }
+            )
 
-        return {
-            'folds': folds,
-            'n_splits': self.n_splits
-        }
+        return {"folds": folds, "n_splits": self.n_splits}
 
 
 class BootstrapValidatorStep(Step):
@@ -580,7 +596,7 @@ class BootstrapValidatorStep(Step):
         n_bootstrap: int = 100,
         random_state: int = 42,
         confidence: float = 0.95,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.n_bootstrap = n_bootstrap
@@ -588,21 +604,16 @@ class BootstrapValidatorStep(Step):
         self.confidence = confidence
 
     def run(
-        self,
-        model_builder: Callable,
-        X: np.ndarray,
-        y: np.ndarray,
-        metric_fn: Callable,
-        **kwargs
+        self, model_builder: Callable, X: np.ndarray, y: np.ndarray, metric_fn: Callable, **kwargs
     ) -> Dict[str, Any]:
         """Run bootstrap validation.
-        
+
         Args:
             model_builder: Callable that returns model
             X: Features
             y: Targets
             metric_fn: Function to compute metric: metric_fn(y_true, y_pred)
-            
+
         Returns:
             Dictionary with bootstrap statistics
         """
@@ -611,7 +622,7 @@ class BootstrapValidatorStep(Step):
 
         scores = []
 
-        for i in range(self.n_bootstrap):
+        for _i in range(self.n_bootstrap):
             # Bootstrap sample
             indices = rng.choice(n_samples, size=n_samples, replace=True)
             oob_indices = np.setdiff1d(np.arange(n_samples), indices)
@@ -641,55 +652,61 @@ class BootstrapValidatorStep(Step):
         ci_upper = np.percentile(scores, (1 - alpha) * 100)
 
         result = {
-            'mean_score': np.mean(scores),
-            'std_score': np.std(scores),
-            'median_score': np.median(scores),
-            'min_score': np.min(scores),
-            'max_score': np.max(scores),
-            'ci_lower': ci_lower,
-            'ci_upper': ci_upper,
-            'scores': scores.tolist(),
-            'n_bootstrap': len(scores)
+            "mean_score": np.mean(scores),
+            "std_score": np.std(scores),
+            "median_score": np.median(scores),
+            "min_score": np.min(scores),
+            "max_score": np.max(scores),
+            "ci_lower": ci_lower,
+            "ci_upper": ci_upper,
+            "scores": scores.tolist(),
+            "n_bootstrap": len(scores),
         }
 
         self.log_metrics(
-            bootstrap_mean=result['mean_score'],
-            bootstrap_std=result['std_score'],
+            bootstrap_mean=result["mean_score"],
+            bootstrap_std=result["std_score"],
             ci_lower=ci_lower,
-            ci_upper=ci_upper
+            ci_upper=ci_upper,
         )
 
         return result
 
     def visualize(self, **kwargs):
         """Visualize bootstrap distribution."""
-        if self.output is None or 'scores' not in self.output:
+        if self.output is None or "scores" not in self.output:
             return
 
         import matplotlib.pyplot as plt
 
-        scores = self.output['scores']
+        scores = self.output["scores"]
 
         plt.figure(figsize=(10, 6))
 
         # Histogram
-        plt.hist(scores, bins=30, alpha=0.7, edgecolor='black', density=True)
+        plt.hist(scores, bins=30, alpha=0.7, edgecolor="black", density=True)
 
         # Add statistics
-        mean = self.output['mean_score']
-        ci_lower = self.output['ci_lower']
-        ci_upper = self.output['ci_upper']
+        mean = self.output["mean_score"]
+        ci_lower = self.output["ci_lower"]
+        ci_upper = self.output["ci_upper"]
 
-        plt.axvline(mean, color='r', linestyle='--', linewidth=2, label=f'Mean: {mean:.4f}')
-        plt.axvline(ci_lower, color='orange', linestyle=':', linewidth=2, label=f'95% CI: [{ci_lower:.4f}, {ci_upper:.4f}]')
-        plt.axvline(ci_upper, color='orange', linestyle=':', linewidth=2)
+        plt.axvline(mean, color="r", linestyle="--", linewidth=2, label=f"Mean: {mean:.4f}")
+        plt.axvline(
+            ci_lower,
+            color="orange",
+            linestyle=":",
+            linewidth=2,
+            label=f"95% CI: [{ci_lower:.4f}, {ci_upper:.4f}]",
+        )
+        plt.axvline(ci_upper, color="orange", linestyle=":", linewidth=2)
 
-        plt.xlabel('Score')
-        plt.ylabel('Density')
-        plt.title(f'{self.name} - Bootstrap Score Distribution')
+        plt.xlabel("Score")
+        plt.ylabel("Density")
+        plt.title(f"{self.name} - Bootstrap Score Distribution")
         plt.legend()
         plt.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig(f'{self.name}_bootstrap.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_bootstrap.png", dpi=150, bbox_inches="tight")
         plt.close()

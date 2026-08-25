@@ -1,4 +1,5 @@
 """Caching module for AutoPipe."""
+
 import hashlib
 import json
 import pickle
@@ -11,7 +12,7 @@ import cachetools
 
 from ..exceptions import CacheError
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class CacheBackend(ABC, Generic[T]):
@@ -246,6 +247,7 @@ class CacheManager:
         ttl: Optional[int] = None,
     ) -> Callable[[Callable[..., T]], Callable[..., T]]:
         """Decorator for caching function results."""
+
         def decorator(func: Callable[..., T]) -> Callable[..., T]:
             def wrapper(*args: Any, **kwargs: Any) -> T:
                 if not self.enabled:
@@ -265,6 +267,7 @@ class CacheManager:
                 return result
 
             return wrapper
+
         return decorator
 
 
@@ -301,11 +304,14 @@ def cached(
     ttl: Optional[int] = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator for caching using the global cache."""
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         def wrapper(*args: Any, **kwargs: Any) -> T:
             cache = get_cache()
             if cache is None:
                 return func(*args, **kwargs)
             return cache.cached(key_fn, ttl)(func)(*args, **kwargs)
+
         return wrapper
+
     return decorator

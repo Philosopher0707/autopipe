@@ -1,22 +1,23 @@
 """Tests for model registry endpoints."""
 
 import pytest
-from httpx import AsyncClient
-
 from app.db.models import Model
-
+from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
 
 
 async def test_create_model(client: AsyncClient):
     """POST /models creates a new model."""
-    resp = await client.post("/api/v1/models", json={
-        "name": "my-classifier",
-        "description": "A test classifier",
-        "framework": "sklearn",
-        "task_type": "classification",
-    })
+    resp = await client.post(
+        "/api/v1/models",
+        json={
+            "name": "my-classifier",
+            "description": "A test classifier",
+            "framework": "sklearn",
+            "task_type": "classification",
+        },
+    )
     assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "my-classifier"
@@ -48,9 +49,12 @@ async def test_get_model_not_found(client: AsyncClient):
 
 async def test_update_model(client: AsyncClient, seed_model: Model):
     """PATCH /models/{id} updates the model."""
-    resp = await client.patch(f"/api/v1/models/{seed_model.id}", json={
-        "description": "Updated model description",
-    })
+    resp = await client.patch(
+        f"/api/v1/models/{seed_model.id}",
+        json={
+            "description": "Updated model description",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["description"] == "Updated model description"
 

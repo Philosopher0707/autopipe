@@ -20,6 +20,7 @@ Usage::
     results = pipeline.run()
     print(results["review"].final_text)
 """
+
 from __future__ import annotations
 
 import contextlib

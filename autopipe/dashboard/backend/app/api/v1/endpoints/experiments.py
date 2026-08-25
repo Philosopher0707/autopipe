@@ -1,23 +1,28 @@
 """Experiments endpoints."""
 
+import itertools
 import random
 import uuid
-import itertools
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, HTTPException, status
-from sqlalchemy import select, func, desc
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.db.models import Experiment, Pipeline, Run, RunStatus, Step, StepStatus
 from app.db.session import get_db
 from app.schemas import (
-    ExperimentCreate, ExperimentUpdate, ExperimentResponse, ExperimentList,
-    TrialLaunchRequest, TrialLaunchResponse, RunResponse,
-    ExperimentArtifactsResponse, ExperimentArtifact,
+    ExperimentArtifact,
+    ExperimentArtifactsResponse,
+    ExperimentCreate,
+    ExperimentList,
+    ExperimentResponse,
+    ExperimentUpdate,
+    RunResponse,
+    TrialLaunchRequest,
+    TrialLaunchResponse,
 )
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
@@ -25,8 +30,7 @@ router = APIRouter()
 def _derive_experiment_status(runs: list[Run]) -> str:
     """Derive an experiment status from its runs."""
     statuses = {
-        run.status.value if hasattr(run.status, "value") else str(run.status)
-        for run in runs
+        run.status.value if hasattr(run.status, "value") else str(run.status) for run in runs
     }
     if not statuses:
         return "pending"
@@ -56,29 +60,29 @@ async def list_experiments(
     db: AsyncSession = Depends(get_db),
 ):
     """List all experiments with pagination."""
-    
+
     count_query = select(func.count(Experiment.id))
     query = select(Experiment).options(selectinload(Experiment.runs))
-    
+
     if search:
         count_query = count_query.where(Experiment.name.ilike(f"%{search}%"))
         query = query.where(Experiment.name.ilike(f"%{search}%"))
-    
+
     if tags:
         for tag in tags:
             count_query = count_query.where(Experiment.tags.contains([tag]))
             query = query.where(Experiment.tags.contains([tag]))
-    
+
     total = await db.scalar(count_query)
-    
+
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(desc(Experiment.updated_at))
-    
+
     result = await db.execute(query)
     experiments = result.scalars().unique().all()
-    
+
     items = [_serialize_experiment(experiment) for experiment in experiments]
-    
+
     return ExperimentList(
         total=total or 0,
         page=page,
@@ -129,13 +133,15 @@ async def get_experiment(
 ):
     """Get experiment by ID."""
     result = await db.execute(
-        select(Experiment).where(Experiment.id == experiment_id).options(selectinload(Experiment.runs))
+        select(Experiment)
+        .where(Experiment.id == experiment_id)
+        .options(selectinload(Experiment.runs))
     )
     experiment = result.scalar_one_or_none()
-    
+
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    
+
     return _serialize_experiment(experiment)
 
 
@@ -148,17 +154,17 @@ async def update_experiment(
     """Update experiment."""
     result = await db.execute(select(Experiment).where(Experiment.id == experiment_id))
     experiment = result.scalar_one_or_none()
-    
+
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    
+
     if update_data.description is not None:
         experiment.description = update_data.description
     if update_data.config is not None:
         experiment.config = update_data.config
     if update_data.tags is not None:
         experiment.tags = update_data.tags
-    
+
     await db.commit()
     refreshed = await db.execute(
         select(Experiment)
@@ -177,10 +183,10 @@ async def delete_experiment(
     """Delete experiment."""
     result = await db.execute(select(Experiment).where(Experiment.id == experiment_id))
     experiment = result.scalar_one_or_none()
-    
+
     if not experiment:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    
+
     await db.delete(experiment)
     await db.commit()
     return None
@@ -193,12 +199,13 @@ async def get_experiment_runs(
 ):
     """Get all runs for an experiment."""
     result = await db.execute(
-        select(Run).where(Run.experiment_id == experiment_id)
+        select(Run)
+        .where(Run.experiment_id == experiment_id)
         .options(selectinload(Run.pipeline))
         .order_by(desc(Run.created_at))
     )
     runs = result.scalars().unique().all()
-    
+
     return {
         "items": [
             {
@@ -229,20 +236,25 @@ async def compare_experiment_runs(
 ):
     """Compare runs in an experiment by a specific metric."""
     result = await db.execute(
-        select(Run).where(Run.experiment_id == experiment_id).order_by(desc(Run.created_at)).limit(limit)
+        select(Run)
+        .where(Run.experiment_id == experiment_id)
+        .order_by(desc(Run.created_at))
+        .limit(limit)
     )
     runs = result.scalars().all()
-    
+
     compared_runs = []
     for run in runs:
         run_metrics = run.metrics or {}
-        compared_runs.append({
-            "id": run.id,
-            "metric_value": run_metrics.get(metric),
-            "params": run.config,
-            "started_at": run.started_at.isoformat() if run.started_at else None,
-        })
-    
+        compared_runs.append(
+            {
+                "id": run.id,
+                "metric_value": run_metrics.get(metric),
+                "params": run.config,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+            }
+        )
+
     return {
         "experiment_id": experiment_id,
         "metric": metric,
@@ -290,7 +302,7 @@ def _grid_configs(search_space: dict, max_trials: int) -> list[dict]:
             param_values[param] = spec["values"]
     combos = list(itertools.product(*param_values.values()))
     combos = combos[:max_trials]
-    return [dict(zip(param_values.keys(), combo)) for combo in combos]
+    return [dict(zip(param_values.keys(), combo, strict=False)) for combo in combos]
 
 
 def _generate_trial_configs(search_space: dict | None, strategy: str, n_trials: int) -> list[dict]:
@@ -319,7 +331,9 @@ def _generate_metrics(search_space: dict | None, metric_name: str | None) -> dic
 def _simulate_run(run: Run, search_space: dict | None, metric_name: str | None) -> None:
     """Simulate execution of a trial run: advance status, set timestamps, generate metrics."""
     is_failed = random.random() < 0.15
-    started = datetime.now(timezone.utc) - timedelta(minutes=random.randint(5, 30), seconds=random.randint(0, 59))
+    started = datetime.now(timezone.utc) - timedelta(
+        minutes=random.randint(5, 30), seconds=random.randint(0, 59)
+    )
     duration = random.uniform(60, 600)
 
     run.started_at = started
@@ -350,21 +364,32 @@ def _create_steps(run: Run) -> list[Step]:
             step_status = StepStatus.SUCCESS
         step_started = started + timedelta(minutes=i * 2)
         step_duration = random.uniform(30, 180)
-        is_done = step_status in (StepStatus.SUCCESS, StepStatus.FAILED)
         is_skipped = step_status == StepStatus.SKIPPED
-        steps.append(Step(
-            id=str(uuid.uuid4()),
-            run_id=run.id,
-            name=step_name,
-            step_type=f"{step_name.title()}Step",
-            status=step_status,
-            started_at=step_started if not is_skipped else None,
-            completed_at=step_started + timedelta(seconds=step_duration) if step_status == StepStatus.SUCCESS else None,
-            duration_seconds=step_duration if step_status == StepStatus.SUCCESS else None,
-            order_index=i,
-            logs=f"[INFO] {step_name}: Processing data...\n[INFO] {step_name}: Done!" if step_status == StepStatus.SUCCESS else (f"[ERROR] {step_name}: Failed" if step_status == StepStatus.FAILED else f"[WARN] {step_name}: Skipped"),
-            metrics={"step_metric": round(random.uniform(0.8, 1.0), 3)} if step_status == StepStatus.SUCCESS else None,
-        ))
+        steps.append(
+            Step(
+                id=str(uuid.uuid4()),
+                run_id=run.id,
+                name=step_name,
+                step_type=f"{step_name.title()}Step",
+                status=step_status,
+                started_at=step_started if not is_skipped else None,
+                completed_at=step_started + timedelta(seconds=step_duration)
+                if step_status == StepStatus.SUCCESS
+                else None,
+                duration_seconds=step_duration if step_status == StepStatus.SUCCESS else None,
+                order_index=i,
+                logs=f"[INFO] {step_name}: Processing data...\n[INFO] {step_name}: Done!"
+                if step_status == StepStatus.SUCCESS
+                else (
+                    f"[ERROR] {step_name}: Failed"
+                    if step_status == StepStatus.FAILED
+                    else f"[WARN] {step_name}: Skipped"
+                ),
+                metrics={"step_metric": round(random.uniform(0.8, 1.0), 3)}
+                if step_status == StepStatus.SUCCESS
+                else None,
+            )
+        )
 
     return steps
 
@@ -403,18 +428,27 @@ async def get_experiment_artifacts(
             detail=f"Experiment {experiment_id} not found",
         )
     types = ["image", "figure", "csv", "json"]
-    titles = ["Confusion Matrix", "ROC Curve", "Feature Importance", "Training Loss Curve", "Prediction Distribution", "Residual Plot"]
+    titles = [
+        "Confusion Matrix",
+        "ROC Curve",
+        "Feature Importance",
+        "Training Loss Curve",
+        "Prediction Distribution",
+        "Residual Plot",
+    ]
     artifacts = []
-    for i, (t, title) in enumerate(zip(types * 2, titles)):
+    for i, (t, title) in enumerate(zip(types * 2, titles, strict=False)):
         ext = {"image": "png", "figure": "svg", "csv": "csv", "json": "json"}[t]
-        artifacts.append(ExperimentArtifact(
-            id=f"art-{experiment_id[:8]}-{i}",
-            artifact_type=t,
-            title=title,
-            file_path=f"/artifacts/{experiment_id[:8]}/{title.lower().replace(' ', '_')}.{ext}",
-            file_size=random.randint(1024, 5_242_880),
-            created_at=experiment.created_at,
-        ))
+        artifacts.append(
+            ExperimentArtifact(
+                id=f"art-{experiment_id[:8]}-{i}",
+                artifact_type=t,
+                title=title,
+                file_path=f"/artifacts/{experiment_id[:8]}/{title.lower().replace(' ', '_')}.{ext}",
+                file_size=random.randint(1024, 5_242_880),
+                created_at=experiment.created_at,
+            )
+        )
     return ExperimentArtifactsResponse(experiment_id=experiment_id, artifacts=artifacts)
 
 
@@ -428,7 +462,9 @@ async def launch_trials(
     """Launch trial runs for an experiment using its search-space config."""
     # Fetch experiment
     result = await db.execute(
-        select(Experiment).where(Experiment.id == experiment_id).options(selectinload(Experiment.runs))
+        select(Experiment)
+        .where(Experiment.id == experiment_id)
+        .options(selectinload(Experiment.runs))
     )
     experiment = result.scalar_one_or_none()
     if not experiment:
@@ -503,6 +539,7 @@ async def launch_trials(
     # Execute runs via the pipeline executor if not simulating
     if not body.simulate:
         from app.executor.runner import execute_run
+
         pipeline_config = pipeline.config or {}
         for run in created_runs:
             if pipeline_config and "steps" in pipeline_config:

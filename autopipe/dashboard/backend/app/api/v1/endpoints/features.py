@@ -1,9 +1,7 @@
 """Feature Engineering endpoints."""
 
 import random
-from typing import Any, Dict, List, Optional
-
-from fastapi import APIRouter, HTTPException, status
+from typing import List
 
 from app.schemas import (
     FeatureExtractRequest,
@@ -12,12 +10,19 @@ from app.schemas import (
     FeatureStats,
     TransformStep,
 )
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter()
 
 _FEATURES = [
-    "age", "income", "score", "tenure", "balance",
-    "transactions", "credit_score", "debt_ratio",
+    "age",
+    "income",
+    "score",
+    "tenure",
+    "balance",
+    "transactions",
+    "credit_score",
+    "debt_ratio",
 ]
 
 _SAMPLE_PIPELINE: List[TransformStep] = [
@@ -30,16 +35,18 @@ _SAMPLE_PIPELINE: List[TransformStep] = [
 def _make_stats(rng: random.Random, prefix: str = "") -> List[FeatureStats]:
     stats = []
     for f in _FEATURES:
-        stats.append(FeatureStats(
-            name=f"{prefix}{f}" if prefix else f,
-            dtype=rng.choice(["float64", "int64"]),
-            nulls=rng.randint(0, 50),
-            mean=round(rng.gauss(50, 20), 2),
-            std=round(rng.gauss(15, 5), 2),
-            min=round(rng.uniform(0, 10), 2),
-            max=round(rng.uniform(90, 100), 2),
-            unique=rng.randint(10, 500),
-        ))
+        stats.append(
+            FeatureStats(
+                name=f"{prefix}{f}" if prefix else f,
+                dtype=rng.choice(["float64", "int64"]),
+                nulls=rng.randint(0, 50),
+                mean=round(rng.gauss(50, 20), 2),
+                std=round(rng.gauss(15, 5), 2),
+                min=round(rng.uniform(0, 10), 2),
+                max=round(rng.uniform(90, 100), 2),
+                unique=rng.randint(10, 500),
+            )
+        )
     return stats
 
 
@@ -56,10 +63,7 @@ async def extract_features(request: FeatureExtractRequest) -> FeatureExtractResp
     before = _make_stats(rng)
     after = _make_stats(rng, prefix="transformed_")
     sample_keys = rng.sample(_FEATURES, 4)
-    sample_values = {
-        k: [round(rng.gauss(50, 20), 2) for _ in range(5)]
-        for k in sample_keys
-    }
+    sample_values = {k: [round(rng.gauss(50, 20), 2) for _ in range(5)] for k in sample_keys}
     return FeatureExtractResponse(
         pipeline_id=request.pipeline_id,
         before_count=len(_FEATURES),

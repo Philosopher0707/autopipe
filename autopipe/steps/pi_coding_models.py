@@ -3,6 +3,7 @@
 Structured output from the pi coding agent, typed and versioned
 for programmatic consumption in pipeline steps.
 """
+
 from __future__ import annotations
 
 import dataclasses

@@ -4,24 +4,36 @@ WARNING: This script creates demo users with hardcoded passwords.
 Only use in development/testing environments. Do NOT run in production.
 """
 
-import logging
-
 import asyncio
+import logging
 import uuid
 
-from sqlalchemy import func as sa_func
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.auth import get_password_hash
-from app.core.config import settings
 from app.db.models import (
-    User, UserRole, Pipeline, Run, RunStatus, Step, StepStatus,
-    Experiment, Model, ModelVersion, ModelStage, DriftReport, DriftAlert,
-    AlertSeverity, DashboardMetric, ActivityLog, ChartArtifact, MetricLog, Project,
+    ActivityLog,
+    AlertSeverity,
+    ChartArtifact,
+    DashboardMetric,
+    DriftAlert,
+    DriftReport,
+    Experiment,
+    MetricLog,
+    Model,
+    ModelStage,
+    ModelVersion,
+    Pipeline,
+    Project,
+    Run,
+    RunStatus,
+    Step,
+    StepStatus,
+    User,
+    UserRole,
 )
+from app.db.session import AsyncSessionLocal
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
-
-from app.db.session import engine, AsyncSessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -125,22 +137,26 @@ async def seed_users(db: AsyncSession) -> None:
     for ud in users_data:
         result = await db.execute(select(User).where(User.email == ud["email"]))
         if result.scalars().first() is None:
-            db.add(User(
-                id=str(uuid.uuid4()),
-                username=ud["username"],
-                email=ud["email"],
-                full_name=ud["full_name"],
-                hashed_password=get_password_hash(ud["password"]),
-                role=ud["role"],
-                is_active=ud["is_active"],
-            ))
+            db.add(
+                User(
+                    id=str(uuid.uuid4()),
+                    username=ud["username"],
+                    email=ud["email"],
+                    full_name=ud["full_name"],
+                    hashed_password=get_password_hash(ud["password"]),
+                    role=ud["role"],
+                    is_active=ud["is_active"],
+                )
+            )
             created += 1
 
     await db.commit()
     logger.info(f"  ✓ Created {created} users, {len(users_data) - created} already existed")
 
 
-async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Project]) -> list[Pipeline]:
+async def seed_pipelines(
+    db: AsyncSession, users: list[User], projects: list[Project]
+) -> list[Pipeline]:
     """Create sample pipelines linked to projects."""
     pipelines_data = [
         {
@@ -219,7 +235,11 @@ async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Pro
         if existing:
             pipelines.append(existing)
         else:
-            project = projects[data["project_index"]] if data.get("project_index") is not None and data["project_index"] < len(projects) else None
+            project = (
+                projects[data["project_index"]]
+                if data.get("project_index") is not None and data["project_index"] < len(projects)
+                else None
+            )
             pipeline = Pipeline(
                 id=str(uuid.uuid4()),
                 name=data["name"],
@@ -239,7 +259,9 @@ async def seed_pipelines(db: AsyncSession, users: list[User], projects: list[Pro
     return pipelines
 
 
-async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: list[Experiment] | None = None) -> None:
+async def seed_runs(
+    db: AsyncSession, pipelines: list[Pipeline], experiments: list[Experiment] | None = None
+) -> None:
     """Create sample pipeline runs, optionally linked to experiments."""
     # Skip if runs already exist
     existing_count = await db.scalar(select(sa_func.count(Run.id)))
@@ -250,14 +272,22 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
     import random
     from datetime import datetime, timedelta, timezone
 
-    statuses = [RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.RUNNING]
+    statuses = [
+        RunStatus.SUCCESS,
+        RunStatus.SUCCESS,
+        RunStatus.SUCCESS,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+    ]
     runs_created = 0
 
     for p_idx, pipeline in enumerate(pipelines[:3]):
         experiment_id = experiments[p_idx].id if experiments and p_idx < len(experiments) else None
         # Create 5 runs per pipeline
         for i in range(5):
-            started = datetime.now(timezone.utc) - timedelta(days=random.randint(0, 7), hours=random.randint(0, 12))
+            started = datetime.now(timezone.utc) - timedelta(
+                days=random.randint(0, 7), hours=random.randint(0, 12)
+            )
             status = statuses[i]
 
             if status == RunStatus.SUCCESS:
@@ -289,22 +319,34 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                     "recall": round(random.uniform(0.80, 0.94), 4),
                     "cpu_percent": round(random.uniform(15, 85), 1),
                     "memory_percent": round(random.uniform(30, 75), 1),
-                    "gpu_percent": round(random.uniform(10, 95), 1) if random.random() > 0.3 else None,
-                } if status == RunStatus.SUCCESS else None,
-                error_message="Connection timeout after 30s" if status == RunStatus.FAILED else None,
+                    "gpu_percent": round(random.uniform(10, 95), 1)
+                    if random.random() > 0.3
+                    else None,
+                }
+                if status == RunStatus.SUCCESS
+                else None,
+                error_message="Connection timeout after 30s"
+                if status == RunStatus.FAILED
+                else None,
             )
             db.add(run)
             runs_created += 1
-            
+
             # Add steps for each run
             step_names = ["load_data", "preprocess", "train", "evaluate", "save"]
             for j, step_name in enumerate(step_names):
-                step_status = StepStatus.SUCCESS if status == RunStatus.SUCCESS else (
-                    StepStatus.FAILED if step_name == "train" and status == RunStatus.FAILED else StepStatus.SUCCESS
+                step_status = (
+                    StepStatus.SUCCESS
+                    if status == RunStatus.SUCCESS
+                    else (
+                        StepStatus.FAILED
+                        if step_name == "train" and status == RunStatus.FAILED
+                        else StepStatus.SUCCESS
+                    )
                 )
                 step_started = started + timedelta(minutes=j * 2)
                 step_completed = step_started + timedelta(minutes=random.uniform(1, 3))
-                
+
                 step = Step(
                     id=str(uuid.uuid4()),
                     run_id=run.id,
@@ -316,10 +358,12 @@ async def seed_runs(db: AsyncSession, pipelines: list[Pipeline], experiments: li
                     duration_seconds=(step_completed - step_started).total_seconds(),
                     order_index=j,
                     logs=f"[INFO] {step_name}: Processing data...\n[INFO] {step_name}: Done!",
-                    metrics={"step_metric": round(random.uniform(0.8, 1.0), 3)} if step_status == StepStatus.SUCCESS else None,
+                    metrics={"step_metric": round(random.uniform(0.8, 1.0), 3)}
+                    if step_status == StepStatus.SUCCESS
+                    else None,
                 )
                 db.add(step)
-    
+
     await db.commit()
     logger.info(f"  ✓ Created {runs_created} runs with steps")
 
@@ -334,7 +378,11 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
             "task_type": "classification",
             "tags": ["production", "churn", "xgboost"],
             "stages": ["production", "staging", "pending"],
-            "metrics": [{"accuracy": 0.942, "f1": 0.925}, {"accuracy": 0.931, "f1": 0.912}, {"accuracy": 0.918, "f1": 0.898}],
+            "metrics": [
+                {"accuracy": 0.942, "f1": 0.925},
+                {"accuracy": 0.931, "f1": 0.912},
+                {"accuracy": 0.918, "f1": 0.898},
+            ],
         },
         {
             "name": "fraud_detection_model",
@@ -364,7 +412,7 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
             "metrics": [{"accuracy": 0.912, "f1": 0.908}],
         },
     ]
-    
+
     created = 0
     for model_data in models_data:
         result = await db.execute(select(Model).where(Model.name == model_data["name"]))
@@ -382,9 +430,11 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
         )
         db.add(model)
         created += 1
-        
+
         # Create versions
-        for i, (stage, metrics) in enumerate(zip(model_data["stages"], model_data["metrics"])):
+        for i, (stage, metrics) in enumerate(
+            zip(model_data["stages"], model_data["metrics"], strict=False)
+        ):
             version = ModelVersion(
                 id=str(uuid.uuid4()),
                 model_id=model.id,
@@ -392,13 +442,15 @@ async def seed_models(db: AsyncSession, users: list[User]) -> None:
                 stage=ModelStage(stage),
                 metrics=metrics,
                 params={"n_estimators": 100 * (i + 1), "learning_rate": 0.1},
-                artifact_path=f"/artifacts/{model_data['name']}/v{i+1}.pkl",
+                artifact_path=f"/artifacts/{model_data['name']}/v{i + 1}.pkl",
                 run_id=str(uuid.uuid4()),
             )
             db.add(version)
-    
+
     await db.commit()
-    logger.info(f"  ✓ Created {created} models with versions, {len(models_data) - created} already existed")
+    logger.info(
+        f"  ✓ Created {created} models with versions, {len(models_data) - created} already existed"
+    )
 
 
 async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experiment]:
@@ -464,7 +516,9 @@ async def seed_experiments(db: AsyncSession, users: list[User]) -> list[Experime
             created += 1
 
     await db.commit()
-    logger.info(f"  ✓ Created {created} experiments, {len(experiments_data) - created} already existed")
+    logger.info(
+        f"  ✓ Created {created} experiments, {len(experiments_data) - created} already existed"
+    )
     return experiments
 
 
@@ -475,8 +529,7 @@ async def seed_drift_reports(db: AsyncSession) -> None:
         logger.info(f"  ✓ Drift reports already exist ({existing}), skipping")
         return
 
-    from datetime import datetime, timedelta, timezone
-    
+
     # Drift report
     report = DriftReport(
         id=str(uuid.uuid4()),
@@ -492,14 +545,22 @@ async def seed_drift_reports(db: AsyncSession) -> None:
         alert_generated=True,
     )
     db.add(report)
-    
+
     # Drift alerts
     alerts_data = [
-        {"feature_name": "avg_session_duration", "severity": AlertSeverity.WARNING, "drift_score": 0.31},
-        {"feature_name": "transaction_count", "severity": AlertSeverity.WARNING, "drift_score": 0.24},
+        {
+            "feature_name": "avg_session_duration",
+            "severity": AlertSeverity.WARNING,
+            "drift_score": 0.31,
+        },
+        {
+            "feature_name": "transaction_count",
+            "severity": AlertSeverity.WARNING,
+            "drift_score": 0.24,
+        },
         {"feature_name": "account_age", "severity": AlertSeverity.INFO, "drift_score": 0.18},
     ]
-    
+
     for alert_data in alerts_data:
         alert = DriftAlert(
             id=str(uuid.uuid4()),
@@ -513,9 +574,9 @@ async def seed_drift_reports(db: AsyncSession) -> None:
             acknowledged=alert_data["drift_score"] < 0.25,
         )
         db.add(alert)
-    
+
     await db.commit()
-    logger.info(f"  ✓ Created drift reports and alerts")
+    logger.info("  ✓ Created drift reports and alerts")
 
 
 async def seed_dashboard_metrics(db: AsyncSession) -> None:
@@ -525,11 +586,11 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
         logger.info(f"  ✓ Dashboard metrics already exist ({existing}), skipping")
         return
 
-    from datetime import datetime, timedelta, timezone
     import random
-    
+    from datetime import datetime, timedelta, timezone
+
     metric_names = ["pipeline_success_rate", "avg_run_duration", "model_accuracy", "active_runs"]
-    
+
     for metric_name in metric_names:
         for days_ago in range(14):
             timestamp = datetime.now(timezone.utc) - timedelta(days=days_ago)
@@ -542,7 +603,7 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
             }
             base = base_values.get(metric_name, 0.5)
             value = base + random.uniform(-0.05, 0.05)
-            
+
             metric = DashboardMetric(
                 id=str(uuid.uuid4()),
                 metric_name=metric_name,
@@ -551,9 +612,9 @@ async def seed_dashboard_metrics(db: AsyncSession) -> None:
                 recorded_at=timestamp,
             )
             db.add(metric)
-    
+
     await db.commit()
-    logger.info(f"  ✓ Created dashboard metrics")
+    logger.info("  ✓ Created dashboard metrics")
 
 
 async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
@@ -563,22 +624,46 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
         logger.info(f"  ✓ Activity logs already exist ({existing}), skipping")
         return
 
-    from datetime import datetime, timedelta, timezone
     import random
-    
+    from datetime import datetime, timedelta, timezone
+
     activities = [
-        {"action": "run_completed", "resource_type": "run", "title": "Pipeline 'customer_churn_training' completed successfully"},
-        {"action": "model_promoted", "resource_type": "model", "title": "Model 'customer_churn_model' promoted to PRODUCTION"},
-        {"action": "drift_alert", "resource_type": "drift", "title": "Data drift detected: feature 'avg_session_duration'"},
-        {"action": "experiment_started", "resource_type": "experiment", "title": "Experiment 'churn_hyperparam_search' started"},
-        {"action": "run_failed", "resource_type": "run", "title": "Pipeline 'fraud_detection_pipeline' failed"},
-        {"action": "model_registered", "resource_type": "model", "title": "New model 'sentiment_analysis' registered"},
+        {
+            "action": "run_completed",
+            "resource_type": "run",
+            "title": "Pipeline 'customer_churn_training' completed successfully",
+        },
+        {
+            "action": "model_promoted",
+            "resource_type": "model",
+            "title": "Model 'customer_churn_model' promoted to PRODUCTION",
+        },
+        {
+            "action": "drift_alert",
+            "resource_type": "drift",
+            "title": "Data drift detected: feature 'avg_session_duration'",
+        },
+        {
+            "action": "experiment_started",
+            "resource_type": "experiment",
+            "title": "Experiment 'churn_hyperparam_search' started",
+        },
+        {
+            "action": "run_failed",
+            "resource_type": "run",
+            "title": "Pipeline 'fraud_detection_pipeline' failed",
+        },
+        {
+            "action": "model_registered",
+            "resource_type": "model",
+            "title": "New model 'sentiment_analysis' registered",
+        },
     ]
-    
+
     for i, activity_data in enumerate(activities):
         activity = ActivityLog(
             id=str(uuid.uuid4()),
-            user_id=users[random.randint(0, len(users)-1)].id,
+            user_id=users[random.randint(0, len(users) - 1)].id,
             action=activity_data["action"],
             resource_type=activity_data["resource_type"],
             resource_id=str(uuid.uuid4()),
@@ -586,9 +671,9 @@ async def seed_activity_logs(db: AsyncSession, users: list[User]) -> None:
             created_at=datetime.now(timezone.utc) - timedelta(hours=i * 2 + 1),
         )
         db.add(activity)
-    
+
     await db.commit()
-    logger.info(f"  ✓ Created activity logs")
+    logger.info("  ✓ Created activity logs")
 
 
 async def seed_chart_artifacts(db: AsyncSession) -> None:
@@ -614,12 +699,19 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
                 "x_key": "epoch",
                 "series": ["loss", "val_loss"],
                 "points": [
-                    {"epoch": e, "loss": round(0.5 * (0.9 ** e) + random.uniform(0, 0.02), 4),
-                     "val_loss": round(0.55 * (0.88 ** e) + random.uniform(0, 0.03), 4)}
+                    {
+                        "epoch": e,
+                        "loss": round(0.5 * (0.9**e) + random.uniform(0, 0.02), 4),
+                        "val_loss": round(0.55 * (0.88**e) + random.uniform(0, 0.03), 4),
+                    }
                     for e in range(1, 11)
                 ],
             },
-            "config": {"x_label": "Epoch", "y_label": "Loss", "colors": {"loss": "#ef4444", "val_loss": "#3b82f6"}},
+            "config": {
+                "x_label": "Epoch",
+                "y_label": "Loss",
+                "colors": {"loss": "#ef4444", "val_loss": "#3b82f6"},
+            },
         },
         {
             "chart_type": "line",
@@ -628,12 +720,22 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
                 "x_key": "epoch",
                 "series": ["accuracy", "val_accuracy"],
                 "points": [
-                    {"epoch": e, "accuracy": round(min(0.99, 0.6 + 0.04 * e + random.uniform(0, 0.01)), 4),
-                     "val_accuracy": round(min(0.98, 0.58 + 0.038 * e + random.uniform(0, 0.015)), 4)}
+                    {
+                        "epoch": e,
+                        "accuracy": round(min(0.99, 0.6 + 0.04 * e + random.uniform(0, 0.01)), 4),
+                        "val_accuracy": round(
+                            min(0.98, 0.58 + 0.038 * e + random.uniform(0, 0.015)), 4
+                        ),
+                    }
                     for e in range(1, 11)
                 ],
             },
-            "config": {"x_label": "Epoch", "y_label": "Accuracy", "domain": [0.5, 1], "colors": {"accuracy": "#10b981", "val_accuracy": "#8b5cf6"}},
+            "config": {
+                "x_label": "Epoch",
+                "y_label": "Accuracy",
+                "domain": [0.5, 1],
+                "colors": {"accuracy": "#10b981", "val_accuracy": "#8b5cf6"},
+            },
         },
         {
             "chart_type": "bar",
@@ -643,7 +745,16 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
                 "series": ["importance"],
                 "points": [
                     {"feature": f, "importance": round(random.uniform(0.01, 0.35), 4)}
-                    for f in ["age", "tenure", "monthly_charges", "total_charges", "contract_type", "payment_method", "internet_service", "tech_support"]
+                    for f in [
+                        "age",
+                        "tenure",
+                        "monthly_charges",
+                        "total_charges",
+                        "contract_type",
+                        "payment_method",
+                        "internet_service",
+                        "tech_support",
+                    ]
                 ],
             },
             "config": {"layout": "vertical", "colors": {"importance": "#3b82f6"}},
@@ -659,7 +770,11 @@ async def seed_chart_artifacts(db: AsyncSession) -> None:
                     for a in [0.1 * i for i in range(1, 21)]
                 ],
             },
-            "config": {"x_label": "Actual", "y_label": "Predicted", "colors": {"predicted": "#3b82f6"}},
+            "config": {
+                "x_label": "Actual",
+                "y_label": "Predicted",
+                "colors": {"predicted": "#3b82f6"},
+            },
         },
         {
             "chart_type": "bar",
@@ -716,8 +831,8 @@ async def seed_metric_logs(db: AsyncSession) -> None:
         base_time = run.started_at or datetime.now(timezone.utc)
         for epoch in range(1, 11):
             timestamp = base_time + timedelta(minutes=epoch)
-            loss = round(0.5 * (0.9 ** epoch) + random.uniform(0, 0.02), 4)
-            val_loss = round(0.55 * (0.88 ** epoch) + random.uniform(0, 0.03), 4)
+            loss = round(0.5 * (0.9**epoch) + random.uniform(0, 0.02), 4)
+            val_loss = round(0.55 * (0.88**epoch) + random.uniform(0, 0.03), 4)
             accuracy = round(min(0.99, 0.6 + 0.04 * epoch + random.uniform(0, 0.01)), 4)
             val_accuracy = round(min(0.98, 0.58 + 0.038 * epoch + random.uniform(0, 0.015)), 4)
 
@@ -738,16 +853,18 @@ async def seed_metric_logs(db: AsyncSession) -> None:
                 ]
 
             for metric_name, value in metric_pairs:
-                db.add(MetricLog(
-                    id=str(uuid.uuid4()),
-                    run_id=run.id,
-                    pipeline_id=run.pipeline_id,
-                    experiment_id=run.experiment_id,
-                    metric_name=metric_name,
-                    step_index=epoch,
-                    value=value,
-                    recorded_at=timestamp,
-                ))
+                db.add(
+                    MetricLog(
+                        id=str(uuid.uuid4()),
+                        run_id=run.id,
+                        pipeline_id=run.pipeline_id,
+                        experiment_id=run.experiment_id,
+                        metric_name=metric_name,
+                        step_index=epoch,
+                        value=value,
+                        recorded_at=timestamp,
+                    )
+                )
                 created += 1
 
     await db.commit()
@@ -758,13 +875,14 @@ async def main() -> None:
     """Run all seeders."""
     logger.info("\n🌱 Seeding database with initial data...")
     logger.info("=" * 50)
-    
+
     async with AsyncSessionLocal() as db:
         # Seed users first
         await seed_users(db)
 
         # Get users for references
         from sqlalchemy import select
+
         result = await db.execute(select(User))
         users = list(result.scalars().all())
 

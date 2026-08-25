@@ -79,8 +79,12 @@ def run_assertion(output: str, assertion: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def run_eval(config_path: Path, provider_filter: Optional[str] = None,
-             task_filter: Optional[str] = None, verbose: bool = False) -> List[EvalResult]:
+def run_eval(
+    config_path: Path,
+    provider_filter: Optional[str] = None,
+    task_filter: Optional[str] = None,
+    verbose: bool = False,
+) -> List[EvalResult]:
     """Run evaluation suite from YAML config."""
     with open(config_path) as f:
         config = yaml.safe_load(f)
@@ -107,7 +111,9 @@ def run_eval(config_path: Path, provider_filter: Optional[str] = None,
     total = len(providers) * len(tests)
     current = 0
 
-    console.print(f"[dim]Running {len(tests)} tests against {len(providers)} provider(s)...[/dim]\n")
+    console.print(
+        f"[dim]Running {len(tests)} tests against {len(providers)} provider(s)...[/dim]\n"
+    )
 
     for provider in providers:
         # Extract model name from provider string
@@ -135,10 +141,13 @@ def run_eval(config_path: Path, provider_filter: Optional[str] = None,
             # Call Ollama
             start = time.time()
             try:
-                response = ollama_chat(model, [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": user_prompt},
-                ])
+                response = ollama_chat(
+                    model,
+                    [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
                 output = response["choices"][0]["message"]["content"]
                 tokens = response.get("usage", {}).get("total_tokens", 0)
             except Exception as e:
@@ -220,6 +229,7 @@ def render_results(results: List[EvalResult]) -> None:
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="AutoPipe LLM Eval Runner")
     parser.add_argument("-c", "--config", type=Path, default=Path("promptfoo/promptfooconfig.yaml"))
     parser.add_argument("-p", "--provider", help="Filter by provider substring")

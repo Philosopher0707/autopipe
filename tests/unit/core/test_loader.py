@@ -23,25 +23,31 @@ class TestImportClass:
 
 class TestLoadStepFromConfig:
     def test_load_print_step_by_alias(self):
-        step = load_step_from_config({"name": "hello", "type": "print", "params": {"message": "hi"}})
+        step = load_step_from_config(
+            {"name": "hello", "type": "print", "params": {"message": "hi"}}
+        )
         assert isinstance(step, PrintStep)
         assert step.name == "hello"
 
     def test_load_print_step_by_full_path(self):
-        step = load_step_from_config({
-            "name": "hello",
-            "type": "autopipe.core.steps.PrintStep",
-            "params": {"message": "hi"},
-        })
+        step = load_step_from_config(
+            {
+                "name": "hello",
+                "type": "autopipe.core.steps.PrintStep",
+                "params": {"message": "hi"},
+            }
+        )
         assert isinstance(step, PrintStep)
 
     def test_load_step_with_depends_on(self):
-        step = load_step_from_config({
-            "name": "step_b",
-            "type": "print",
-            "params": {"message": "b"},
-            "depends_on": ["step_a"],
-        })
+        step = load_step_from_config(
+            {
+                "name": "step_b",
+                "type": "print",
+                "params": {"message": "b"},
+                "depends_on": ["step_a"],
+            }
+        )
         assert step.depends_on == ["step_a"]
 
     def test_load_step_missing_name_raises(self):
@@ -58,8 +64,17 @@ class TestLoadPipelineFromConfig:
         config = {
             "name": "test_pipe",
             "steps": [
-                {"name": "load", "type": "data_loader", "params": {"source": "iris.csv", "format": "csv"}},
-                {"name": "print", "type": "print", "params": {"message": "done"}, "depends_on": ["load"]},
+                {
+                    "name": "load",
+                    "type": "data_loader",
+                    "params": {"source": "iris.csv", "format": "csv"},
+                },
+                {
+                    "name": "print",
+                    "type": "print",
+                    "params": {"message": "done"},
+                    "depends_on": ["load"],
+                },
             ],
         }
         pipeline = load_pipeline_from_config(config)

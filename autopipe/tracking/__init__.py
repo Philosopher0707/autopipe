@@ -1,27 +1,14 @@
-"""AutoPipe Experiment Tracking Module.
+"""AutoPipe Tracking Module.
 
-World-class experiment tracking for ML/DL experiments.
-Supports MLflow, Weights & Biases, and custom trackers.
+Run/experiment tracking abstractions and a local in-memory tracker.
+MLflow/W&B integrations are planned; see ROADMAP.md.
 """
 
-from .artifacts import Artifact, ArtifactRegistry, DatasetArtifact, ModelArtifact
-from .base import BaseTracker, Experiment, Run
-from .composite_tracker import CompositeTracker
-from .mlflow_tracker import MLflowTracker
-from .registry import ExperimentRegistry, ModelRegistry
-from .wandb_tracker import WandbTracker
+from .base import BaseTracker, Experiment, LocalTracker, Run
 
 __all__ = [
     "BaseTracker",
-    "Run",
     "Experiment",
-    "MLflowTracker",
-    "WandbTracker",
-    "CompositeTracker",
-    "Artifact",
-    "ArtifactRegistry",
-    "ModelArtifact",
-    "DatasetArtifact",
-    "ModelRegistry",
-    "ExperimentRegistry",
+    "LocalTracker",
+    "Run",
 ]

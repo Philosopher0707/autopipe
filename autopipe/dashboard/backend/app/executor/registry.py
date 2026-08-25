@@ -4,8 +4,6 @@ Tracks running pipeline executions so they can be cancelled externally.
 """
 
 import threading
-from typing import Optional
-
 
 _active_runs: dict[str, threading.Event] = {}
 _lock = threading.Lock()

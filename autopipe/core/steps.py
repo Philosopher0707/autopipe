@@ -1,4 +1,5 @@
 """Built-in pipeline steps."""
+
 import logging
 from typing import Any, Dict
 
@@ -10,6 +11,7 @@ from ..visualization import ChartGenerator
 from .step import Step
 
 logger = logging.getLogger(__name__)
+
 
 class PrintStep(Step):
     """Step that prints its input."""
@@ -30,7 +32,14 @@ class PrintStep(Step):
 class LLMStep(Step):
     """Step that calls an LLM."""
 
-    def __init__(self, name: str, provider: str = "openrouter", model: str = None, prompt_template: str = "", **kwargs):
+    def __init__(
+        self,
+        name: str,
+        provider: str = "openrouter",
+        model: str = None,
+        prompt_template: str = "",
+        **kwargs,
+    ):
         super().__init__(name, **kwargs)
         self.provider = provider
         self.model = model
@@ -57,7 +66,9 @@ class LLMStep(Step):
         """Generate a simple visualization of response length."""
         if self.metrics:
             chart = ChartGenerator()
-            chart.plot_distribution([self.metrics.get("response_length", 0)], title=f"LLM Response Length - {self.name}")
+            chart.plot_distribution(
+                [self.metrics.get("response_length", 0)], title=f"LLM Response Length - {self.name}"
+            )
 
 
 class DataLoaderStep(Step):
@@ -71,14 +82,16 @@ class DataLoaderStep(Step):
         """Load a sample dataset."""
         if self.dataset == "iris":
             from sklearn.datasets import load_iris
+
             iris = load_iris()
             df = pd.DataFrame(data=iris.data, columns=iris.feature_names)
-            df['target'] = iris.target
+            df["target"] = iris.target
         elif self.dataset == "diabetes":
             from sklearn.datasets import load_diabetes
+
             diabetes = load_diabetes()
             df = pd.DataFrame(data=diabetes.data, columns=diabetes.feature_names)
-            df['target'] = diabetes.target
+            df["target"] = diabetes.target
         else:
             raise ValueError(f"Unknown dataset {self.dataset}")
         self.log_metrics(rows=df.shape[0], columns=df.shape[1])
@@ -103,7 +116,7 @@ class VisualizationStep(Step):
 
     def run(self, **kwargs) -> Dict[str, Any]:
         """Generate charts and return metadata.
-        
+
         Automatically detects input types:
         - Dict of lists (e.g., {'loss': [1,2,3], 'acc': [0.5,0.6,0.7]}) → metrics plot
         - List of numbers → distribution plot
@@ -113,20 +126,28 @@ class VisualizationStep(Step):
         outputs = {}
         for key, value in kwargs.items():
             # Dict of lists → plot as metrics
-            if isinstance(value, dict) and all(isinstance(v, (list, tuple)) for v in value.values()):
+            if isinstance(value, dict) and all(
+                isinstance(v, (list, tuple)) for v in value.values()
+            ):
                 chart.plot_metrics(value, title=f"Metrics - {key}")
                 outputs[f"chart_{key}"] = f"metrics_{key}.png"
             # Dict with numeric values → plot as feature importance
-            elif isinstance(value, dict) and all(isinstance(v, (int, float)) for v in value.values()):
+            elif isinstance(value, dict) and all(
+                isinstance(v, (int, float)) for v in value.values()
+            ):
                 chart.plot_feature_importance(value, top_n=min(20, len(value)))
                 outputs[f"chart_{key}"] = f"feature_importance_{key}.png"
             # List of numbers → plot as distribution
-            elif isinstance(value, (list, tuple)) and len(value) > 0 and isinstance(value[0], (int, float)):
+            elif (
+                isinstance(value, (list, tuple))
+                and len(value) > 0
+                and isinstance(value[0], (int, float))
+            ):
                 chart.plot_distribution(value, title=f"Distribution - {key}")
                 outputs[f"chart_{key}"] = f"distribution_{key}.png"
             # DataFrame → plot feature importance
             elif isinstance(value, pd.DataFrame):
-                chart.plot_feature_importance({col: 1.0 for col in value.columns[:5]}, top_n=5)
+                chart.plot_feature_importance(dict.fromkeys(value.columns[:5], 1.0), top_n=5)
                 outputs[f"chart_{key}"] = "feature_importance.png"
             # Bare int/float → plot as distribution with single value
             elif isinstance(value, (int, float)):
@@ -137,7 +158,7 @@ class VisualizationStep(Step):
 
 class FeatureEngineeringStep(Step):
     """Step for automated feature engineering and preprocessing.
-    
+
     Supports various transformations:
     - scaling: standard, minmax, robust, maxabs
     - encoding: onehot, ordinal, label (for categorical)
@@ -156,7 +177,7 @@ class FeatureEngineeringStep(Step):
         transformations: Dict[str, Any] = None,
         target_column: str = None,
         drop_original: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -185,7 +206,7 @@ class FeatureEngineeringStep(Step):
         """Apply feature engineering transformations."""
         # Get input DataFrame from dependencies
         df = None
-        for key, value in kwargs.items():
+        for _, value in kwargs.items():
             if isinstance(value, pd.DataFrame):
                 df = value.copy()
                 break
@@ -260,7 +281,7 @@ class FeatureEngineeringStep(Step):
 
         # Drop specified columns
         if columns_to_drop:
-            df = df.drop(columns=[c for c in columns_to_drop if c in df.columns], errors='ignore')
+            df = df.drop(columns=[c for c in columns_to_drop if c in df.columns], errors="ignore")
 
         # Drop original transformed columns if requested
         if self.drop_original:
@@ -268,14 +289,14 @@ class FeatureEngineeringStep(Step):
             # Don't drop target column
             if self.target_column and self.target_column in original_cols:
                 original_cols.remove(self.target_column)
-            df = df.drop(columns=list(original_cols), errors='ignore')
+            df = df.drop(columns=list(original_cols), errors="ignore")
 
         # Final metrics
         self.log_metrics(
             original_columns=len(df_original.columns),
             final_columns=len(df.columns),
             new_features_generated=len(new_features),
-            rows=len(df)
+            rows=len(df),
         )
 
         return df
@@ -292,7 +313,7 @@ class FeatureEngineeringStep(Step):
             "standard": StandardScaler(),
             "minmax": MinMaxScaler(),
             "robust": RobustScaler(),
-            "maxabs": MaxAbsScaler()
+            "maxabs": MaxAbsScaler(),
         }
 
         if method not in scalers:
@@ -313,14 +334,16 @@ class FeatureEngineeringStep(Step):
         from sklearn.preprocessing import LabelEncoder, OneHotEncoder, OrdinalEncoder
 
         method = config.get("method", "onehot")
-        columns = config.get("columns", df.select_dtypes(include=['object', 'category']).columns.tolist())
+        columns = config.get(
+            "columns", df.select_dtypes(include=["object", "category"]).columns.tolist()
+        )
         columns = [c for c in columns if c in df.columns]
 
         encoded_cols = []
 
         for col in columns:
             if method == "onehot":
-                encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+                encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
                 encoded = encoder.fit_transform(df[[col]])
 
                 # Create column names
@@ -332,7 +355,7 @@ class FeatureEngineeringStep(Step):
                 self._transformers[f"encoder_{col}"] = encoder
 
             elif method == "ordinal":
-                encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+                encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
                 df[f"{col}_encoded"] = encoder.fit_transform(df[[col]])
                 encoded_cols.append(f"{col}_encoded")
                 self._transformers[f"encoder_{col}"] = encoder
@@ -384,7 +407,7 @@ class FeatureEngineeringStep(Step):
 
         for col in columns:
             if df[col].dtype in [np.float64, np.int64]:
-                binner = KBinsDiscretizer(n_bins=n_bins, encode='ordinal', strategy=strategy)
+                binner = KBinsDiscretizer(n_bins=n_bins, encode="ordinal", strategy=strategy)
                 binned = binner.fit_transform(df[[col]])
                 new_features[f"{col}_binned"] = binned.flatten()
                 self._transformers[f"binner_{col}"] = binner
@@ -404,7 +427,7 @@ class FeatureEngineeringStep(Step):
 
         for col in columns:
             # Fill NaN with empty string
-            texts = df[col].fillna('').astype(str)
+            texts = df[col].fillna("").astype(str)
 
             vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=ngram_range)
             tfidf_matrix = vectorizer.fit_transform(texts)
@@ -429,7 +452,7 @@ class FeatureEngineeringStep(Step):
         new_features = {}
 
         for col in columns:
-            texts = df[col].fillna('').astype(str)
+            texts = df[col].fillna("").astype(str)
 
             vectorizer = CountVectorizer(max_features=max_features)
             count_matrix = vectorizer.fit_transform(texts)
@@ -452,7 +475,7 @@ class FeatureEngineeringStep(Step):
 
         for col in columns:
             # Convert to datetime
-            dt = pd.to_datetime(df[col], errors='coerce')
+            dt = pd.to_datetime(df[col], errors="coerce")
 
             for feature in features:
                 if feature == "day":
@@ -494,6 +517,7 @@ class FeatureEngineeringStep(Step):
                 new_features[f"{col}_reciprocal"] = 1 / (data.replace(0, np.nan))
             elif operation == "boxcox":
                 from scipy import stats
+
                 # Box-Cox requires positive values
                 positive_data = data[data > 0].dropna()
                 if len(positive_data) > 0:
@@ -532,6 +556,7 @@ class FeatureEngineeringStep(Step):
 
         if method == "variance_threshold":
             from sklearn.feature_selection import VarianceThreshold
+
             threshold = config.get("threshold", 0.01)
 
             # Only apply to numeric columns
@@ -539,7 +564,7 @@ class FeatureEngineeringStep(Step):
             selector = VarianceThreshold(threshold=threshold)
 
             try:
-                selected = selector.fit_transform(numeric_df)
+                selector.fit_transform(numeric_df)
                 selected_features = numeric_df.columns[selector.get_support()].tolist()
 
                 # Keep non-numeric columns and selected numeric
@@ -551,7 +576,6 @@ class FeatureEngineeringStep(Step):
 
         elif method == "correlation":
             threshold = config.get("threshold", 0.95)
-            target = config.get("target", self.target_column)
 
             numeric_df = df.select_dtypes(include=[np.number])
 
@@ -564,7 +588,7 @@ class FeatureEngineeringStep(Step):
             # Find features with correlation > threshold
             to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
 
-            return df.drop(columns=to_drop, errors='ignore')
+            return df.drop(columns=to_drop, errors="ignore")
 
         return df
 
@@ -575,8 +599,11 @@ class FeatureEngineeringStep(Step):
         # Plot transformation metrics if available
         if self.metrics:
             metrics_to_plot = {
-                k: [v] for k, v in self.metrics.items()
-                if isinstance(v, (int, float)) and k not in ['rows']
+                k: [v]
+                for k, v in self.metrics.items()
+                if isinstance(v, (int, float)) and k not in ["rows"]
             }
             if metrics_to_plot:
-                chart.plot_metrics(metrics_to_plot, title=f"Feature Engineering Metrics - {self.name}")
+                chart.plot_metrics(
+                    metrics_to_plot, title=f"Feature Engineering Metrics - {self.name}"
+                )

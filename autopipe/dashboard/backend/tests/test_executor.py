@@ -3,12 +3,10 @@
 import uuid
 from pathlib import Path
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-
-from app.executor import runner
 from app.db.models import Base, Pipeline, Run, RunStatus, Step, StepStatus
+from app.executor import runner
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 def _make_sync_session(db_path: Path) -> sessionmaker:
@@ -23,8 +21,17 @@ def _seed_pipeline_and_run(SessionLocal: sessionmaker) -> tuple:
     pipeline_config = {
         "name": "test-pipeline",
         "steps": [
-            {"name": "step1", "type": "autopipe.core.steps.PrintStep", "params": {"message": "hello"}},
-            {"name": "step2", "type": "autopipe.core.steps.PrintStep", "depends_on": ["step1"], "params": {"message": "world"}},
+            {
+                "name": "step1",
+                "type": "autopipe.core.steps.PrintStep",
+                "params": {"message": "hello"},
+            },
+            {
+                "name": "step2",
+                "type": "autopipe.core.steps.PrintStep",
+                "depends_on": ["step1"],
+                "params": {"message": "world"},
+            },
         ],
     }
 
@@ -62,13 +69,22 @@ def test_run_pipeline_in_thread_success(tmp_path: Path):
     runner._event_loop = None
 
     try:
-        pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+        _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
 
         pipeline_config = {
             "name": "test-pipeline",
             "steps": [
-                {"name": "step1", "type": "autopipe.core.steps.PrintStep", "params": {"message": "hello"}},
-                {"name": "step2", "type": "autopipe.core.steps.PrintStep", "depends_on": ["step1"], "params": {"message": "world"}},
+                {
+                    "name": "step1",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "params": {"message": "hello"},
+                },
+                {
+                    "name": "step2",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "depends_on": ["step1"],
+                    "params": {"message": "world"},
+                },
             ],
         }
 
@@ -111,10 +127,11 @@ def test_run_pipeline_in_thread_failure(tmp_path: Path, monkeypatch):
     runner._event_loop = None
 
     try:
-        pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+        _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
 
         # Monkeypatch PrintStep to raise on the second step
         from autopipe.core.steps import PrintStep
+
         original_run = PrintStep.run
 
         def _failing_run(self, **kwargs):
@@ -127,9 +144,21 @@ def test_run_pipeline_in_thread_failure(tmp_path: Path, monkeypatch):
         pipeline_config = {
             "name": "test-pipeline",
             "steps": [
-                {"name": "step1", "type": "autopipe.core.steps.PrintStep", "params": {"message": "hello"}},
-                {"name": "fail_step", "type": "autopipe.core.steps.PrintStep", "depends_on": ["step1"]},
-                {"name": "step3", "type": "autopipe.core.steps.PrintStep", "depends_on": ["fail_step"]},
+                {
+                    "name": "step1",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "params": {"message": "hello"},
+                },
+                {
+                    "name": "fail_step",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "depends_on": ["step1"],
+                },
+                {
+                    "name": "step3",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "depends_on": ["fail_step"],
+                },
             ],
         }
 
@@ -164,12 +193,16 @@ def test_run_pipeline_in_thread_cancellation(tmp_path: Path, monkeypatch):
     runner._event_loop = None
 
     try:
-        pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+        _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
 
         pipeline_config = {
             "name": "test-pipeline",
             "steps": [
-                {"name": "step1", "type": "autopipe.core.steps.PrintStep", "params": {"message": "hello"}},
+                {
+                    "name": "step1",
+                    "type": "autopipe.core.steps.PrintStep",
+                    "params": {"message": "hello"},
+                },
                 {"name": "step2", "type": "autopipe.core.steps.PrintStep", "depends_on": ["step1"]},
                 {"name": "step3", "type": "autopipe.core.steps.PrintStep", "depends_on": ["step2"]},
             ],
@@ -178,7 +211,7 @@ def test_run_pipeline_in_thread_cancellation(tmp_path: Path, monkeypatch):
         # Monkeypatch register_run to return a pre-set cancellation event
         pre_set_event = threading.Event()
         pre_set_event.set()
-        monkeypatch.setattr(runner, "register_run", lambda run_id: pre_set_event)
+        monkeypatch.setattr(runner, "register_run", lambda _run_id: pre_set_event)
 
         runner._run_pipeline_in_thread(run_id, pipeline_config)
 

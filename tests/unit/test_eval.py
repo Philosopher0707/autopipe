@@ -39,8 +39,7 @@ class TestPromptfooAvailability:
 
     def test_ensure_promptfoo_raises_when_missing(self):
         """_ensure_promptfoo exits with helpful error when promptfoo missing."""
-        with patch("autopipe.eval._check_promptfoo", return_value=False), \
-             pytest.raises(Exception):
+        with patch("autopipe.eval._check_promptfoo", return_value=False), pytest.raises(Exception):
             _ensure_promptfoo()
 
 
@@ -99,14 +98,17 @@ class TestRunEvalResultsParsing:
 class TestProviderAliasMapping:
     """Tests that model name aliases map correctly to promptfoo provider IDs."""
 
-    @pytest.mark.parametrize("alias,expected", [
-        ("kimi-k2.5:cloud", "ollama-kimi"),
-        ("glm-5.1:cloud", "ollama-glm"),
-        ("minimax-m2.7:cloud", "ollama-minimax"),
-        ("kimi", "ollama-kimi"),
-        ("glm", "ollama-glm"),
-        ("minimax", "ollama-minimax"),
-    ])
+    @pytest.mark.parametrize(
+        "alias,expected",
+        [
+            ("kimi-k2.5:cloud", "ollama-kimi"),
+            ("glm-5.1:cloud", "ollama-glm"),
+            ("minimax-m2.7:cloud", "ollama-minimax"),
+            ("kimi", "ollama-kimi"),
+            ("glm", "ollama-glm"),
+            ("minimax", "ollama-minimax"),
+        ],
+    )
     def test_provider_aliases(self, alias, expected):
         """CLI aliases correctly map to provider IDs."""
         provider_id_map = {
@@ -126,6 +128,7 @@ class TestRunEval:
     def test_run_eval_missing_config(self, tmp_path):
         """Fails with useful error if config doesn't exist."""
         from click import ClickException
+
         with pytest.raises(ClickException, match="Config not found"):
             run_eval(config_path=tmp_path / "nonexistent.yaml")
 

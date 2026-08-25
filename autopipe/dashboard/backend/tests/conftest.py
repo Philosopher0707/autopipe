@@ -2,15 +2,13 @@
 
 from typing import AsyncGenerator
 
-import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-
 from app.core.auth import create_access_token, get_password_hash
-from app.db.models import Base, Pipeline, Experiment, Model, User
+from app.db.models import Base, Experiment, Model, Pipeline, User
 from app.db.session import get_db
 from app.main import create_application
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
 @pytest_asyncio.fixture
@@ -49,6 +47,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 
 # --- Seed fixtures ---
+
 
 @pytest_asyncio.fixture
 async def seed_user(db_session: AsyncSession) -> User:

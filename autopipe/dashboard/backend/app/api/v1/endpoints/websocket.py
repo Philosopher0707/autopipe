@@ -2,49 +2,47 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Dict, List, Set
+from typing import Dict, Set
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.session import get_db
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
+
 
 # Connection manager for WebSocket connections
 class ConnectionManager:
     """Manages WebSocket connections with channel subscriptions."""
-    
+
     def __init__(self):
         # channel -> set of websockets
         self.channels: Dict[str, Set[WebSocket]] = {}
         # websocket -> set of channels
         self.connections: Dict[WebSocket, Set[str]] = {}
-    
+
     async def connect(self, websocket: WebSocket, channel: str):
         """Connect a websocket to a channel."""
         await websocket.accept()
-        
+
         if channel not in self.channels:
             self.channels[channel] = set()
-        
+
         self.channels[channel].add(websocket)
-        
+
         if websocket not in self.connections:
             self.connections[websocket] = set()
-        
+
         self.connections[websocket].add(channel)
-    
+
     def disconnect(self, websocket: WebSocket, channel: str):
         """Disconnect a websocket from a channel."""
         if channel in self.channels:
             self.channels[channel].discard(websocket)
             if not self.channels[channel]:
                 del self.channels[channel]
-        
+
         if websocket in self.connections:
             self.connections[websocket].discard(channel)
-    
+
     def disconnect_all(self, websocket: WebSocket):
         """Remove websocket from all channels."""
         if websocket in self.connections:
@@ -54,25 +52,25 @@ class ConnectionManager:
                     if not self.channels[channel]:
                         del self.channels[channel]
             del self.connections[websocket]
-    
+
     async def broadcast_to_channel(self, channel: str, message: dict):
         """Broadcast a message to all websockets in a channel."""
         if channel not in self.channels:
             return
-        
+
         disconnected = set()
         message_json = json.dumps(message, default=str)
-        
+
         for websocket in self.channels[channel]:
             try:
                 await websocket.send_text(message_json)
             except Exception:
                 disconnected.add(websocket)
-        
+
         # Clean up disconnected websockets
         for websocket in disconnected:
             self.disconnect_all(websocket)
-    
+
     async def send_to_websocket(self, websocket: WebSocket, message: dict):
         """Send a message to a specific websocket."""
         try:
@@ -89,15 +87,18 @@ async def run_websocket(websocket: WebSocket, run_id: str):
     """WebSocket endpoint for real-time run updates."""
     channel = f"run:{run_id}"
     await manager.connect(websocket, channel)
-    
+
     try:
         # Send initial connection confirmation
-        await manager.send_to_websocket(websocket, {
-            "type": "connection_established",
-            "run_id": run_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        
+        await manager.send_to_websocket(
+            websocket,
+            {
+                "type": "connection_established",
+                "run_id": run_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
         # Keep connection alive and handle incoming messages
         while True:
             data = await websocket.receive_text()
@@ -105,13 +106,16 @@ async def run_websocket(websocket: WebSocket, run_id: str):
                 message = json.loads(data)
                 # Handle incoming commands if needed
                 if message.get("type") == "ping":
-                    await manager.send_to_websocket(websocket, {
-                        "type": "pong",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await manager.send_to_websocket(
+                        websocket,
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
             except json.JSONDecodeError:
                 pass
-                
+
     except WebSocketDisconnect:
         manager.disconnect_all(websocket)
 
@@ -121,28 +125,34 @@ async def dashboard_websocket(websocket: WebSocket):
     """WebSocket endpoint for dashboard real-time updates."""
     channel = "dashboard"
     await manager.connect(websocket, channel)
-    
+
     try:
         # Send initial connection confirmation
-        await manager.send_to_websocket(websocket, {
-            "type": "connection_established",
-            "channel": "dashboard",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        
+        await manager.send_to_websocket(
+            websocket,
+            {
+                "type": "connection_established",
+                "channel": "dashboard",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
         # Keep connection alive
         while True:
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
                 if message.get("type") == "ping":
-                    await manager.send_to_websocket(websocket, {
-                        "type": "pong",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await manager.send_to_websocket(
+                        websocket,
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
             except json.JSONDecodeError:
                 pass
-                
+
     except WebSocketDisconnect:
         manager.disconnect_all(websocket)
 
@@ -175,7 +185,9 @@ async def broadcast_run_log(run_id: str, step_id: str, level: str, message_text:
     await manager.broadcast_to_channel(f"run:{run_id}", message)
 
 
-async def broadcast_run_metric(run_id: str, step_id: str, metric_name: str, value: float, step_number: int = None):
+async def broadcast_run_metric(
+    run_id: str, step_id: str, metric_name: str, value: float, step_number: int = None
+):
     """Broadcast metric update."""
     message = {
         "type": "run.metric",

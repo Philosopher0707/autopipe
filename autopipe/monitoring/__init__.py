@@ -9,9 +9,9 @@ from .drift_detection import (
 )
 
 __all__ = [
+    "DriftDashboardStep",
+    "DriftReport",
+    "PredictionDriftMonitorStep",
     "StatisticalDriftDetectorStep",
     "TargetDriftDetectorStep",
-    "PredictionDriftMonitorStep",
-    "DriftDashboardStep",
-    "DriftReport"
 ]

@@ -3,7 +3,6 @@
 import pytest
 from httpx import AsyncClient
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -17,10 +16,13 @@ async def test_list_drift_reports(client: AsyncClient):
 
 async def test_detect_drift(client: AsyncClient):
     """POST /drift/detect creates a drift report."""
-    resp = await client.post("/api/v1/drift/detect", json={
-        "threshold": 0.05,
-        "test_types": ["ks"],
-    })
+    resp = await client.post(
+        "/api/v1/drift/detect",
+        json={
+            "threshold": 0.05,
+            "test_types": ["ks"],
+        },
+    )
     assert resp.status_code in (200, 201)
 
 

@@ -94,8 +94,11 @@ def run_eval(
         raise click.ClickException(f"Config not found: {config_path}")
 
     cmd = [
-        "npx", "promptfoo@latest", "eval",
-        "-c", str(config_path),
+        "npx",
+        "promptfoo@latest",
+        "eval",
+        "-c",
+        str(config_path),
         "--no-progress-bar",
     ]
 
@@ -189,22 +192,26 @@ def _render_results_table(results: dict) -> None:
 
 @click.command("eval")
 @click.option(
-    "--config", "-c",
+    "--config",
+    "-c",
     type=click.Path(exists=True),
     help="Path to promptfoo config YAML.",
 )
 @click.option(
-    "--provider", "-p",
+    "--provider",
+    "-p",
     type=str,
     help="Filter by provider ID (e.g. ollama-kimi, ollama-glm, ollama-minimax).",
 )
 @click.option(
-    "--task", "-t",
+    "--task",
+    "-t",
     type=str,
     help="Filter by task/prompt ID (e.g. pipeline-generation, step-explanation).",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(),
     help="Path to write JSON results.",
 )
@@ -214,7 +221,8 @@ def _render_results_table(results: dict) -> None:
     help="Run full comparison across all configured providers.",
 )
 @click.option(
-    "--verbose", "-v",
+    "--verbose",
+    "-v",
     is_flag=True,
     help="Show raw promptfoo output.",
 )
@@ -233,10 +241,12 @@ def eval_command(
     Compare outputs from your Ollama models (kimi, glm, minimax)
     on AutoPipe-specific tasks like pipeline generation and error diagnosis.
     """
-    console.print(Panel.fit(
-        "[bold]AutoPipe LLM Evaluation Pipeline[/bold]",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]AutoPipe LLM Evaluation Pipeline[/bold]",
+            border_style="cyan",
+        )
+    )
 
     _ensure_promptfoo()
 

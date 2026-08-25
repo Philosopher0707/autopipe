@@ -1,24 +1,23 @@
 """Pipeline management endpoints."""
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
+from app.db.models import ActivityLog, Pipeline, Run, RunStatus
+from app.db.session import get_db
+from app.schemas import PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import ActivityLog, Pipeline, Run, RunStatus
-from app.db.session import get_db
-from app.schemas import (
-    PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
-)
-
 
 class TriggerRunRequest(BaseModel):
     """Request body for triggering a pipeline run."""
+
     config_override: Optional[Dict[str, Any]] = None
+
 
 router = APIRouter()
 
@@ -74,46 +73,47 @@ async def list_pipelines(
     db: AsyncSession = Depends(get_db),
 ):
     """List pipelines with filtering and pagination."""
-    
+
     # Build base query
     query = select(Pipeline)
-    
+
     # Apply filters
     if status and status != "all":
         query = query.filter(Pipeline.is_active == (status == "active"))
-    
+
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
-            (Pipeline.name.ilike(search_filter)) | 
-            (Pipeline.description.ilike(search_filter))
+            (Pipeline.name.ilike(search_filter)) | (Pipeline.description.ilike(search_filter))
         )
-    
+
     if tag:
         # Check if tag is in the JSON tags array
         query = query.filter(Pipeline.tags.contains([tag]))
-    
+
     # Count total with filters
     count_query = select(func.count()).select_from(query.subquery())
     total_count = await db.scalar(count_query)
-    
+
     # Apply sorting
     sort_field = getattr(Pipeline, sort_by, Pipeline.created_at)
     if sort_order == "desc":
         sort_field = sort_field.desc()
     query = query.order_by(sort_field)
-    
+
     # Apply pagination
     query = query.offset(skip).limit(limit)
-    
+
     result = await db.execute(query.options(selectinload(Pipeline.runs)))
     pipelines = result.scalars().all()
-    
+
     # Convert to response format
     items = []
     for pipeline in pipelines:
-        items.append(_serialize_pipeline(pipeline, run_count=len(pipeline.runs) if pipeline.runs else 0))
-    
+        items.append(
+            _serialize_pipeline(pipeline, run_count=len(pipeline.runs) if pipeline.runs else 0)
+        )
+
     return PipelineList(
         total=total_count or 0,
         page=skip // limit + 1 if limit > 0 else 1,
@@ -130,18 +130,16 @@ async def get_pipeline(
 ):
     """Get pipeline details."""
     result = await db.execute(
-        select(Pipeline)
-        .where(Pipeline.id == pipeline_id)
-        .options(selectinload(Pipeline.runs))
+        select(Pipeline).where(Pipeline.id == pipeline_id).options(selectinload(Pipeline.runs))
     )
     pipeline = result.scalar_one_or_none()
-    
+
     if not pipeline:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pipeline {pipeline_id} not found",
         )
-    
+
     return _serialize_pipeline(pipeline, run_count=len(pipeline.runs) if pipeline.runs else 0)
 
 
@@ -156,14 +154,14 @@ async def create_pipeline(
         description=pipeline.description,
         config=pipeline.config,
         tags=pipeline.tags,
-        config_hash=pipeline.config_hash if hasattr(pipeline, 'config_hash') else None,
-        project_id=pipeline.project_id if hasattr(pipeline, 'project_id') else None,
+        config_hash=pipeline.config_hash if hasattr(pipeline, "config_hash") else None,
+        project_id=pipeline.project_id if hasattr(pipeline, "project_id") else None,
     )
-    
+
     db.add(db_pipeline)
     await db.commit()
     await db.refresh(db_pipeline)
-    
+
     # Log activity
     activity = ActivityLog(
         action="pipeline_created",
@@ -176,7 +174,7 @@ async def create_pipeline(
     )
     db.add(activity)
     await db.commit()
-    
+
     return _serialize_pipeline(db_pipeline, run_count=0)
 
 
@@ -187,17 +185,15 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a pipeline."""
-    result = await db.execute(
-        select(Pipeline).where(Pipeline.id == pipeline_id)
-    )
+    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
-    
+
     if not pipeline:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pipeline {pipeline_id} not found",
         )
-    
+
     # Update fields
     if pipeline_update.description is not None:
         pipeline.description = pipeline_update.description
@@ -205,14 +201,12 @@ async def update_pipeline(
         pipeline.config = pipeline_update.config
     if pipeline_update.tags is not None:
         pipeline.tags = pipeline_update.tags
-    
+
     pipeline.updated_at = datetime.now(timezone.utc)
-    
+
     await db.commit()
     await db.refresh(pipeline)
-    run_count = await db.scalar(
-        select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id)
-    )
+    run_count = await db.scalar(select(func.count(Run.id)).where(Run.pipeline_id == pipeline_id))
 
     return _serialize_pipeline(pipeline, run_count=run_count or 0)
 
@@ -223,20 +217,18 @@ async def delete_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a pipeline."""
-    result = await db.execute(
-        select(Pipeline).where(Pipeline.id == pipeline_id)
-    )
+    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
-    
+
     if not pipeline:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pipeline {pipeline_id} not found",
         )
-    
+
     await db.delete(pipeline)
     await db.commit()
-    
+
     return None
 
 
@@ -244,15 +236,15 @@ async def delete_pipeline(
 async def trigger_run(
     pipeline_id: str,
     background_tasks: BackgroundTasks,
-    body: TriggerRunRequest = TriggerRunRequest(),
+    body: TriggerRunRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger a new pipeline run."""
+    if body is None:
+        body = TriggerRunRequest()
 
     # Check pipeline exists
-    result = await db.execute(
-        select(Pipeline).where(Pipeline.id == pipeline_id)
-    )
+    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
 
     if not pipeline:
@@ -298,6 +290,7 @@ async def trigger_run(
     # Execute pipeline in background if config has steps
     if run_config and "steps" in run_config:
         from app.executor.runner import execute_run
+
         background_tasks.add_task(execute_run, run.id, run_config)
 
     return _serialize_run(run, pipeline.name)
@@ -312,40 +305,38 @@ async def list_pipeline_runs(
     db: AsyncSession = Depends(get_db),
 ):
     """List runs for a pipeline."""
-    
+
     # Check pipeline exists
-    result = await db.execute(
-        select(Pipeline).where(Pipeline.id == pipeline_id)
-    )
+    result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
     pipeline = result.scalar_one_or_none()
-    
+
     if not pipeline:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Pipeline {pipeline_id} not found",
         )
-    
+
     # Build query
     query = select(Run).where(Run.pipeline_id == pipeline_id)
-    
+
     if status:
         query = query.filter(Run.status == status)
-    
+
     query = query.order_by(Run.created_at.desc())
-    
+
     # Count total
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query)
-    
+
     # Get runs
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     runs = result.scalars().all()
-    
+
     items = []
     for run in runs:
         items.append(_serialize_run(run, pipeline.name))
-    
+
     return {
         "items": items,
         "total": total or 0,

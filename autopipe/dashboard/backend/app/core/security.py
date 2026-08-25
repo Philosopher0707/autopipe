@@ -8,11 +8,9 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Optional
-
-from fastapi import HTTPException, Request, status
 
 from app.core.config import settings
+from fastapi import HTTPException, Request, status
 
 logger = logging.getLogger(__name__)
 
@@ -20,50 +18,46 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RateLimitEntry:
     """Track rate limit for a client."""
+
     count: int
     reset_time: float
 
 
 class SimpleRateLimiter:
     """Simple in-memory rate limiter (not suitable for multi-instance deployments)."""
-    
+
     def __init__(self):
-        self._storage: dict[str, RateLimitEntry] = defaultdict(
-            lambda: RateLimitEntry(0, 0)
-        )
+        self._storage: dict[str, RateLimitEntry] = defaultdict(lambda: RateLimitEntry(0, 0))
         self._cleanup_interval = 3600  # 1 hour
         self._last_cleanup = time.time()
-    
+
     def _get_client_key(self, request: Request) -> str:
         """Extract client identifier from request."""
         # Check forwarded headers
         forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:
             return forwarded_for.split(",")[0].strip()
-        
+
         real_ip = request.headers.get("X-Real-IP")
         if real_ip:
             return real_ip
-        
+
         return request.client.host if request.client else "unknown"
-    
+
     def _cleanup_expired(self) -> None:
         """Remove expired entries periodically."""
         now = time.time()
         if now - self._last_cleanup < self._cleanup_interval:
             return
-        
-        expired_keys = [
-            key for key, entry in self._storage.items()
-            if entry.reset_time < now
-        ]
+
+        expired_keys = [key for key, entry in self._storage.items() if entry.reset_time < now]
         for key in expired_keys:
             del self._storage[key]
-        
+
         self._last_cleanup = now
         if expired_keys:
             logger.debug(f"Cleaned up {len(expired_keys)} expired rate limit entries")
-    
+
     def reset(self) -> None:
         """Clear all rate limit entries (useful for testing)."""
         self._storage.clear()
@@ -79,35 +73,35 @@ class SimpleRateLimiter:
     ) -> None:
         """
         Check if request exceeds rate limit.
-        
+
         Args:
             request: FastAPI request
             times: Number of allowed requests
             seconds: Time window in seconds
             identifier: Additional identifier for the endpoint
-            
+
         Raises:
             HTTPException: If rate limit exceeded
         """
         # Skip rate limiting if request is None (e.g., in test mode with httpx.AsyncClient)
         if request is None:
             return
-        
+
         self._cleanup_expired()
-        
+
         client_key = self._get_client_key(request)
         key = f"{client_key}:{identifier}"
-        
+
         now = time.time()
         entry = self._storage[key]
-        
+
         # Reset if window has passed
         if now > entry.reset_time:
             entry.count = 0
             entry.reset_time = now + seconds
-        
+
         entry.count += 1
-        
+
         if entry.count > times:
             logger.warning(f"Rate limit exceeded for {client_key} on {identifier}")
             retry_after = int(entry.reset_time - now)
@@ -159,4 +153,3 @@ async def setup_rate_limiter() -> None:
 
 async def close_rate_limiter() -> None:
     """Cleanup rate limiter (no-op for simple version)."""
-    pass

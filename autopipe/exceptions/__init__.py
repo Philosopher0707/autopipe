@@ -25,7 +25,9 @@ class PipelineError(AutoPipeError):
 class StepError(AutoPipeError):
     """Raised when a step fails."""
 
-    def __init__(self, step_name: str | None = None, message: str = "", details: dict | None = None):
+    def __init__(
+        self, step_name: str | None = None, message: str = "", details: dict | None = None
+    ):
         full_message = f"[{step_name}] {message}" if step_name else message
         super().__init__(full_message, details)
         self.step_name = step_name
@@ -47,7 +49,7 @@ class LLMError(AutoPipeError):
         provider: str | None = None,
         model: str | None = None,
         message: str = "",
-        details: dict | None = None
+        details: dict | None = None,
     ):
         super().__init__(message, details)
         self.provider = provider
@@ -70,7 +72,14 @@ class PiAgentError(LLMError):
 class RateLimitError(LLMError):
     """Raised when rate limit is exceeded."""
 
-    def __init__(self, provider: str | None = None, model: str | None = None, message: str = "", retry_after: int | None = None, details: dict | None = None):
+    def __init__(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        message: str = "",
+        retry_after: int | None = None,
+        details: dict | None = None,
+    ):
         super().__init__(provider=provider, model=model, message=message, details=details)
         self.retry_after = retry_after
 

@@ -3,12 +3,6 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, Field
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.auth import (
     create_access_token,
     get_current_user,
@@ -19,14 +13,21 @@ from app.core.config import settings
 from app.core.security import check_login_rate_limit, check_register_rate_limit
 from app.db.models import User
 from app.db.session import get_db
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
 # ==================== Request/Response Schemas ====================
 
+
 class Token(BaseModel):
     """Token response schema."""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int
@@ -34,11 +35,13 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     """Decoded token data."""
+
     user_id: Optional[str] = None
 
 
 class UserCreate(BaseModel):
     """User creation schema."""
+
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=8, max_length=100)
@@ -48,6 +51,7 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     """User response schema (safe - no password)."""
+
     id: str
     username: str
     email: str
@@ -63,6 +67,7 @@ class UserResponse(BaseModel):
 
 class UserUpdate(BaseModel):
     """User update schema."""
+
     email: Optional[str] = None
     full_name: Optional[str] = None
     role: Optional[str] = None
@@ -71,11 +76,13 @@ class UserUpdate(BaseModel):
 
 class LoginRequest(BaseModel):
     """Login request with explicit fields."""
+
     username: str
     password: str
 
 
 # ==================== Auth Endpoints ====================
+
 
 @router.post("/login", response_model=Token)
 async def login(
@@ -86,11 +93,9 @@ async def login(
     """Login with username and password. Returns JWT access token."""
     # Check rate limit
     check_login_rate_limit(request)
-    
+
     # Find user
-    result = await db.execute(
-        select(User).where(User.username == form_data.username)
-    )
+    result = await db.execute(select(User).where(User.username == form_data.username))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -138,11 +143,9 @@ async def login_json(
     """Login with JSON body instead of form data."""
     # Check rate limit
     check_login_rate_limit(request)
-    
+
     # Find user
-    result = await db.execute(
-        select(User).where(User.username == credentials.username)
-    )
+    result = await db.execute(select(User).where(User.username == credentials.username))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -205,11 +208,9 @@ async def register(
     """Register a new user account."""
     # Check rate limit
     check_register_rate_limit(request)
-    
+
     # Check if username exists
-    result = await db.execute(
-        select(User).where(User.username == user_data.username)
-    )
+    result = await db.execute(select(User).where(User.username == user_data.username))
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -217,9 +218,7 @@ async def register(
         )
 
     # Check if email exists
-    result = await db.execute(
-        select(User).where(User.email == user_data.email)
-    )
+    result = await db.execute(select(User).where(User.email == user_data.email))
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -236,6 +235,7 @@ async def register(
 
     # Create user
     from app.db.models import UserRole
+
     role_map = {
         "admin": UserRole.ADMIN,
         "data_scientist": UserRole.DATA_SCIENTIST,

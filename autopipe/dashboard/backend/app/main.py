@@ -7,15 +7,14 @@ updates, model registry management, drift detection, and experiment tracking.
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.staticfiles import StaticFiles
-
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.events import create_start_app_handler, create_stop_app_handler
 from app.core.security_headers import SecurityHeadersMiddleware
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 

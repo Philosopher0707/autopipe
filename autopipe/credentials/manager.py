@@ -1,4 +1,5 @@
 """Secure credential management for AutoPipe."""
+
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -9,13 +10,14 @@ from ..exceptions import ConfigurationError
 @dataclass(frozen=True)
 class Credentials:
     """Immutable credentials container."""
+
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     additional: dict = None
 
     def __post_init__(self):
         if self.additional is None:
-            object.__setattr__(self, 'additional', {})
+            object.__setattr__(self, "additional", {})
 
     @property
     def masked_key(self) -> str:
@@ -29,7 +31,7 @@ class Credentials:
 
 class CredentialManager:
     """Manages secure credential loading and storage.
-    
+
     Credentials are loaded in priority order:
     1. Environment variables (highest priority)
     2. Credential files
@@ -41,13 +43,13 @@ class CredentialManager:
 
     def get_credentials(self, provider: str) -> Credentials:
         """Get credentials for a provider.
-        
+
         Args:
             provider: Provider name (openai, anthropic, openrouter, etc.)
-            
+
         Returns:
             Credentials object
-            
+
         Raises:
             ConfigurationError: If credentials cannot be found
         """
@@ -78,8 +80,7 @@ class CredentialManager:
 
         if not api_key:
             raise ConfigurationError(
-                f"No API key found for provider '{provider}'. "
-                f"Set {env_key} environment variable."
+                f"No API key found for provider '{provider}'. Set {env_key} environment variable."
             )
 
         # Get base URL from environment

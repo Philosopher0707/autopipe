@@ -3,10 +3,6 @@
 import random
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.models import Experiment, MetricLog, Run, RunStatus
 from app.db.session import get_db
 from app.schemas import (
@@ -16,6 +12,9 @@ from app.schemas import (
     TrialHistoryResponse,
     TrialPoint,
 )
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
@@ -34,9 +33,7 @@ async def list_trials(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
 
     run_result = await db.execute(
-        select(Run)
-        .where(Run.experiment_id == experiment_id)
-        .order_by(Run.run_number)
+        select(Run).where(Run.experiment_id == experiment_id).order_by(Run.run_number)
     )
     runs = run_result.scalars().all()
 
@@ -44,9 +41,12 @@ async def list_trials(
     for idx, run in enumerate(runs):
         metrics = run.metrics or {}
         run_state = (
-            "COMPLETE" if run.status == RunStatus.SUCCESS
-            else "FAIL" if run.status == RunStatus.FAILED
-            else "RUNNING" if run.status == RunStatus.RUNNING
+            "COMPLETE"
+            if run.status == RunStatus.SUCCESS
+            else "FAIL"
+            if run.status == RunStatus.FAILED
+            else "RUNNING"
+            if run.status == RunStatus.RUNNING
             else "PENDING"
         )
         if state and run_state != state.upper():
@@ -99,9 +99,12 @@ async def get_trial(
     trial = TrialPoint(
         number=trial_id,
         state=(
-            "COMPLETE" if run.status == RunStatus.SUCCESS
-            else "FAIL" if run.status == RunStatus.FAILED
-            else "RUNNING" if run.status == RunStatus.RUNNING
+            "COMPLETE"
+            if run.status == RunStatus.SUCCESS
+            else "FAIL"
+            if run.status == RunStatus.FAILED
+            else "RUNNING"
+            if run.status == RunStatus.RUNNING
             else "PENDING"
         ),
         value=metrics.get("accuracy") or metrics.get("score") or None,
@@ -140,9 +143,7 @@ async def get_trial_history(
         )
 
     log_result = await db.execute(
-        select(MetricLog)
-        .where(MetricLog.run_id == run.id)
-        .order_by(MetricLog.step_index)
+        select(MetricLog).where(MetricLog.run_id == run.id).order_by(MetricLog.step_index)
     )
     logs = log_result.scalars().all()
 
@@ -162,7 +163,9 @@ async def get_trial_history(
             TrialHistoryPoint(
                 step=step,
                 value=round(final * step / 10 + rng.gauss(0, 0.02), 4),
-                timestamp=(run.started_at.isoformat() if run.started_at else None) if step == 1 else None,
+                timestamp=(run.started_at.isoformat() if run.started_at else None)
+                if step == 1
+                else None,
             )
             for step in range(1, 11)
         ]

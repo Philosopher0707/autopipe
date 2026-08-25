@@ -18,16 +18,18 @@ class ReportGenerator:
 
         report = {
             "run_id": run_id,
-            "generated_at": __import__('datetime').datetime.now().isoformat(),
-            "data": run_data
+            "generated_at": __import__("datetime").datetime.now().isoformat(),
+            "data": run_data,
         }
 
-        with open(report_path, 'w') as f:
+        with open(report_path, "w") as f:
             json.dump(report, f, indent=2, default=str)
 
         return str(report_path)
 
-    def generate_experiment_report(self, experiment_id: str, experiment_data: Dict[str, Any]) -> str:
+    def generate_experiment_report(
+        self, experiment_id: str, experiment_data: Dict[str, Any]
+    ) -> str:
         """Generate a report for an experiment."""
         report_path = self.output_dir / f"experiment_{experiment_id}.md"
 
@@ -38,10 +40,10 @@ class ReportGenerator:
             "## Configuration\n",
             f"```json\n{json.dumps(experiment_data.get('config', {}), indent=2)}\n```\n\n",
             "## Runs\n",
-            f"Total runs: {len(experiment_data.get('runs', []))}\n"
+            f"Total runs: {len(experiment_data.get('runs', []))}\n",
         ]
 
-        with open(report_path, 'w') as f:
+        with open(report_path, "w") as f:
             f.writelines(lines)
 
         return str(report_path)
@@ -55,10 +57,14 @@ class ReportGenerator:
 
         for run in runs:
             row = f"| {run.get('run_id', 'N/A')[:8]} |"
-            run_metrics = run.get('metrics', [])
+            run_metrics = run.get("metrics", [])
             for metric_name in metrics:
                 metric_value = next((m.value for m in run_metrics if m.name == metric_name), "N/A")
-                row += f" {metric_value:.4f} |" if isinstance(metric_value, float) else f" {metric_value} |"
+                row += (
+                    f" {metric_value:.4f} |"
+                    if isinstance(metric_value, float)
+                    else f" {metric_value} |"
+                )
             lines.append(row + "\n")
 
         return "".join(lines)

@@ -3,22 +3,23 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.utils.drift_utils import normalize_feature_drifts as _normalize_feature_drifts
-from app.db.models import DriftReport, DriftAlert, AlertSeverity
+from app.db.models import AlertSeverity, DriftAlert, DriftReport
 from app.db.session import get_db
 from app.schemas import (
-    DriftReportResponse, DriftReportList,
-    DriftAlertResponse, DriftAlertList,
-    DriftDetectRequest, DriftDetectResponse, FeatureDrift,
+    DriftAlertList,
+    DriftAlertResponse,
+    DriftDetectRequest,
+    DriftDetectResponse,
+    DriftReportList,
+    DriftReportResponse,
+    FeatureDrift,
 )
+from app.utils.drift_utils import normalize_feature_drifts as _normalize_feature_drifts
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
-
-
 
 
 def _serialize_drift_report(report: DriftReport) -> Dict[str, Any]:
@@ -52,26 +53,26 @@ async def list_drift_reports(
     db: AsyncSession = Depends(get_db),
 ):
     """List all drift detection reports."""
-    
+
     count_query = select(func.count(DriftReport.id))
     query = select(DriftReport)
-    
+
     if model_id:
         count_query = count_query.where(DriftReport.model_id == model_id)
         query = query.where(DriftReport.model_id == model_id)
-    
+
     if drift_detected is not None:
         count_query = count_query.where(DriftReport.drift_detected == drift_detected)
         query = query.where(DriftReport.drift_detected == drift_detected)
-    
+
     total = await db.scalar(count_query)
-    
+
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(desc(DriftReport.created_at))
-    
+
     result = await db.execute(query)
     reports = result.scalars().all()
-    
+
     items = [_serialize_drift_report(report) for report in reports]
 
     return DriftReportList(
@@ -89,31 +90,31 @@ async def trigger_drift_detection(
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger a drift detection job."""
-    
+
     # In real implementation, this would launch a background job
     # For now, simulate a detection result
-    
+
     metric_name = detect_request.test_types[0] if detect_request.test_types else "psi"
     feature_drifts_map = {
         "avg_session_duration": {
             "drift_score": 0.28,
             "p_value": 0.01,
             "threshold": detect_request.threshold,
-            "is_drifted": 0.28 > detect_request.threshold,
+            "is_drifted": detect_request.threshold < 0.28,
             "test_type": metric_name,
         },
         "transaction_count": {
             "drift_score": 0.18,
             "p_value": 0.03,
             "threshold": detect_request.threshold,
-            "is_drifted": 0.18 > detect_request.threshold,
+            "is_drifted": detect_request.threshold < 0.18,
             "test_type": metric_name,
         },
         "page_views": {
             "drift_score": 0.04,
             "p_value": 0.62,
             "threshold": detect_request.threshold,
-            "is_drifted": 0.04 > detect_request.threshold,
+            "is_drifted": detect_request.threshold < 0.04,
             "test_type": metric_name,
         },
     }
@@ -128,7 +129,7 @@ async def trigger_drift_detection(
         (details["drift_score"] for details in feature_drifts_map.values()),
         default=0.0,
     )
-    
+
     # Create drift report
     report = DriftReport(
         model_id=detect_request.model_id,
@@ -143,14 +144,16 @@ async def trigger_drift_detection(
     db.add(report)
     await db.commit()
     await db.refresh(report)
-    
+
     # Generate alerts for drifted features
     if drift_detected:
         for feature in drifted_features:
             alert = DriftAlert(
                 drift_report_id=report.id,
                 feature_name=feature,
-                severity=AlertSeverity.ERROR if feature_drifts_map[feature]["drift_score"] >= 0.25 else AlertSeverity.WARNING,
+                severity=AlertSeverity.ERROR
+                if feature_drifts_map[feature]["drift_score"] >= 0.25
+                else AlertSeverity.WARNING,
                 drift_type="feature",
                 drift_metric=metric_name,
                 drift_score=feature_drifts_map[feature]["drift_score"],
@@ -158,7 +161,7 @@ async def trigger_drift_detection(
             )
             db.add(alert)
         await db.commit()
-    
+
     # Build feature drift details
     feature_drifts = []
     for feature_name, stats in _normalize_feature_drifts(
@@ -168,15 +171,17 @@ async def trigger_drift_detection(
         p_value = stats.get("p_value", 0.5)
         is_drifted = bool(stats.get("is_drifted"))
         if is_drifted:
-            feature_drifts.append(FeatureDrift(
-                feature_name=feature_name,
-                drift_score=float(stats.get("drift_score", 0.0)),
-                p_value=p_value,
-                threshold=float(stats.get("threshold", detect_request.threshold)),
-                is_drifted=is_drifted,
-                test_type=stats.get("test_type", "ks"),
-            ))
-    
+            feature_drifts.append(
+                FeatureDrift(
+                    feature_name=feature_name,
+                    drift_score=float(stats.get("drift_score", 0.0)),
+                    p_value=p_value,
+                    threshold=float(stats.get("threshold", detect_request.threshold)),
+                    is_drifted=is_drifted,
+                    test_type=stats.get("test_type", "ks"),
+                )
+            )
+
     return DriftDetectResponse(
         drift_detected=drift_detected,
         overall_drift_score=report.drift_score,
@@ -193,7 +198,7 @@ async def create_drift_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a drift report / trigger drift detection.
-    
+
     This endpoint is an alias for POST /drift/detect to match frontend expectations.
     """
     # Delegate to the detect endpoint
@@ -208,10 +213,10 @@ async def get_drift_report(
     """Get drift report details."""
     result = await db.execute(select(DriftReport).where(DriftReport.id == report_id))
     report = result.scalar_one_or_none()
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="Drift report not found")
-    
+
     return _serialize_drift_report(report)
 
 
@@ -222,14 +227,14 @@ async def get_latest_drift(
 ):
     """Get the latest drift status."""
     query = select(DriftReport).order_by(desc(DriftReport.created_at))
-    
+
     if model_id:
         query = query.where(DriftReport.model_id == model_id)
-    
+
     query = query.limit(1)
     result = await db.execute(query)
     report = result.scalar_one_or_none()
-    
+
     if not report:
         return {
             "id": None,
@@ -245,6 +250,7 @@ async def get_latest_drift(
 
 
 # ==================== Alerts ====================
+
 
 @router.get("/alerts", response_model=DriftAlertList)
 async def list_alerts(
@@ -265,23 +271,23 @@ async def list_alerts(
     if acknowledged is not None:
         count_query = count_query.where(DriftAlert.acknowledged == acknowledged)
         query = query.where(DriftAlert.acknowledged == acknowledged)
-    
+
     if severity:
         count_query = count_query.where(DriftAlert.severity == severity)
         query = query.where(DriftAlert.severity == severity)
-    
+
     if resolved_feature_name:
         count_query = count_query.where(DriftAlert.feature_name.ilike(f"%{resolved_feature_name}%"))
         query = query.where(DriftAlert.feature_name.ilike(f"%{resolved_feature_name}%"))
-    
+
     total = await db.scalar(count_query)
-    
+
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(desc(DriftAlert.created_at))
-    
+
     result = await db.execute(query)
     alerts = result.scalars().all()
-    
+
     return DriftAlertList(
         total=total or 0,
         page=page,
@@ -299,17 +305,17 @@ async def acknowledge_alert(
     """Acknowledge a drift alert."""
     result = await db.execute(select(DriftAlert).where(DriftAlert.id == alert_id))
     alert = result.scalar_one_or_none()
-    
+
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    
+
     alert.acknowledged = True
     alert.acknowledged_at = datetime.now(timezone.utc)
     # alert.acknowledged_by = current_user.id  # Would need auth
-    
+
     await db.commit()
     await db.refresh(alert)
-    
+
     return {"message": "Alert acknowledged", "alert_id": alert_id}
 
 
@@ -321,9 +327,9 @@ async def get_feature_drift_history(
 ):
     """Get drift history for a specific feature."""
     from datetime import timedelta, timezone
-    
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    
+
     result = await db.execute(
         select(DriftAlert)
         .where(DriftAlert.feature_name == feature_name)
@@ -331,7 +337,7 @@ async def get_feature_drift_history(
         .order_by(DriftAlert.created_at)
     )
     alerts = result.scalars().all()
-    
+
     history = [
         {
             "timestamp": a.created_at.isoformat(),
@@ -342,7 +348,7 @@ async def get_feature_drift_history(
         }
         for a in alerts
     ]
-    
+
     return {
         "feature_name": feature_name,
         "days_analyzed": days,

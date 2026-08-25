@@ -1,31 +1,46 @@
-# AutoPipe Production Readiness Roadmap
+# AutoPipe Remediation Roadmap
 
-## Issues
+Execution tracker for bringing the codebase to a truthful, world-class
+state. Every phase lands as verified commits with green suites.
 
-### DONE
+## P0 — Truth & hygiene
+- [x] Purge 1,764 tracked tool-residue files; ignore classes going forward
+- [x] Consolidate test trees under `tests/` (single collected suite)
+- [x] Fix CI: pytest-timeout dep, integration on PRs, backend + frontend-lint jobs
+- [x] Single formatter (ruff-format), zero ruff violations, gitleaks pre-commit
+- [x] Python floor 3.10 (3.9 was broken despite classifier)
+- [x] README truth rewrite; CONTRIBUTING.md; CHANGELOG.md; stale docs removed
+- [x] De-fabricate endpoints (`simulate` default off; honest empties/501s)
 
-| # | Issue | Severity | Fix |
-|---|-------|----------|-----|
-| 1 | TUI subsystem (tui.py, widgets.py, state.py, --tui flag) | - | Removed cleanly; 107 core unit tests pass, 86 backend tests pass |
-| 2 | Cross-subsystem dependency: core/pipeline.py imports dashboard.state | Medium | Eliminated watcher system from core Pipeline; core no longer imports dashboard |
-| 3 | psutil._psplatform private API | Medium | Removed GPU metric collection via private API; CPU/memory metrics remain via public psutil APIs |
-| 4 | seed.py uses print() instead of structured logging | Low | Converted to logger.info(); added dev-only warning docstring |
-| 5 | No integration tests for actual pipeline executor | High | Added tests/test_executor.py with 3 integration tests: success, failure, cancellation |
-| 6 | Frontend pnpm-lock.yaml drift | Low | Committed lockfile with Playwright dependency |
-| 7 | Backend seed script has hardcoded demo credentials | Medium | Added module-level WARNING docstring; credentials are dev-only by design |
-| 8 | `__import__` in TUI simulated metric ticks | - | FIXED by TUI removal |
-| 9 | Module-level mutable globals without locking in runner.py | - | FIXED in commit 382d61d2 |
+## P1 — Make it true
+- [ ] Fix import/instantiation showstoppers (`tracking`, `experiments`,
+      `OptunaSearchStep.execute→run`, evaluation classes not Steps)
+- [ ] Assign `step.output` in run loop; unify Step contract
+- [ ] One validation/loading path (pydantic schemas + shared alias map;
+      `autopipe create` output must pass `autopipe validate`)
+- [ ] Backend auth for real: router-level deps, role gates, no admin
+      self-registration, WS handshake tokens, persistent SECRET_KEY
 
-## Test Results
+## P2 — Correctness
+- [ ] Preprocessing fit/transform + named step input bindings (kill
+      leakage-by-construction)
+- [ ] Drift statistics rewrite (decile PSI ±inf edges, BH correction,
+      aggregation across methods, ECE bins)
+- [ ] Registry hardening (locks, atomic index writes, joblib+sha256,
+      uuid4 ids, torch weights_only)
+- [ ] Executor hardening (bounded concurrency, per-run loggers, orphan
+      sweep, in-step cancellation)
+- [ ] Alembic migrations + unique constraints + indexes + SQLite pragmas
+- [ ] Typing truth: strict mypy passes on core/ (gate enforced, advisory
+      flag removed)
 
-- Core unit tests: **107 passed**
-- Backend tests: **86 passed** (83 API + 3 executor integration)
+## P3 — Safety
+- [ ] Step-type allowlist in loader (no arbitrary imports from YAML)
+- [ ] REPL evaluator isolated or disabled by default; secret redaction in
+      history/config display
+- [ ] Pin promptfoo version; single credential path with masking
 
-## Acceptance Criteria
-
-- [x] All backend tests pass (86/86)
-- [x] All core unit tests pass (107/107)
-- [x] No `except: pass` patterns
-- [x] No private API access (psutil._psplatform)
-- [x] Seed script uses structured logging
-- [x] Integration tests exist for executor thread logic
+## P4 — Product honesty
+- [ ] pi_coding + REPL behind optional extras
+- [ ] Distributed tuning honest or deleted; Kubernetes stub removed
+- [ ] 0.2.0 release: version bump, changelog, tagged build

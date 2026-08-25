@@ -19,19 +19,19 @@ from .search_space import (
 )
 
 __all__ = [
-    "OptunaSearchStep",
-    "OptunaPruner",
-    "suggest_hyperparameters",
-    "SearchSpace",
     "Categorical",
     "Continuous",
     "Discrete",
+    "DistributedSearch",
+    "EarlyStoppingCallback",
+    "OptunaPruner",
+    "OptunaSearchStep",
+    "ParallelSearch",
+    "ResourceScheduler",
+    "SearchSpace",
     "SearchStrategy",
+    "categorical",
     "continuous",
     "discrete",
-    "categorical",
-    "EarlyStoppingCallback",
-    "ResourceScheduler",
-    "DistributedSearch",
-    "ParallelSearch",
+    "suggest_hyperparameters",
 ]

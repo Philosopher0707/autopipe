@@ -1,4 +1,5 @@
 """Pipeline orchestration."""
+
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -37,7 +38,7 @@ class Pipeline:
     def _topological_sort(self) -> List[Step]:
         """Determine execution order based on dependencies."""
         # Kahn's algorithm
-        in_degree = {name: 0 for name in self.steps}
+        in_degree = dict.fromkeys(self.steps, 0)
         graph = {name: [] for name in self.steps}
 
         for step in self.steps.values():
@@ -89,6 +90,9 @@ class Pipeline:
             try:
                 step_output = step.run(**inputs)
                 outputs[step.name] = step_output
+                # Persist on the step itself so visualize() and introspection
+                # can access this step's result (was never assigned before).
+                step.output = step_output
             except Exception:
                 logger.error("Step %s failed", step.name)
                 raise

@@ -10,7 +10,7 @@ Supports:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class SHAPExplainerStep(Step):
     """SHAP-based model explainability step.
-    
+
     Provides global and local explanations for model predictions
     using SHAP (SHapley Additive exPlanations) values.
     """
@@ -35,7 +35,7 @@ class SHAPExplainerStep(Step):
         feature_names: Optional[List[str]] = None,
         plot_types: List[str] = None,
         max_samples: int = 100,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -49,22 +49,28 @@ class SHAPExplainerStep(Step):
         self.explainer_type = explainer_type
         self.background_data = background_data
         self.feature_names = feature_names
-        self.plot_types = plot_types or ['summary', 'bar']
+        self.plot_types = plot_types or ["summary", "bar"]
         self.max_samples = max_samples
 
         self.explainer = None
         self.shap_values = None
 
-    def run(self, model: Any, X: np.ndarray, X_sample: Optional[np.ndarray] = None,
-            feature_names: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        model: Any,
+        X: np.ndarray,
+        X_sample: Optional[np.ndarray] = None,
+        feature_names: Optional[List[str]] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
         """Compute SHAP explanations.
-        
+
         Args:
             model: Trained model
             X: Feature matrix
             X_sample: Sample to explain (for local explanations)
             feature_names: Feature names
-            
+
         Returns:
             Dictionary with SHAP values and explanations
         """
@@ -85,18 +91,26 @@ class SHAPExplainerStep(Step):
         if self.explainer_type == "tree":
             self.explainer = shap.TreeExplainer(model)
         elif self.explainer_type == "kernel":
-            background = self.background_data if self.background_data is not None else shap.sample(X, 100)
+            background = (
+                self.background_data if self.background_data is not None else shap.sample(X, 100)
+            )
             self.explainer = shap.KernelExplainer(model.predict, background)
         elif self.explainer_type == "deep":
             self.explainer = shap.DeepExplainer(model, self.background_data or X_explainer[:100])
         elif self.explainer_type == "gradient":
-            self.explainer = shap.GradientExplainer(model, self.background_data or X_explainer[:100])
+            self.explainer = shap.GradientExplainer(
+                model, self.background_data or X_explainer[:100]
+            )
         else:
             # Auto-detect
             try:
                 self.explainer = shap.TreeExplainer(model)
             except Exception:
-                background = self.background_data if self.background_data is not None else shap.sample(X, 100)
+                background = (
+                    self.background_data
+                    if self.background_data is not None
+                    else shap.sample(X, 100)
+                )
                 self.explainer = shap.KernelExplainer(model.predict, background)
 
         # Compute SHAP values
@@ -107,28 +121,32 @@ class SHAPExplainerStep(Step):
             # Multi-class classification
             shap_values_agg = np.mean([np.abs(sv).mean(axis=0) for sv in self.shap_values], axis=0)
         else:
-            shap_values_agg = np.abs(self.shap_values).mean(axis=0) if self.shap_values.ndim == 2 else np.abs(self.shap_values).mean(axis=(0, 1))
+            shap_values_agg = (
+                np.abs(self.shap_values).mean(axis=0)
+                if self.shap_values.ndim == 2
+                else np.abs(self.shap_values).mean(axis=(0, 1))
+            )
 
         # Compute feature importance
-        feature_importance = dict(zip(fnames, shap_values_agg))
+        feature_importance = dict(zip(fnames, shap_values_agg, strict=False))
         top_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)[:20]
 
         results = {
-            'shap_values': self.shap_values,
-            'explainer': self.explainer,
-            'feature_importance': feature_importance,
-            'top_features': top_features,
-            'X_explained': X_explainer
+            "shap_values": self.shap_values,
+            "explainer": self.explainer,
+            "feature_importance": feature_importance,
+            "top_features": top_features,
+            "X_explained": X_explainer,
         }
 
         if X_sample is not None:
             local_shap = self.explainer.shap_values(X_sample)
-            results['local_shap'] = local_shap
+            results["local_shap"] = local_shap
 
         self.log_metrics(
             top_feature=top_features[0][0] if top_features else None,
             top_feature_importance=top_features[0][1] if top_features else None,
-            num_features=X.shape[1]
+            num_features=X.shape[1],
         )
 
         return results
@@ -143,22 +161,24 @@ class SHAPExplainerStep(Step):
         except ImportError:
             return
 
-        X = self.output.get('X_explained')
+        X = self.output.get("X_explained")
         fnames = self.feature_names
 
         for plot_type in self.plot_types:
             try:
                 plt.figure()
 
-                if plot_type == 'summary':
+                if plot_type == "summary":
                     shap.summary_plot(self.shap_values, X, feature_names=fnames, show=False)
-                elif plot_type == 'bar':
-                    shap.summary_plot(self.shap_values, X, feature_names=fnames, plot_type='bar', show=False)
-                elif plot_type == 'dependence' and len(fnames) > 0:
+                elif plot_type == "bar":
+                    shap.summary_plot(
+                        self.shap_values, X, feature_names=fnames, plot_type="bar", show=False
+                    )
+                elif plot_type == "dependence" and len(fnames) > 0:
                     shap.dependence_plot(fnames[0], self.shap_values, X, show=False)
 
                 plt.tight_layout()
-                plt.savefig(f'{self.name}_shap_{plot_type}.png', dpi=150, bbox_inches='tight')
+                plt.savefig(f"{self.name}_shap_{plot_type}.png", dpi=150, bbox_inches="tight")
                 plt.close()
             except Exception as e:
                 logger.warning(f"SHAP {plot_type} plot failed: {e}")
@@ -166,7 +186,7 @@ class SHAPExplainerStep(Step):
 
 class LIMEExplainerStep(Step):
     """LIME-based local model explainability step.
-    
+
     Provides local explanations for individual predictions.
     """
 
@@ -178,7 +198,7 @@ class LIMEExplainerStep(Step):
         class_names: Optional[List[str]] = None,
         num_features: int = 10,
         num_samples: int = 5000,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -197,15 +217,16 @@ class LIMEExplainerStep(Step):
 
         self.explainer = None
 
-    def run(self, model: Any, X_train: np.ndarray, X_instance: np.ndarray,
-            **kwargs) -> Dict[str, Any]:
+    def run(
+        self, model: Any, X_train: np.ndarray, X_instance: np.ndarray, **kwargs
+    ) -> Dict[str, Any]:
         """Generate LIME explanation for an instance.
-        
+
         Args:
             model: Trained model with predict/predict_proba
             X_train: Training data for explainer
             X_instance: Instance to explain
-            
+
         Returns:
             Dictionary with LIME explanation
         """
@@ -223,24 +244,21 @@ class LIMEExplainerStep(Step):
             feature_names=fnames,
             class_names=cnames,
             mode=self.mode,
-            discretize_continuous=True
+            discretize_continuous=True,
         )
 
         # Generate explanation
         if self.mode == "classification":
-            predict_fn = model.predict_proba if hasattr(model, 'predict_proba') else model.predict
+            predict_fn = model.predict_proba if hasattr(model, "predict_proba") else model.predict
             explanation = self.explainer.explain_instance(
-                X_instance,
-                predict_fn,
-                num_features=self.num_features,
-                num_samples=self.num_samples
+                X_instance, predict_fn, num_features=self.num_features, num_samples=self.num_samples
             )
         else:
             explanation = self.explainer.explain_instance(
                 X_instance,
                 model.predict,
                 num_features=self.num_features,
-                num_samples=self.num_samples
+                num_samples=self.num_samples,
             )
 
         # Extract feature weights
@@ -248,33 +266,33 @@ class LIMEExplainerStep(Step):
 
         self.log_metrics(
             top_positive_feature=list(feature_weights.keys())[0] if feature_weights else None,
-            num_features_explained=len(feature_weights)
+            num_features_explained=len(feature_weights),
         )
 
         return {
-            'explanation': explanation,
-            'feature_weights': feature_weights,
-            'local_prediction': explanation.local_pred,
-            'score': explanation.score
+            "explanation": explanation,
+            "feature_weights": feature_weights,
+            "local_prediction": explanation.local_pred,
+            "score": explanation.score,
         }
 
     def visualize(self, **kwargs):
         """Generate LIME visualization."""
-        if self.output is None or 'explanation' not in self.output:
+        if self.output is None or "explanation" not in self.output:
             return
 
         try:
-            explanation = self.output['explanation']
+            explanation = self.output["explanation"]
 
             # Save HTML explanation
             html = explanation.as_html()
-            with open(f'{self.name}_lime_explanation.html', 'w') as f:
+            with open(f"{self.name}_lime_explanation.html", "w") as f:
                 f.write(html)
 
             # Generate matplotlib plot
             fig = explanation.as_pyplot_figure()
             plt.tight_layout()
-            plt.savefig(f'{self.name}_lime_plot.png', dpi=150, bbox_inches='tight')
+            plt.savefig(f"{self.name}_lime_plot.png", dpi=150, bbox_inches="tight")
             plt.close()
         except Exception as e:
             logger.warning(f"LIME visualization failed: {e}")
@@ -282,7 +300,7 @@ class LIMEExplainerStep(Step):
 
 class PermutationImportanceStep(Step):
     """Permutation importance for feature ranking.
-    
+
     Measures the decrease in model performance when a single feature value is randomly shuffled.
     """
 
@@ -293,7 +311,7 @@ class PermutationImportanceStep(Step):
         scoring: Optional[str] = None,
         random_state: int = 42,
         n_jobs: int = -1,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -310,55 +328,60 @@ class PermutationImportanceStep(Step):
 
         self.importances = None
 
-    def run(self, model: Any, X: np.ndarray, y: np.ndarray,
-            feature_names: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        model: Any,
+        X: np.ndarray,
+        y: np.ndarray,
+        feature_names: Optional[List[str]] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
         """Compute permutation importance.
-        
+
         Args:
             model: Trained model
             X: Feature matrix
             y: Target values
             feature_names: Feature names
-            
+
         Returns:
             Dictionary with importance scores
         """
         from sklearn.inspection import permutation_importance
 
         result = permutation_importance(
-            model, X, y,
+            model,
+            X,
+            y,
             n_repeats=self.n_repeats,
             scoring=self.scoring,
             random_state=self.random_state,
-            n_jobs=self.n_jobs
+            n_jobs=self.n_jobs,
         )
 
         fnames = feature_names or [f"feature_{i}" for i in range(X.shape[1])]
 
         self.importances = {
-            name: {
-                'importance_mean': mean,
-                'importance_std': std
-            }
-            for name, mean, std in zip(fnames, result.importances_mean, result.importances_std)
+            name: {"importance_mean": mean, "importance_std": std}
+            for name, mean, std in zip(fnames, result.importances_mean, result.importances_std, strict=False)
         }
 
         # Sort by importance
         sorted_importance = sorted(
-            self.importances.items(),
-            key=lambda x: x[1]['importance_mean'],
-            reverse=True
+            self.importances.items(), key=lambda x: x[1]["importance_mean"], reverse=True
         )
 
         self.log_metrics(
             top_feature=sorted_importance[0][0] if sorted_importance else None,
-            top_importance=sorted_importance[0][1]['importance_mean'] if sorted_importance else None
+            top_importance=sorted_importance[0][1]["importance_mean"]
+            if sorted_importance
+            else None,
         )
 
         return {
-            'importances': self.importances,
-            'sorted_importance': sorted_importance,
-            'raw_importances': result.importances
+            "importances": self.importances,
+            "sorted_importance": sorted_importance,
+            "raw_importances": result.importances,
         }
 
     def visualize(self, **kwargs):
@@ -369,24 +392,22 @@ class PermutationImportanceStep(Step):
         import matplotlib.pyplot as plt
 
         sorted_items = sorted(
-            self.importances.items(),
-            key=lambda x: x[1]['importance_mean'],
-            reverse=True
+            self.importances.items(), key=lambda x: x[1]["importance_mean"], reverse=True
         )[:20]  # Top 20
 
         names = [item[0] for item in sorted_items]
-        means = [item[1]['importance_mean'] for item in sorted_items]
-        stds = [item[1]['importance_std'] for item in sorted_items]
+        means = [item[1]["importance_mean"] for item in sorted_items]
+        stds = [item[1]["importance_std"] for item in sorted_items]
 
         plt.figure(figsize=(10, 8))
         y_pos = np.arange(len(names))
-        plt.barh(y_pos, means, xerr=stds, align='center', alpha=0.7)
+        plt.barh(y_pos, means, xerr=stds, align="center", alpha=0.7)
         plt.yticks(y_pos, names)
-        plt.xlabel('Permutation Importance')
-        plt.title(f'{self.name} - Permutation Importance')
+        plt.xlabel("Permutation Importance")
+        plt.title(f"{self.name} - Permutation Importance")
         plt.tight_layout()
         plt.gca().invert_yaxis()
-        plt.savefig(f'{self.name}_permutation_importance.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_permutation_importance.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
@@ -396,10 +417,10 @@ class PartialDependenceStep(Step):
     def __init__(
         self,
         name: str,
-        features: Union[int, str, List[Union[int, str]], List[tuple]],
+        features: int | str | List[int | str] | List[tuple],
         kind: str = "average",
         subsample: int = 1000,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -412,15 +433,16 @@ class PartialDependenceStep(Step):
         self.kind = kind
         self.subsample = subsample
 
-    def run(self, model: Any, X: np.ndarray,
-            feature_names: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+    def run(
+        self, model: Any, X: np.ndarray, feature_names: Optional[List[str]] = None, **kwargs
+    ) -> Dict[str, Any]:
         """Compute partial dependence.
-        
+
         Args:
             model: Trained model
             X: Feature matrix
             feature_names: Feature names
-            
+
         Returns:
             Dictionary with PDP data
         """
@@ -441,25 +463,29 @@ class PartialDependenceStep(Step):
             X = X[indices]
 
         pdp_results = partial_dependence(
-            model, X, features=feature_indices,
-            kind=self.kind, grid_resolution=100
+            model, X, features=feature_indices, kind=self.kind, grid_resolution=100
         )
 
         return {
-            'pdp_results': pdp_results,
-            'features': feature_indices,
-            'feature_names': [fnames[i] if isinstance(i, int) else str(i) for i in (feature_indices if isinstance(feature_indices, list) else [feature_indices])]
+            "pdp_results": pdp_results,
+            "features": feature_indices,
+            "feature_names": [
+                fnames[i] if isinstance(i, int) else str(i)
+                for i in (
+                    feature_indices if isinstance(feature_indices, list) else [feature_indices]
+                )
+            ],
         }
 
     def visualize(self, **kwargs):
         """Generate PDP plots."""
-        if self.output is None or 'pdp_results' not in self.output:
+        if self.output is None or "pdp_results" not in self.output:
             return
 
         import matplotlib.pyplot as plt
 
-        pdp_results = self.output['pdp_results']
-        feature_names = self.output.get('feature_names', [])
+        pdp_results = self.output["pdp_results"]
+        feature_names = self.output.get("feature_names", [])
 
         # Create figure
         n_features = len(feature_names)
@@ -468,30 +494,25 @@ class PartialDependenceStep(Step):
         if n_features == 1:
             axes = [axes]
 
-        for idx, (ax, fname) in enumerate(zip(axes, feature_names)):
-            if idx < len(pdp_results['average']):
-                grid_values = pdp_results['grid_values'][idx]
-                avg_preds = pdp_results['average'][idx]
+        for idx, (ax, fname) in enumerate(zip(axes, feature_names, strict=False)):
+            if idx < len(pdp_results["average"]):
+                grid_values = pdp_results["grid_values"][idx]
+                avg_preds = pdp_results["average"][idx]
 
                 ax.plot(grid_values, avg_preds.T)
                 ax.set_xlabel(fname)
-                ax.set_ylabel('Partial Dependence')
-                ax.set_title(f'PDP for {fname}')
+                ax.set_ylabel("Partial Dependence")
+                ax.set_title(f"PDP for {fname}")
 
         plt.tight_layout()
-        plt.savefig(f'{self.name}_pdp.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_pdp.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
 class FeatureImportanceStep(Step):
     """Extract feature importance from tree-based models."""
 
-    def __init__(
-        self,
-        name: str,
-        importance_type: str = "auto",
-        **kwargs
-    ):
+    def __init__(self, name: str, importance_type: str = "auto", **kwargs):
         """
         Args:
             importance_type: 'auto', 'gain', 'cover', or 'weight'
@@ -499,13 +520,15 @@ class FeatureImportanceStep(Step):
         super().__init__(name, **kwargs)
         self.importance_type = importance_type
 
-    def run(self, model: Any, feature_names: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+    def run(
+        self, model: Any, feature_names: Optional[List[str]] = None, **kwargs
+    ) -> Dict[str, Any]:
         """Extract feature importance from model.
-        
+
         Args:
             model: Tree-based model
             feature_names: Feature names
-            
+
         Returns:
             Dictionary with importance scores
         """
@@ -513,18 +536,22 @@ class FeatureImportanceStep(Step):
         importance = None
 
         # sklearn trees
-        if hasattr(model, 'feature_importances_'):
+        if hasattr(model, "feature_importances_"):
             importance = model.feature_importances_
         # XGBoost
-        elif hasattr(model, 'get_booster'):
+        elif hasattr(model, "get_booster"):
             booster = model.get_booster()
-            importance_dict = booster.get_score(importance_type=self.importance_type if self.importance_type != 'auto' else 'weight')
-            importance = np.array([importance_dict.get(f'f{i}', 0) for i in range(model.n_features_in_)])
+            importance_dict = booster.get_score(
+                importance_type=self.importance_type if self.importance_type != "auto" else "weight"
+            )
+            importance = np.array(
+                [importance_dict.get(f"f{i}", 0) for i in range(model.n_features_in_)]
+            )
         # LightGBM
-        elif hasattr(model, 'feature_importances'):
+        elif hasattr(model, "feature_importances"):
             importance = model.feature_importances()
         # CatBoost
-        elif hasattr(model, 'get_feature_importance'):
+        elif hasattr(model, "get_feature_importance"):
             importance = model.get_feature_importance()
 
         if importance is None:
@@ -532,18 +559,18 @@ class FeatureImportanceStep(Step):
 
         fnames = feature_names or [f"feature_{i}" for i in range(len(importance))]
 
-        importance_dict = dict(zip(fnames, importance))
+        importance_dict = dict(zip(fnames, importance, strict=False))
         sorted_importance = sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
 
         self.log_metrics(
             top_feature=sorted_importance[0][0] if sorted_importance else None,
-            top_importance=sorted_importance[0][1] if sorted_importance else None
+            top_importance=sorted_importance[0][1] if sorted_importance else None,
         )
 
         return {
-            'importance': importance_dict,
-            'sorted_importance': sorted_importance,
-            'raw_importance': importance
+            "importance": importance_dict,
+            "sorted_importance": sorted_importance,
+            "raw_importance": importance,
         }
 
     def visualize(self, **kwargs):
@@ -551,7 +578,7 @@ class FeatureImportanceStep(Step):
         if self.output is None:
             return
 
-        sorted_items = self.output.get('sorted_importance', [])[:20]
+        sorted_items = self.output.get("sorted_importance", [])[:20]
 
         if not sorted_items:
             return
@@ -563,26 +590,20 @@ class FeatureImportanceStep(Step):
 
         plt.figure(figsize=(10, 8))
         y_pos = np.arange(len(names))
-        plt.barh(y_pos, values, align='center', alpha=0.7)
+        plt.barh(y_pos, values, align="center", alpha=0.7)
         plt.yticks(y_pos, names)
-        plt.xlabel('Feature Importance')
-        plt.title(f'{self.name} - Feature Importance')
+        plt.xlabel("Feature Importance")
+        plt.title(f"{self.name} - Feature Importance")
         plt.tight_layout()
         plt.gca().invert_yaxis()
-        plt.savefig(f'{self.name}_feature_importance.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_feature_importance.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
 class AttentionVisualizerStep(Step):
     """Visualize attention weights from transformer models."""
 
-    def __init__(
-        self,
-        name: str,
-        layer: int = -1,
-        head: Optional[int] = None,
-        **kwargs
-    ):
+    def __init__(self, name: str, layer: int = -1, head: Optional[int] = None, **kwargs):
         """
         Args:
             layer: Layer to visualize (default: last layer)
@@ -592,15 +613,16 @@ class AttentionVisualizerStep(Step):
         self.layer = layer
         self.head = head
 
-    def run(self, model: Any, input_ids: np.ndarray, tokenizer: Any = None,
-            **kwargs) -> Dict[str, Any]:
+    def run(
+        self, model: Any, input_ids: np.ndarray, tokenizer: Any = None, **kwargs
+    ) -> Dict[str, Any]:
         """Extract and visualize attention weights.
-        
+
         Args:
             model: Transformer model with attention outputs
             input_ids: Token IDs
             tokenizer: Tokenizer for converting IDs to tokens
-            
+
         Returns:
             Dictionary with attention data
         """
@@ -626,10 +648,10 @@ class AttentionVisualizerStep(Step):
             tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
 
         return {
-            'attention_weights': attn_weights,
-            'tokens': tokens,
-            'layer': self.layer,
-            'head': self.head
+            "attention_weights": attn_weights,
+            "tokens": tokens,
+            "layer": self.layer,
+            "head": self.head,
         }
 
     def visualize(self, **kwargs):
@@ -640,26 +662,26 @@ class AttentionVisualizerStep(Step):
         import matplotlib.pyplot as plt
         import seaborn as sns
 
-        attn_weights = self.output['attention_weights']
-        tokens = self.output.get('tokens')
+        attn_weights = self.output["attention_weights"]
+        tokens = self.output.get("tokens")
 
         plt.figure(figsize=(12, 10))
         sns.heatmap(
             attn_weights,
-            xticklabels=tokens if tokens else 'auto',
-            yticklabels=tokens if tokens else 'auto',
-            cmap='viridis',
-            cbar_kws={'label': 'Attention Weight'}
+            xticklabels=tokens if tokens else "auto",
+            yticklabels=tokens if tokens else "auto",
+            cmap="viridis",
+            cbar_kws={"label": "Attention Weight"},
         )
-        plt.title(f'{self.name} - Attention Weights')
+        plt.title(f"{self.name} - Attention Weights")
         plt.tight_layout()
-        plt.savefig(f'{self.name}_attention.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f"{self.name}_attention.png", dpi=150, bbox_inches="tight")
         plt.close()
 
 
 class ExplainabilityPipeline(Step):
     """Comprehensive explainability pipeline.
-    
+
     Runs multiple explainability methods and aggregates results.
     """
 
@@ -668,7 +690,7 @@ class ExplainabilityPipeline(Step):
         name: str,
         methods: List[str] = None,
         feature_names: Optional[List[str]] = None,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -676,58 +698,64 @@ class ExplainabilityPipeline(Step):
             feature_names: Feature names
         """
         super().__init__(name, **kwargs)
-        self.methods = methods or ['permutation', 'feature_importance']
+        self.methods = methods or ["permutation", "feature_importance"]
         self.feature_names = feature_names
         self.results = {}
 
-    def run(self, model: Any, X_train: np.ndarray, y_train: np.ndarray,
-            X_test: Optional[np.ndarray] = None, X_instance: Optional[np.ndarray] = None,
-            **kwargs) -> Dict[str, Any]:
+    def run(
+        self,
+        model: Any,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_test: Optional[np.ndarray] = None,
+        X_instance: Optional[np.ndarray] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
         """Run comprehensive explainability analysis.
-        
+
         Args:
             model: Trained model
             X_train: Training features
             y_train: Training labels
             X_test: Test features
             X_instance: Single instance for local explanation
-            
+
         Returns:
             Dictionary with all explanations
         """
         self.results = {}
 
-        if 'feature_importance' in self.methods:
+        if "feature_importance" in self.methods:
             try:
                 step = FeatureImportanceStep(f"{self.name}_fi")
-                self.results['feature_importance'] = step.run(
+                self.results["feature_importance"] = step.run(
                     model, feature_names=self.feature_names, **kwargs
                 )
             except Exception as e:
                 logger.warning(f"Feature importance failed: {e}")
 
-        if 'permutation' in self.methods:
+        if "permutation" in self.methods:
             try:
                 step = PermutationImportanceStep(f"{self.name}_perm")
-                self.results['permutation'] = step.run(
+                self.results["permutation"] = step.run(
                     model, X_train, y_train, feature_names=self.feature_names, **kwargs
                 )
             except Exception as e:
                 logger.warning(f"Permutation importance failed: {e}")
 
-        if 'shap' in self.methods and X_test is not None:
+        if "shap" in self.methods and X_test is not None:
             try:
                 step = SHAPExplainerStep(f"{self.name}_shap", max_samples=100)
-                self.results['shap'] = step.run(
+                self.results["shap"] = step.run(
                     model, X_test, feature_names=self.feature_names, **kwargs
                 )
             except Exception as e:
                 logger.warning(f"SHAP failed: {e}")
 
-        if 'lime' in self.methods and X_instance is not None:
+        if "lime" in self.methods and X_instance is not None:
             try:
                 step = LIMEExplainerStep(f"{self.name}_lime")
-                self.results['lime'] = step.run(
+                self.results["lime"] = step.run(
                     model, X_train, X_instance, feature_names=self.feature_names, **kwargs
                 )
             except Exception as e:
@@ -736,10 +764,7 @@ class ExplainabilityPipeline(Step):
         # Aggregate feature ranks
         feature_ranks = self._aggregate_ranks()
 
-        return {
-            'explanations': self.results,
-            'aggregated_ranks': feature_ranks
-        }
+        return {"explanations": self.results, "aggregated_ranks": feature_ranks}
 
     def _aggregate_ranks(self) -> Dict[str, float]:
         """Aggregate feature rankings across methods."""
@@ -747,8 +772,8 @@ class ExplainabilityPipeline(Step):
         method_ranks = []
 
         for method, result in self.results.items():
-            if 'sorted_importance' in result:
-                sorted_imp = result['sorted_importance']
+            if "sorted_importance" in result:
+                sorted_imp = result["sorted_importance"]
                 ranks = {name: idx for idx, (name, _) in enumerate(sorted_imp)}
                 all_features.update(ranks.keys())
                 method_ranks.append(ranks)

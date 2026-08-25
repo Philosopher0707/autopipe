@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 try:
     import mlflow
     from mlflow.tracking import MlflowClient
+
     MLFLOW_AVAILABLE = True
 except ImportError:
     MLFLOW_AVAILABLE = False
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelVersion:
     """Represents a single model version."""
+
     model_id: str
     version: int
     name: str
@@ -40,13 +42,14 @@ class ModelVersion:
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
         d = asdict(self)
-        d['created_at'] = self.created_at.isoformat()
+        d["created_at"] = self.created_at.isoformat()
         return d
 
 
 @dataclass
 class ModelComparison:
     """Comparison result between models."""
+
     model_a: ModelVersion
     model_b: ModelVersion
     metric_differences: Dict[str, float]
@@ -68,25 +71,27 @@ class ModelComparison:
         ]
 
         for metric, diff in self.metric_differences.items():
-            val_a = self.model_a.metrics.get(metric, 'N/A')
-            val_b = self.model_b.metrics.get(metric, 'N/A')
+            val_a = self.model_a.metrics.get(metric, "N/A")
+            val_b = self.model_b.metrics.get(metric, "N/A")
             lines.append(f"| {metric} | {val_a:.4f} | {val_b:.4f} | {diff:+.4f} |")
 
-        lines.extend([
-            "",
-            "### Improved Metrics",
-            f"- {', '.join(self.improved_metrics) if self.improved_metrics else 'None'}",
-            "",
-            "### Degraded Metrics",
-            f"- {', '.join(self.degraded_metrics) if self.degraded_metrics else 'None'}",
-        ])
+        lines.extend(
+            [
+                "",
+                "### Improved Metrics",
+                f"- {', '.join(self.improved_metrics) if self.improved_metrics else 'None'}",
+                "",
+                "### Degraded Metrics",
+                f"- {', '.join(self.degraded_metrics) if self.degraded_metrics else 'None'}",
+            ]
+        )
 
         return "\n".join(lines)
 
 
 class ModelRegistry:
     """Central registry for ML model management.
-    
+
     Features:
     - Model versioning with semantic versioning
     - Model comparison and A/B testing
@@ -102,7 +107,7 @@ class ModelRegistry:
         registry_dir: str = "./.autopipe_registry",
         use_mlflow: bool = False,
         mlflow_tracking_uri: Optional[str] = None,
-        mlflow_experiment: str = "autopipe_experiments"
+        mlflow_experiment: str = "autopipe_experiments",
     ):
         """
         Args:
@@ -133,25 +138,25 @@ class ModelRegistry:
         index_path = self.registry_dir / "registry_index.json"
         if index_path.exists():
             try:
-                with open(index_path, 'r') as f:
+                with open(index_path, "r") as f:
                     data = json.load(f)
 
                 for name, versions_data in data.items():
                     self.models[name] = [
                         ModelVersion(
-                            model_id=v['model_id'],
-                            version=v['version'],
-                            name=v['name'],
-                            created_at=datetime.fromisoformat(v['created_at']),
-                            metrics=v.get('metrics', {}),
-                            parameters=v.get('parameters', {}),
-                            tags=v.get('tags', {}),
-                            artifact_path=v.get('artifact_path'),
-                            signature=v.get('signature'),
-                            framework=v.get('framework', 'sklearn'),
-                            description=v.get('description', ''),
-                            status=v.get('status', 'PENDING'),
-                            user=v.get('user')
+                            model_id=v["model_id"],
+                            version=v["version"],
+                            name=v["name"],
+                            created_at=datetime.fromisoformat(v["created_at"]),
+                            metrics=v.get("metrics", {}),
+                            parameters=v.get("parameters", {}),
+                            tags=v.get("tags", {}),
+                            artifact_path=v.get("artifact_path"),
+                            signature=v.get("signature"),
+                            framework=v.get("framework", "sklearn"),
+                            description=v.get("description", ""),
+                            status=v.get("status", "PENDING"),
+                            user=v.get("user"),
                         )
                         for v in versions_data
                     ]
@@ -161,11 +166,8 @@ class ModelRegistry:
     def _save_registry(self):
         """Save registry index to disk."""
         index_path = self.registry_dir / "registry_index.json"
-        data = {
-            name: [v.to_dict() for v in versions]
-            for name, versions in self.models.items()
-        }
-        with open(index_path, 'w') as f:
+        data = {name: [v.to_dict() for v in versions] for name, versions in self.models.items()}
+        with open(index_path, "w") as f:
             json.dump(data, f, indent=2, default=str)
 
     def register(
@@ -179,10 +181,10 @@ class ModelRegistry:
         framework: str = "sklearn",
         signature: Optional[Dict] = None,
         artifact_path: Optional[str] = None,
-        stage: str = "PENDING"
+        stage: str = "PENDING",
     ) -> ModelVersion:
         """Register a new model version.
-        
+
         Args:
             model: The trained model object
             name: Model name
@@ -194,7 +196,7 @@ class ModelRegistry:
             signature: Model input/output signature
             artifact_path: Custom artifact path
             stage: Initial stage (PENDING, STAGING, PRODUCTION)
-            
+
         Returns:
             ModelVersion object
         """
@@ -260,28 +262,29 @@ class ModelRegistry:
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         if framework == "sklearn":
-            with open(save_path.with_suffix('.pkl'), 'wb') as f:
+            with open(save_path.with_suffix(".pkl"), "wb") as f:
                 pickle.dump(model, f)
         elif framework == "pytorch":
             import torch
-            torch.save(model.state_dict(), save_path.with_suffix('.pt'))
+
+            torch.save(model.state_dict(), save_path.with_suffix(".pt"))
         elif framework == "tensorflow":
-            model.save(save_path.with_suffix('.keras'))
+            model.save(save_path.with_suffix(".keras"))
         elif framework == "xgboost":
-            model.save_model(save_path.with_suffix('.json'))
+            model.save_model(save_path.with_suffix(".json"))
         else:
             # Generic pickle fallback
-            with open(save_path.with_suffix('.pkl'), 'wb') as f:
+            with open(save_path.with_suffix(".pkl"), "wb") as f:
                 pickle.dump(model, f)
 
     def load(self, name: str, version: Optional[int] = None, stage: Optional[str] = None) -> Any:
         """Load a model from registry.
-        
+
         Args:
             name: Model name
             version: Specific version (None = latest)
             stage: Load by stage (PRODUCTION, STAGING)
-            
+
         Returns:
             Loaded model object
         """
@@ -309,33 +312,36 @@ class ModelRegistry:
         framework = version.framework
 
         if framework == "sklearn":
-            with open(path.with_suffix('.pkl'), 'rb') as f:
+            with open(path.with_suffix(".pkl"), "rb") as f:
                 return pickle.load(f)
         elif framework == "pytorch":
             import torch
+
             # Note: model class needs to be provided separately
-            state_dict = torch.load(path.with_suffix('.pt'), map_location='cpu')
+            state_dict = torch.load(path.with_suffix(".pt"), map_location="cpu")
             return state_dict
         elif framework == "tensorflow":
             from tensorflow import keras
-            return keras.models.load_model(path.with_suffix('.keras'))
+
+            return keras.models.load_model(path.with_suffix(".keras"))
         elif framework == "xgboost":
             import xgboost as xgb
+
             model = xgb.Booster()
-            model.load_model(path.with_suffix('.json'))
+            model.load_model(path.with_suffix(".json"))
             return model
         else:
-            with open(path.with_suffix('.pkl'), 'rb') as f:
+            with open(path.with_suffix(".pkl"), "rb") as f:
                 return pickle.load(f)
 
     def transition_stage(self, name: str, version: int, stage: str) -> ModelVersion:
         """Transition model to a new stage.
-        
+
         Args:
             name: Model name
             version: Version number
             stage: New stage (PENDING, STAGING, PRODUCTION, ARCHIVED)
-            
+
         Returns:
             Updated ModelVersion
         """
@@ -364,16 +370,16 @@ class ModelRegistry:
         name: str,
         version_a: int,
         version_b: int,
-        metric_directions: Optional[Dict[str, str]] = None
+        metric_directions: Optional[Dict[str, str]] = None,
     ) -> ModelComparison:
         """Compare two model versions.
-        
+
         Args:
             name: Model name
             version_a: First version number
             version_b: Second version number
             metric_directions: Dict of metric_name -> 'maximize' or 'minimize'
-            
+
         Returns:
             ModelComparison object
         """
@@ -388,16 +394,16 @@ class ModelRegistry:
 
         # Default metric directions (maximize accuracy metrics)
         default_directions = {
-            'accuracy': 'maximize',
-            'precision': 'maximize',
-            'recall': 'maximize',
-            'f1': 'maximize',
-            'roc_auc': 'maximize',
-            'r2': 'maximize',
-            'mae': 'minimize',
-            'mse': 'minimize',
-            'rmse': 'minimize',
-            'loss': 'minimize',
+            "accuracy": "maximize",
+            "precision": "maximize",
+            "recall": "maximize",
+            "f1": "maximize",
+            "roc_auc": "maximize",
+            "r2": "maximize",
+            "mae": "minimize",
+            "mse": "minimize",
+            "rmse": "minimize",
+            "loss": "minimize",
         }
         directions = {**default_directions, **(metric_directions or {})}
 
@@ -415,8 +421,10 @@ class ModelRegistry:
                 diff = val_a - val_b
                 differences[metric] = diff
 
-                direction = directions.get(metric, 'maximize')
-                is_better = (diff > 0 and direction == 'maximize') or (diff < 0 and direction == 'minimize')
+                direction = directions.get(metric, "maximize")
+                is_better = (diff > 0 and direction == "maximize") or (
+                    diff < 0 and direction == "minimize"
+                )
 
                 if is_better:
                     improved.append(metric)
@@ -432,24 +440,24 @@ class ModelRegistry:
             metric_differences=differences,
             is_better=is_better,
             improved_metrics=improved,
-            degraded_metrics=degraded
+            degraded_metrics=degraded,
         )
 
     def get_best_version(
         self,
         name: str,
-        metric: str = 'accuracy',
-        direction: str = 'maximize',
-        stage: Optional[str] = None
+        metric: str = "accuracy",
+        direction: str = "maximize",
+        stage: Optional[str] = None,
     ) -> Optional[ModelVersion]:
         """Get the best model version based on a metric.
-        
+
         Args:
             name: Model name
             metric: Metric to optimize
             direction: 'maximize' or 'minimize'
             stage: Optional stage filter
-            
+
         Returns:
             Best ModelVersion or None
         """
@@ -465,11 +473,11 @@ class ModelRegistry:
 
         # Sort by metric
         scored_versions = [
-            (v, v.metrics.get(metric, float('-inf') if direction == 'maximize' else float('inf')))
+            (v, v.metrics.get(metric, float("-inf") if direction == "maximize" else float("inf")))
             for v in versions
         ]
 
-        scored_versions.sort(key=lambda x: x[1], reverse=(direction == 'maximize'))
+        scored_versions.sort(key=lambda x: x[1], reverse=(direction == "maximize"))
         return scored_versions[0][0] if scored_versions else None
 
     def list_models(self) -> List[str]:
@@ -534,21 +542,25 @@ class ModelRegistry:
                 f"| {v.version} | {v.status} | {v.framework} | {v.created_at.strftime('%Y-%m-%d')} | {metrics_str} |"
             )
 
-        lines.extend([
-            "",
-            "## Production Model",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "## Production Model",
+                "",
+            ]
+        )
 
         prod = self.get_production_model(name)
         if prod:
-            lines.extend([
-                f"**Version:** {prod.version}",
-                f"**Created:** {prod.created_at.isoformat()}",
-                "",
-                "### Metrics",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"**Version:** {prod.version}",
+                    f"**Created:** {prod.created_at.isoformat()}",
+                    "",
+                    "### Metrics",
+                    "",
+                ]
+            )
             for k, v in prod.metrics.items():
                 lines.append(f"- **{k}:** {v:.4f}")
         else:
@@ -558,7 +570,7 @@ class ModelRegistry:
 
     def export_model(self, name: str, version: int, export_path: str, format: str = "auto"):
         """Export a model to various formats.
-        
+
         Supported formats:
         - sklearn: pickle, joblib, onnx
         - pytorch: pt, onnx
@@ -578,38 +590,43 @@ class ModelRegistry:
 
         if framework == "sklearn":
             if format in ("pickle", "auto"):
-                with open(export_path.with_suffix('.pkl'), 'wb') as f:
+                with open(export_path.with_suffix(".pkl"), "wb") as f:
                     pickle.dump(model, f)
             elif format == "joblib":
                 import joblib
-                joblib.dump(model, export_path.with_suffix('.joblib'))
+
+                joblib.dump(model, export_path.with_suffix(".joblib"))
             elif format == "onnx":
                 # Requires skl2onnx
                 from skl2onnx import convert_sklearn
                 from skl2onnx.common.data_types import FloatTensorType
 
                 # This is a simplified version - real implementation needs signature
-                initial_type = [('float_input', FloatTensorType([None, model.n_features_in_]))]
+                initial_type = [("float_input", FloatTensorType([None, model.n_features_in_]))]
                 onnx_model = convert_sklearn(model, initial_types=initial_type)
-                with open(export_path.with_suffix('.onnx'), "wb") as f:
+                with open(export_path.with_suffix(".onnx"), "wb") as f:
                     f.write(onnx_model.SerializeToString())
 
         elif framework == "pytorch":
             if format in ("pt", "auto"):
                 import torch
-                torch.save(model, export_path.with_suffix('.pt'))
+
+                torch.save(model, export_path.with_suffix(".pt"))
             elif format == "onnx":
                 import torch
+
                 dummy_input = torch.randn(1, 10)  # This needs actual input shape
-                torch.onnx.export(model, dummy_input, export_path.with_suffix('.onnx'))
+                torch.onnx.export(model, dummy_input, export_path.with_suffix(".onnx"))
 
         elif framework == "tensorflow":
             if format in ("saved_model", "auto"):
                 model.save(export_path)
             elif format == "tflite":
+                import tensorflow as tf
+
                 converter = tf.lite.TFLiteConverter.from_keras_model(model)
                 tflite_model = converter.convert()
-                with open(export_path.with_suffix('.tflite'), 'wb') as f:
+                with open(export_path.with_suffix(".tflite"), "wb") as f:
                     f.write(tflite_model)
 
         logger.info(f"Exported {name} v{version} to {export_path}")
@@ -631,8 +648,7 @@ _REGISTRY: Optional[ModelRegistry] = None
 
 
 def get_registry(
-    registry_dir: str = "./.autopipe_registry",
-    use_mlflow: bool = False
+    registry_dir: str = "./.autopipe_registry", use_mlflow: bool = False
 ) -> ModelRegistry:
     """Get or create the global registry singleton."""
     global _REGISTRY

@@ -1,4 +1,5 @@
 """Structured logging configuration for AutoPipe."""
+
 import logging
 import sys
 from pathlib import Path
@@ -18,7 +19,7 @@ def configure_logging(
     backup_count: int = 5,
 ) -> None:
     """Configure structured logging for AutoPipe.
-    
+
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         format: Output format (text or json)
@@ -35,9 +36,8 @@ def configure_logging(
         handler: logging.Handler
         if rotate:
             from logging.handlers import RotatingFileHandler
-            handler = RotatingFileHandler(
-                file_path, maxBytes=max_bytes, backupCount=backup_count
-            )
+
+            handler = RotatingFileHandler(file_path, maxBytes=max_bytes, backupCount=backup_count)
         else:
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
             handler = logging.FileHandler(file_path)
@@ -60,11 +60,9 @@ def configure_logging(
     ]
 
     if format == "json":
-        processors = shared_processors + [structlog.processors.JSONRenderer()]
+        processors = [*shared_processors, structlog.processors.JSONRenderer()]
     else:
-        processors = shared_processors + [
-            structlog.dev.ConsoleRenderer(colors=True)
-        ]
+        processors = [*shared_processors, structlog.dev.ConsoleRenderer(colors=True)]
 
     structlog.configure(
         processors=processors,
@@ -87,10 +85,10 @@ def configure_logging(
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Get a structured logger instance.
-    
+
     Args:
         name: Logger name
-        
+
     Returns:
         Structured logger instance
     """

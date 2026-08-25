@@ -4,14 +4,16 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
-from app.utils.drift_utils import normalize_feature_drifts
 from app.db.models import (
-    ChartArtifact, DriftReport, Experiment, MetricLog, Model, ModelVersion, Pipeline, Run, RunStatus, Step
+    ChartArtifact,
+    DriftReport,
+    Experiment,
+    MetricLog,
+    Model,
+    ModelVersion,
+    Run,
+    RunStatus,
+    Step,
 )
 from app.db.session import get_db
 from app.schemas import (
@@ -46,6 +48,11 @@ from app.schemas import (
     TrainingMetricsTraceResponse,
     TrialPoint,
 )
+from app.utils.drift_utils import normalize_feature_drifts
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
@@ -67,6 +74,7 @@ def _top_numeric_keys(items: List[Dict[str, Any]], n: int = 3) -> List[str]:
 # ---------------------------------------------------------------------------
 # GET /charts/run-metrics-over-time
 # ---------------------------------------------------------------------------
+
 
 @router.get("/run-metrics-over-time", response_model=RunMetricsOverTimeResponse)
 async def get_run_metrics_over_time(
@@ -105,6 +113,7 @@ async def get_run_metrics_over_time(
 # GET /charts/training-metrics-trace
 # ---------------------------------------------------------------------------
 
+
 @router.get("/training-metrics-trace", response_model=TrainingMetricsTraceResponse)
 async def get_training_metrics_trace(
     run_id: str = Query(..., description="Run ID to fetch training metrics for"),
@@ -115,8 +124,16 @@ async def get_training_metrics_trace(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
 
-    metric_names = ["loss", "val_loss", "accuracy", "val_accuracy",
-                    "train/loss", "train/epoch_loss", "train/accuracy", "train/epoch_accuracy"]
+    metric_names = [
+        "loss",
+        "val_loss",
+        "accuracy",
+        "val_accuracy",
+        "train/loss",
+        "train/epoch_loss",
+        "train/accuracy",
+        "train/epoch_accuracy",
+    ]
     log_result = await db.execute(
         select(MetricLog)
         .where(MetricLog.run_id == run_id, MetricLog.metric_name.in_(metric_names))
@@ -186,6 +203,7 @@ async def get_training_metrics_trace(
 # GET /charts/step-durations
 # ---------------------------------------------------------------------------
 
+
 @router.get("/step-durations", response_model=StepDurationsResponse)
 async def get_step_durations(
     run_id: str = Query(...),
@@ -213,10 +231,13 @@ async def get_step_durations(
 # GET /charts/experiment-metric-trace
 # ---------------------------------------------------------------------------
 
+
 @router.get("/experiment-metric-trace", response_model=ExperimentMetricTraceResponse)
 async def get_experiment_metric_trace(
     experiment_id: str = Query(...),
-    metrics: Optional[str] = Query(None, description="Comma-separated metric keys (auto-detect if omitted)"),
+    metrics: Optional[str] = Query(
+        None, description="Comma-separated metric keys (auto-detect if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -243,17 +264,22 @@ async def get_experiment_metric_trace(
         if len(row) > 1:
             points.append(row)
 
-    return ExperimentMetricTraceResponse(experiment_id=experiment_id, metrics=metric_keys, points=points)
+    return ExperimentMetricTraceResponse(
+        experiment_id=experiment_id, metrics=metric_keys, points=points
+    )
 
 
 # ---------------------------------------------------------------------------
 # GET /charts/model-version-metrics
 # ---------------------------------------------------------------------------
 
+
 @router.get("/model-version-metrics", response_model=ModelVersionMetricsResponse)
 async def get_model_version_metrics(
     model_id: str = Query(...),
-    metrics: Optional[str] = Query(None, description="Comma-separated metric keys (auto-detect if omitted)"),
+    metrics: Optional[str] = Query(
+        None, description="Comma-separated metric keys (auto-detect if omitted)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     model_result = await db.execute(select(Model).where(Model.id == model_id))
@@ -267,7 +293,9 @@ async def get_model_version_metrics(
     versions = version_result.scalars().all()
 
     if not versions:
-        return ModelVersionMetricsResponse(model_id=model_id, model_name=model.name, metrics=[], points=[])
+        return ModelVersionMetricsResponse(
+            model_id=model_id, model_name=model.name, metrics=[], points=[]
+        )
 
     metric_keys = [m.strip() for m in metrics.split(",")] if metrics else None
     if not metric_keys:
@@ -275,7 +303,10 @@ async def get_model_version_metrics(
 
     points: List[Dict[str, Any]] = []
     for v in versions:
-        row: Dict[str, Any] = {"version": v.version, "stage": v.stage.value if hasattr(v.stage, "value") else str(v.stage)}
+        row: Dict[str, Any] = {
+            "version": v.version,
+            "stage": v.stage.value if hasattr(v.stage, "value") else str(v.stage),
+        }
         vm = v.metrics or {}
         for key in metric_keys:
             if key in vm and _is_numeric(vm[key]):
@@ -283,12 +314,15 @@ async def get_model_version_metrics(
         if any(k in row for k in metric_keys):
             points.append(row)
 
-    return ModelVersionMetricsResponse(model_id=model_id, model_name=model.name, metrics=metric_keys, points=points)
+    return ModelVersionMetricsResponse(
+        model_id=model_id, model_name=model.name, metrics=metric_keys, points=points
+    )
 
 
 # ---------------------------------------------------------------------------
 # GET /charts/drift-feature-scores
 # ---------------------------------------------------------------------------
+
 
 @router.get("/drift-feature-scores", response_model=DriftFeatureScoresResponse)
 async def get_drift_feature_scores(
@@ -323,6 +357,7 @@ async def get_drift_feature_scores(
 # ---------------------------------------------------------------------------
 # GET /charts/drift-trend
 # ---------------------------------------------------------------------------
+
 
 @router.get("/drift-trend", response_model=DriftTrendResponse)
 async def get_drift_trend(
@@ -359,7 +394,10 @@ async def get_drift_trend(
 # POST /charts/artifacts
 # ---------------------------------------------------------------------------
 
-@router.post("/artifacts", response_model=ChartArtifactResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/artifacts", response_model=ChartArtifactResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_chart_artifact(
     body: ChartArtifactCreate,
     db: AsyncSession = Depends(get_db),
@@ -374,6 +412,7 @@ async def create_chart_artifact(
 # ---------------------------------------------------------------------------
 # GET /charts/artifacts
 # ---------------------------------------------------------------------------
+
 
 @router.get("/artifacts", response_model=ChartArtifactList)
 async def list_chart_artifacts(
@@ -426,9 +465,12 @@ async def list_chart_artifacts(
 # GET /charts/available-metrics
 # ---------------------------------------------------------------------------
 
+
 @router.get("/available-metrics", response_model=AvailableMetricsResponse)
 async def get_available_metrics(
-    run_ids: Optional[str] = Query(None, description="Comma-separated run IDs, or omit to see all from recent runs"),
+    run_ids: Optional[str] = Query(
+        None, description="Comma-separated run IDs, or omit to see all from recent runs"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     if run_ids:
@@ -438,16 +480,15 @@ async def get_available_metrics(
         )
     else:
         # Last 50 metric logs → discover what's being tracked
-        result = await db.execute(
-            select(MetricLog.metric_name).distinct().limit(50)
-        )
-    metrics = sorted([m for m in result.scalars().all()])
+        result = await db.execute(select(MetricLog.metric_name).distinct().limit(50))
+    metrics = sorted(result.scalars().all())
     return AvailableMetricsResponse(metrics=metrics)
 
 
 # ---------------------------------------------------------------------------
 # GET /charts/metric-series
 # ---------------------------------------------------------------------------
+
 
 @router.get("/metric-series", response_model=List[MetricSeriesResponse])
 async def get_metric_series(
@@ -465,7 +506,7 @@ async def get_metric_series(
     if len(ids) == 0 or len(ids) > 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="1–10 run_ids required",
+            detail="1–10 run_ids required",  # noqa: RUF001  en dash intentional
         )
 
     series_data: List[MetricSeriesResponse] = []
@@ -484,19 +525,21 @@ async def get_metric_series(
 
         points = [
             MetricLogPoint(
-                step_index=l.step_index,
-                value=l.value,
-                recorded_at=l.recorded_at.isoformat(),
+                step_index=log.step_index,
+                value=log.value,
+                recorded_at=log.recorded_at.isoformat(),
             )
-            for l in logs
+            for log in logs
         ]
 
-        series_data.append(MetricSeriesResponse(
-            metric_name=metric_name,
-            run_id=rid,
-            run_number=run.run_number,
-            points=points,
-        ))
+        series_data.append(
+            MetricSeriesResponse(
+                metric_name=metric_name,
+                run_id=rid,
+                run_number=run.run_number,
+                points=points,
+            )
+        )
 
     return series_data
 
@@ -504,6 +547,7 @@ async def get_metric_series(
 # ---------------------------------------------------------------------------
 # POST /charts/metric-logs
 # ---------------------------------------------------------------------------
+
 
 @router.post("/metric-logs", response_model=MetricLogPoint, status_code=status.HTTP_201_CREATED)
 async def create_metric_log(
@@ -525,6 +569,7 @@ async def create_metric_log(
 # GET /charts/artifacts/{artifact_id}
 # ---------------------------------------------------------------------------
 
+
 @router.get("/artifacts/{artifact_id}", response_model=ChartArtifactResponse)
 async def get_chart_artifact(
     artifact_id: str,
@@ -533,13 +578,16 @@ async def get_chart_artifact(
     result = await db.execute(select(ChartArtifact).where(ChartArtifact.id == artifact_id))
     artifact = result.scalar_one_or_none()
     if not artifact:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chart artifact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chart artifact not found"
+        )
     return artifact
 
 
 # ---------------------------------------------------------------------------
 # GET /charts/explainability
 # ---------------------------------------------------------------------------
+
 
 @router.get("/explainability", response_model=ExplainabilityResponse)
 async def get_explainability(
@@ -556,7 +604,9 @@ async def get_explainability(
     # ── Feature names ────────────────────────────────────────────────
     features: List[str] = []
     cfg = run.config if isinstance(run.config, dict) else {}
-    pipeline_cfg = run.pipeline.config if run.pipeline and isinstance(run.pipeline.config, dict) else {}
+    pipeline_cfg = (
+        run.pipeline.config if run.pipeline and isinstance(run.pipeline.config, dict) else {}
+    )
 
     # 1. try run.config features list
     if isinstance(cfg.get("features"), list):
@@ -567,23 +617,63 @@ async def get_explainability(
     # 3. try config keys (exclude meta keys)
     else:
         keys = list(cfg.keys()) if cfg else list(pipeline_cfg.keys())
-        exclude = {"steps", "search_space", "direction", "metric_name", "metric", "model_type", "algorithm", "threshold", "target", "n_trials", "override"}
+        exclude = {
+            "steps",
+            "search_space",
+            "direction",
+            "metric_name",
+            "metric",
+            "model_type",
+            "algorithm",
+            "threshold",
+            "target",
+            "n_trials",
+            "override",
+        }
         features = [k for k in keys if k not in exclude][:8]
 
     if not features:
         # 4. domain-specific fallback based on pipeline name
         name = (run.pipeline.name if run.pipeline else "").lower()
         if "churn" in name:
-            features = ["tenure", "monthly_charges", "contract_type", "tech_support", "payment_method", "internet_service", "total_charges", "senior_citizen"]
+            features = [
+                "tenure",
+                "monthly_charges",
+                "contract_type",
+                "tech_support",
+                "payment_method",
+                "internet_service",
+                "total_charges",
+                "senior_citizen",
+            ]
         elif "fraud" in name:
-            features = ["transaction_amount", "merchant_risk", "time_since_last", "device_trust", "geo_distance", "card_age", "velocity_1h", "email_domain_age"]
+            features = [
+                "transaction_amount",
+                "merchant_risk",
+                "time_since_last",
+                "device_trust",
+                "geo_distance",
+                "card_age",
+                "velocity_1h",
+                "email_domain_age",
+            ]
         elif "recommend" in name:
-            features = ["user_id", "item_id", "user_rating_count", "item_popularity", "genre_match", "release_year", "director_overlap", "actor_overlap"]
+            features = [
+                "user_id",
+                "item_id",
+                "user_rating_count",
+                "item_popularity",
+                "genre_match",
+                "release_year",
+                "director_overlap",
+                "actor_overlap",
+            ]
         else:
             features = ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"]
 
     # ── Seed RNG from run_id for reproducibility ─────────────────────
     import random
+
     rng = random.Random(run_id)
 
     # ── Base value from actual metrics ─────────────────────────────
@@ -595,34 +685,48 @@ async def get_explainability(
     # ── SHAP values ──────────────────────────────────────────────────
     # Jittered around base_value, impact scaled by metric magnitude
     shap_values = []
-    for i, f in enumerate(features):
+    for f in features:
         val = base_value + rng.gauss(0, 0.05)
         impact = (rng.random() - 0.5) * 2 * base_value
         shap_values.append(
-            ShapValuePoint(feature=f, value=round(val, 4), impact=round(impact, 4), base_value=round(base_value, 4))
+            ShapValuePoint(
+                feature=f,
+                value=round(val, 4),
+                impact=round(impact, 4),
+                base_value=round(base_value, 4),
+            )
         )
     # Sort by |impact| descending
     shap_values.sort(key=lambda s: abs(s.impact), reverse=True)
 
     # ── LIME weights ─────────────────────────────────────────────────
     lime_weights = []
-    for i, f in enumerate(features):
+    for f in features:
         w = rng.gauss(0, base_value * 0.3)
         lime_weights.append(LimeExplanationPoint(feature=f, weight=round(w, 4)))
-    lime_weights.sort(key=lambda l: abs(l.weight), reverse=True)
+    lime_weights.sort(key=lambda lw: abs(lw.weight), reverse=True)
 
     # ── Permutation importance ───────────────────────────────────────
     # Higher importance for features that sound more predictive
-    predictive = {"tenure", "monthly_charges", "transaction_amount", "merchant_risk", "user_rating_count", "feature_1"}
+    predictive = {
+        "tenure",
+        "monthly_charges",
+        "transaction_amount",
+        "merchant_risk",
+        "user_rating_count",
+        "feature_1",
+    }
     perm_importance = []
-    for i, f in enumerate(features):
+    for f in features:
         base_imp = 0.15 + rng.random() * 0.25
         if f.lower() in predictive:
             base_imp += 0.15
         importance = base_value * base_imp
         std = importance * 0.1 + rng.random() * 0.02
         perm_importance.append(
-            PermutationImportancePoint(feature=f, importance=round(importance, 4), std=round(std, 4))
+            PermutationImportancePoint(
+                feature=f, importance=round(importance, 4), std=round(std, 4)
+            )
         )
     perm_importance.sort(key=lambda p: p.importance, reverse=True)
 
@@ -638,6 +742,7 @@ async def get_explainability(
 # GET /charts/automl-trials
 # ---------------------------------------------------------------------------
 
+
 @router.get("/automl-trials", response_model=AutomlTrialsResponse)
 async def get_automl_trials(
     experiment_id: str = Query(...),
@@ -649,9 +754,7 @@ async def get_automl_trials(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
 
     run_result = await db.execute(
-        select(Run)
-        .where(Run.experiment_id == experiment_id)
-        .order_by(Run.run_number)
+        select(Run).where(Run.experiment_id == experiment_id).order_by(Run.run_number)
     )
     runs = run_result.scalars().all()
 
@@ -661,7 +764,11 @@ async def get_automl_trials(
         trials.append(
             TrialPoint(
                 number=idx + 1,
-                state="COMPLETE" if run.status == RunStatus.SUCCESS else "FAIL" if run.status == RunStatus.FAILED else "RUNNING",
+                state="COMPLETE"
+                if run.status == RunStatus.SUCCESS
+                else "FAIL"
+                if run.status == RunStatus.FAILED
+                else "RUNNING",
                 value=metrics.get("accuracy") or metrics.get("score") or 0.8 - idx * 0.02,
                 params=run.config or {},
                 duration_seconds=run.duration_seconds,
@@ -677,6 +784,7 @@ async def get_automl_trials(
 # GET /charts/automl-visualizations
 # ---------------------------------------------------------------------------
 
+
 @router.get("/automl-visualizations", response_model=AutomlVisualizationsResponse)
 async def get_automl_visualizations(
     experiment_id: str = Query(...),
@@ -688,21 +796,18 @@ async def get_automl_visualizations(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
 
     run_result = await db.execute(
-        select(Run)
-        .where(Run.experiment_id == experiment_id)
-        .order_by(Run.run_number)
+        select(Run).where(Run.experiment_id == experiment_id).order_by(Run.run_number)
     )
     runs = run_result.scalars().all()
 
     # Param importance from most common config keys
     param_keys: Counter = Counter()
     for run in runs:
-        for k in (run.config or {}).keys():
+        for k in run.config or {}:
             param_keys[k] += 1
     top_params = [k for k, _ in param_keys.most_common(6)]
     param_importance = [
-        ParamImportancePoint(param=p, importance=0.9 - i * 0.12)
-        for i, p in enumerate(top_params)
+        ParamImportancePoint(param=p, importance=0.9 - i * 0.12) for i, p in enumerate(top_params)
     ] or [
         ParamImportancePoint(param="lr", importance=0.45),
         ParamImportancePoint(param="batch_size", importance=0.30),
@@ -758,6 +863,7 @@ async def get_automl_visualizations(
 # GET /charts/feature-transforms
 # ---------------------------------------------------------------------------
 
+
 @router.get("/feature-transforms", response_model=FeatureTransformsResponse)
 async def get_feature_transforms(
     run_id: str = Query(...),
@@ -769,10 +875,30 @@ async def get_feature_transforms(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
 
     pipeline = [
-        {"name": "Impute Missing", "type": "SimpleImputer", "params": {"strategy": "median"}, "enabled": True},
-        {"name": "Scale Numeric", "type": "StandardScaler", "params": {"with_mean": True}, "enabled": True},
-        {"name": "Encode Categorical", "type": "OneHotEncoder", "params": {"drop": "first"}, "enabled": True},
-        {"name": "Select K Best", "type": "SelectKBest", "params": {"k": 10, "score_func": "f_classif"}, "enabled": False},
+        {
+            "name": "Impute Missing",
+            "type": "SimpleImputer",
+            "params": {"strategy": "median"},
+            "enabled": True,
+        },
+        {
+            "name": "Scale Numeric",
+            "type": "StandardScaler",
+            "params": {"with_mean": True},
+            "enabled": True,
+        },
+        {
+            "name": "Encode Categorical",
+            "type": "OneHotEncoder",
+            "params": {"drop": "first"},
+            "enabled": True,
+        },
+        {
+            "name": "Select K Best",
+            "type": "SelectKBest",
+            "params": {"k": 10, "score_func": "f_classif"},
+            "enabled": False,
+        },
     ]
 
     features = ["age", "income", "tenure", "usage_freq", "support_tickets"]
@@ -780,11 +906,29 @@ async def get_feature_transforms(
         features = list(run.config.keys())[:5] or features
 
     before = [
-        {"name": f, "dtype": "float64" if i < 3 else "int64", "nulls": i * 3, "mean": 35.0 + i * 5, "std": 10.0 - i, "min": 0.0, "max": 100.0, "unique": 50 - i * 5}
+        {
+            "name": f,
+            "dtype": "float64" if i < 3 else "int64",
+            "nulls": i * 3,
+            "mean": 35.0 + i * 5,
+            "std": 10.0 - i,
+            "min": 0.0,
+            "max": 100.0,
+            "unique": 50 - i * 5,
+        }
         for i, f in enumerate(features)
     ]
     after = [
-        {"name": f, "dtype": "float64", "nulls": 0, "mean": 0.0, "std": 1.0, "min": -2.5, "max": 2.5, "unique": 50 - i * 5}
+        {
+            "name": f,
+            "dtype": "float64",
+            "nulls": 0,
+            "mean": 0.0,
+            "std": 1.0,
+            "min": -2.5,
+            "max": 2.5,
+            "unique": 50 - i * 5,
+        }
         for i, f in enumerate(features)
     ]
 

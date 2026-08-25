@@ -1,33 +1,12 @@
-"""AutoPipe Experiments - Comprehensive ML/DL experiment management.
+"""AutoPipe Experiments Module.
 
-This module provides world-class experiment tracking, versioning, and management
-for machine learning and deep learning workflows.
+Currently provides comparison report generation over tracked runs.
+Full experiment management (versioning, result analysis) is planned;
+see ROADMAP.md.
 """
 
-from autopipe.experiments.evaluation import EvaluationFramework
-from autopipe.experiments.models import (
-    Artifact,
-    Experiment,
-    ExperimentConfig,
-    Metric,
-    Parameter,
-    Run,
-)
-from autopipe.experiments.reporting import ReportGenerator
-from autopipe.experiments.results import ResultAnalyzer
-from autopipe.experiments.tracker import ExperimentTracker
-from autopipe.experiments.versioning import ExperimentVersion
+from .reporting import ReportGenerator
 
 __all__ = [
-    "ExperimentTracker",
-    "Experiment",
-    "ExperimentConfig",
-    "Run",
-    "Metric",
-    "Artifact",
-    "Parameter",
-    "ExperimentVersion",
-    "EvaluationFramework",
-    "ResultAnalyzer",
     "ReportGenerator",
 ]

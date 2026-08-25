@@ -7,15 +7,14 @@ Real SHAP/LIME integration requires the `shap` and `lime` packages.
 import random
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, status
-
 from app.schemas import (
     ExplainabilityRequest,
+    LimeExplanationPoint,
+    LimeResponse,
     ShapResponse,
     ShapValuePoint,
-    LimeResponse,
-    LimeExplanationPoint,
 )
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter()
 
@@ -24,7 +23,7 @@ def _extract_features(data: List[Dict[str, Any]]) -> List[str]:
     """Extract feature names from data payload."""
     if not data:
         return []
-    return [k for k in data[0].keys() if isinstance(data[0][k], (int, float))]
+    return [k for k in data[0] if isinstance(data[0][k], (int, float))]
 
 
 @router.post("/shap", response_model=ShapResponse)

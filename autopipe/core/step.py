@@ -1,9 +1,11 @@
 """Base Step class for pipeline steps."""
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
 
 class Step(ABC):
     """Abstract base class for a pipeline step."""
@@ -20,14 +22,14 @@ class Step(ABC):
     @abstractmethod
     def run(self, **kwargs) -> Any:
         """Execute the step logic.
-        
+
         Returns:
             The output of this step, which will be passed to downstream steps.
         """
 
     def visualize(self, **kwargs):
         """Generate visualizations for this step.
-        
+
         Subclasses can override to produce charts, graphs, etc.
         """
 

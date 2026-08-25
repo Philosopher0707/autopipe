@@ -1,7 +1,8 @@
 """Tests for pipeline configuration models."""
+
 import pytest
 
-from autopipe.schemas.models import StepConfig, PipelineConfig, AutoPipeGlobalConfig
+from autopipe.schemas.models import AutoPipeGlobalConfig, PipelineConfig, StepConfig
 
 
 class TestStepConfig:

@@ -1,4 +1,5 @@
 """Caching module for AutoPipe."""
+
 from .manager import (
     CacheBackend,
     CacheManager,
@@ -10,11 +11,11 @@ from .manager import (
 )
 
 __all__ = [
-    "CacheManager",
     "CacheBackend",
-    "MemoryCache",
+    "CacheManager",
     "DiskCache",
-    "init_cache",
-    "get_cache",
+    "MemoryCache",
     "cached",
+    "get_cache",
+    "init_cache",
 ]

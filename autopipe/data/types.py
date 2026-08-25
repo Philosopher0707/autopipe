@@ -4,8 +4,9 @@ Type aliases and custom types for data handling in ML pipelines.
 """
 
 from typing import TypeVar, Union
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 # Type variables for generic data types
 T = TypeVar("T")
@@ -20,10 +21,10 @@ DataLike = Union[pd.DataFrame, np.ndarray]
 TargetLike = Union[pd.Series, np.ndarray]
 
 __all__ = [
-    "DataFrame",
-    "Series",
     "Array",
+    "DataFrame",
     "DataLike",
-    "TargetLike",
+    "Series",
     "T",
+    "TargetLike",
 ]

@@ -1,4 +1,5 @@
 """Credentials module for AutoPipe."""
+
 from .manager import (
     CredentialManager,
     Credentials,
@@ -10,7 +11,7 @@ from .manager import (
 __all__ = [
     "CredentialManager",
     "Credentials",
+    "clear_credential_cache",
     "get_credential_manager",
     "get_credentials",
-    "clear_credential_cache",
 ]

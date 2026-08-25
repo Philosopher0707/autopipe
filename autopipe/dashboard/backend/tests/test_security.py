@@ -2,29 +2,24 @@
 
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException, Request as FastAPIRequest, UploadFile
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from starlette.datastructures import Headers
-
 from app.core.auth import get_password_hash, verify_password
-from app.core.config import settings
 from app.core.file_security import (
+    get_secure_upload_path,
     sanitize_filename,
     validate_file_extension,
     validate_file_size,
-    get_secure_upload_path,
-    ALL_ALLOWED_EXTENSIONS,
 )
-from app.core.security import SimpleRateLimiter, check_login_rate_limit, check_register_rate_limit
-from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.security import SimpleRateLimiter
 from app.db.models import Base, User
 from app.db.session import get_db
 from app.main import create_application
+from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
 @pytest_asyncio.fixture
@@ -64,6 +59,7 @@ async def client(db_session: AsyncSession) -> AsyncClient:
 
 # ==================== Password Hashing Tests ====================
 
+
 class TestPasswordHashing:
     """Test password hashing functionality."""
 
@@ -71,7 +67,7 @@ class TestPasswordHashing:
         """Test that new passwords are hashed with bcrypt."""
         password = "testpass123"
         hashed = get_password_hash(password)
-        
+
         # bcrypt hashes start with $2b$
         assert hashed.startswith("$2b$")
         assert len(hashed) > 50
@@ -80,7 +76,7 @@ class TestPasswordHashing:
         """Test verifying correct password against bcrypt hash."""
         password = "testpass123"
         hashed = get_password_hash(password)
-        
+
         assert verify_password(password, hashed) is True
 
     def test_bcrypt_password_verification_failure(self):
@@ -88,26 +84,25 @@ class TestPasswordHashing:
         password = "testpass123"
         wrong_password = "wrongpassword"
         hashed = get_password_hash(password)
-        
+
         assert verify_password(wrong_password, hashed) is False
 
     def test_legacy_sha256_verification(self):
         """Test backward compatibility with legacy SHA256 hashes."""
         password = "testpass123"
-        # Legacy SHA256 hash with hardcoded salt
-        legacy_hash = "9e2c9f2f5e5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f"
         # Actually compute what the old hash would have been
         import hashlib
+
         legacy_salt = "autopipe-dashboard-salt-2024"
         expected_hash = hashlib.sha256(f"{password}{legacy_salt}".encode()).hexdigest()
-        
+
         assert verify_password(password, expected_hash) is True
 
     def test_password_truncation_for_bcrypt(self):
         """Test that passwords longer than 72 bytes are truncated."""
         long_password = "a" * 100
         hashed = get_password_hash(long_password)
-        
+
         # Should still work even though password is truncated
         assert verify_password(long_password, hashed) is True
         # The first 72 chars should match
@@ -119,7 +114,7 @@ class TestPasswordHashing:
         """Test that newly created hashes are bcrypt, not legacy."""
         password = "testpass123"
         hashed = get_password_hash(password)
-        
+
         # Should be bcrypt format, not hex
         assert hashed.startswith("$")
         # Should not be a SHA256 hex string (64 chars)
@@ -128,84 +123,85 @@ class TestPasswordHashing:
 
 # ==================== Rate Limiting Tests ====================
 
+
 class TestRateLimiting:
     """Test rate limiting functionality."""
 
     def test_rate_limiter_increments_count(self):
         """Test that rate limiter tracks request counts correctly."""
         limiter = SimpleRateLimiter()
-        
+
         # Create a mock request
         mock_request = MagicMock()
         mock_request.headers = {}
         mock_request.client.host = "192.168.1.1"
-        
+
         # First 5 requests should not raise
         for _ in range(5):
             limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="test")
-        
+
         # 6th request should raise
         with pytest.raises(HTTPException) as exc:
             limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="test")
-        
+
         assert exc.value.status_code == 429
 
     def test_rate_limiter_respects_identifiers(self):
         """Test that different endpoints have separate counters."""
         limiter = SimpleRateLimiter()
-        
+
         mock_request = MagicMock()
         mock_request.headers = {}
         mock_request.client.host = "192.168.1.1"
-        
+
         # Exhaust login limit
         for _ in range(5):
             limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="login")
-        
+
         # Different endpoint should still work
         limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="register")
 
     def test_rate_limiter_respects_different_ips(self):
         """Test that different IPs have separate counters."""
         limiter = SimpleRateLimiter()
-        
+
         mock_request1 = MagicMock()
         mock_request1.headers = {}
         mock_request1.client.host = "192.168.1.1"
-        
+
         mock_request2 = MagicMock()
         mock_request2.headers = {}
         mock_request2.client.host = "192.168.1.2"
-        
+
         # Exhaust limit for IP 1
         for _ in range(5):
             limiter.check_rate_limit(mock_request1, times=5, seconds=60, identifier="test")
-        
+
         # IP 2 should still work
         limiter.check_rate_limit(mock_request2, times=5, seconds=60, identifier="test")
 
     def test_rate_limiter_uses_forwarded_for_header(self):
         """Test that X-Forwarded-For header is respected."""
         limiter = SimpleRateLimiter()
-        
+
         mock_request = MagicMock()
         mock_request.headers = {"X-Forwarded-For": "10.0.0.1, 10.0.0.2"}
         mock_request.client.host = "192.168.1.1"  # Should be ignored
-        
+
         # Should use 10.0.0.1 (first in chain)
         limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="test")
-        
+
         # Different actual IP but same forwarded IP should share limit
         mock_request2 = MagicMock()
         mock_request2.headers = {"X-Forwarded-For": "10.0.0.1"}
         mock_request2.client.host = "192.168.1.2"
-        
+
         limiter.check_rate_limit(mock_request2, times=5, seconds=60, identifier="test")
 
     def test_rate_limiter_none_request_is_exempt(self):
         """Test that None requests (test mode) bypass rate limiting."""
         limiter = SimpleRateLimiter()
-        
+
         # Should not raise even for unlimited requests
         for _ in range(100):
             limiter.check_rate_limit(None, times=1, seconds=60, identifier="test")
@@ -213,23 +209,24 @@ class TestRateLimiting:
     def test_rate_limiter_has_retry_after_header(self):
         """Test that rate limit response includes Retry-After header."""
         limiter = SimpleRateLimiter()
-        
+
         mock_request = MagicMock()
         mock_request.headers = {}
         mock_request.client.host = "192.168.1.1"
-        
+
         # Exhaust limit
         for _ in range(5):
             limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="test")
-        
+
         with pytest.raises(HTTPException) as exc:
             limiter.check_rate_limit(mock_request, times=5, seconds=60, identifier="test")
-        
+
         assert "Retry-After" in exc.value.headers
         assert int(exc.value.headers["Retry-After"]) > 0
 
 
 # ==================== File Security Tests ====================
+
 
 class TestFileSecurity:
     """Test file upload security functionality."""
@@ -237,7 +234,9 @@ class TestFileSecurity:
     def test_sanitize_filename_removes_path_traversal(self):
         """Test that directory traversal is sanitized."""
         assert sanitize_filename("../../../etc/passwd") == "passwd"
-        assert sanitize_filename("..\\etc\\passwd") == "_etc_passwd"  # Backslashes become underscores
+        assert (
+            sanitize_filename("..\\etc\\passwd") == "_etc_passwd"
+        )  # Backslashes become underscores
         assert sanitize_filename("/etc/passwd") == "passwd"
 
     def test_sanitize_filename_removes_null_bytes(self):
@@ -261,14 +260,14 @@ class TestFileSecurity:
     def test_allowed_extensions_pass(self):
         """Test that allowed extensions are accepted."""
         for ext in ["csv", "json", "png", "pdf"]:
-            filename, extension = validate_file_extension(f"file.{ext}")
+            _filename, extension = validate_file_extension(f"file.{ext}")
             assert extension == ext
 
     def test_file_size_validation(self):
         """Test file size limit enforcement."""
         # Should not raise for valid size
         validate_file_size(100, max_size=1024)
-        
+
         # Should raise for oversized
         with pytest.raises(HTTPException) as exc:
             validate_file_size(2000, max_size=1024)
@@ -277,13 +276,12 @@ class TestFileSecurity:
     def test_secure_upload_path_prevents_traversal(self):
         """Test that upload paths validate directory containment."""
         import tempfile
-        import os
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Valid path
             path = get_secure_upload_path("valid.txt", tmpdir)
             assert str(path.resolve()).startswith(str(Path(tmpdir).resolve()))
-            
+
             # Path traversal attempt should raise
             with pytest.raises(HTTPException) as exc:
                 get_secure_upload_path("../../../etc/passwd", tmpdir)
@@ -291,6 +289,7 @@ class TestFileSecurity:
 
 
 # ==================== Security Headers Tests ====================
+
 
 class TestSecurityHeaders:
     """Test security headers middleware."""
@@ -306,9 +305,9 @@ class TestSecurityHeaders:
     async def test_security_headers_present(self, test_client: AsyncClient):
         """Test that security headers are added to responses."""
         response = await test_client.get("/")
-        
+
         # May be 200, 307 (redirect), or 404
-        assert response.status_code in [200, 307, 404]  
+        assert response.status_code in [200, 307, 404]
         if response.status_code == 200:
             assert response.headers.get("X-Content-Type-Options") == "nosniff"
             assert response.headers.get("X-Frame-Options") == "DENY"
@@ -318,7 +317,7 @@ class TestSecurityHeaders:
     async def test_csp_header_present(self, test_client: AsyncClient):
         """Test that CSP header is added."""
         response = await test_client.get("/")
-        
+
         csp = response.headers.get("Content-Security-Policy")
         assert csp is not None
         assert "default-src 'self'" in csp
@@ -327,7 +326,7 @@ class TestSecurityHeaders:
     async def test_permissions_policy_present(self, test_client: AsyncClient):
         """Test that Permissions-Policy header is added."""
         response = await test_client.get("/")
-        
+
         pp = response.headers.get("Permissions-Policy")
         assert pp is not None
         assert "camera=()" in pp
@@ -335,17 +334,18 @@ class TestSecurityHeaders:
 
 # ==================== Integration Tests ====================
 
+
 @pytest.mark.asyncio
 async def test_full_security_chain(client: AsyncClient, db_session: AsyncSession):
     """Integration test: verify multiple security features work together."""
-    
+
     # Create a user with bcrypt password
-    from app.db.models import User, UserRole
     from app.core.auth import get_password_hash
-    
+    from app.db.models import UserRole
+
     bcrypt_hash = get_password_hash("integration123")
     assert bcrypt_hash.startswith("$2b$")
-    
+
     user = User(
         id=str(uuid.uuid4()),
         username="testsecurity",
@@ -359,6 +359,7 @@ async def test_full_security_chain(client: AsyncClient, db_session: AsyncSession
 
 
 # ==================== CORS Security Tests ====================
+
 
 class TestCORSSecurity:
     """Test CORS configuration."""
@@ -380,6 +381,7 @@ class TestCORSSecurity:
 
 # ==================== Request Body Size Tests ====================
 
+
 class TestRequestBodySize:
     """Test request body size limits."""
 
@@ -395,8 +397,10 @@ class TestRequestBodySize:
         """Test that bodies larger than 10MB are rejected."""
         # Create a 15MB payload
         large_payload = "x" * (15 * 1024 * 1024)
-        
+
         # This should result in some kind of error
-        response = await test_client_size.post("/api/v1/auth/login/json", json={"test": large_payload[:1000]})
+        response = await test_client_size.post(
+            "/api/v1/auth/login/json", json={"test": large_payload[:1000]}
+        )
         # The exact status depends on FastAPI version, but it should not succeed
         assert response.status_code in [200, 413, 422, 500]

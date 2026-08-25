@@ -3,19 +3,21 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
-
+from pydantic import BaseModel, ConfigDict, Field
 
 # ==================== Shared ====================
 
+
 class PaginationParams(BaseModel):
     """Pagination parameters."""
+
     page: int = Field(1, ge=1)
     page_size: int = Field(20, ge=1, le=100)
 
 
 class PaginatedResponse(BaseModel):
     """Paginated response wrapper."""
+
     total: int
     page: int
     page_size: int
@@ -24,6 +26,7 @@ class PaginatedResponse(BaseModel):
 
 class SidebarCounts(BaseModel):
     """Sidebar badge counts — clean direct counts, no complex joins."""
+
     pipelines_total: int = 0
     pipelines_active: int = 0  # pipelines with any non-terminal run (running/pending)
     experiments_total: int = 0  # total experiments (shown when active is 0)
@@ -36,8 +39,10 @@ class SidebarCounts(BaseModel):
 
 # ==================== Pipeline Schemas ====================
 
+
 class PipelineBase(BaseModel):
     """Base pipeline schema."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -46,11 +51,13 @@ class PipelineBase(BaseModel):
 
 class PipelineCreate(PipelineBase):
     """Pipeline creation schema."""
+
     project_id: Optional[str] = None
 
 
 class PipelineUpdate(BaseModel):
     """Pipeline update schema."""
+
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
@@ -58,6 +65,7 @@ class PipelineUpdate(BaseModel):
 
 class PipelineInDB(PipelineBase):
     """Pipeline database schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -72,18 +80,21 @@ class PipelineInDB(PipelineBase):
 
 class PipelineResponse(PipelineInDB):
     """Pipeline API response."""
-    pass
+
 
 
 class PipelineList(PaginatedResponse):
     """Pipeline list response."""
+
     items: List[PipelineResponse]
 
 
 # ==================== Run Schemas ====================
 
+
 class RunBase(BaseModel):
     """Base run schema."""
+
     pipeline_id: str
     experiment_id: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -91,11 +102,12 @@ class RunBase(BaseModel):
 
 class RunCreate(RunBase):
     """Run creation schema."""
-    pass
+
 
 
 class RunUpdate(BaseModel):
     """Run update schema."""
+
     status: Optional[str] = Field(None, pattern="^(pending|running|success|failed|cancelled)$")
     config: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None
@@ -104,6 +116,7 @@ class RunUpdate(BaseModel):
 
 class RunInDB(RunBase):
     """Run database schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -123,18 +136,21 @@ class RunInDB(RunBase):
 
 class RunResponse(RunInDB):
     """Run API response."""
-    pass
+
 
 
 class RunList(PaginatedResponse):
     """Run list response."""
+
     items: List[RunResponse]
 
 
 # ==================== Training Config Schemas ====================
 
+
 class TrainingConfigResponse(BaseModel):
     """Response for GET /runs/{id}/config."""
+
     run_id: str
     architecture: Optional[str] = None
     optimizer: Optional[str] = None
@@ -150,6 +166,7 @@ class TrainingConfigResponse(BaseModel):
 
 class CheckpointBase(BaseModel):
     """Base checkpoint schema."""
+
     epoch: int
     val_loss: float
     val_accuracy: float
@@ -159,6 +176,7 @@ class CheckpointBase(BaseModel):
 
 class CheckpointResponse(CheckpointBase):
     """Checkpoint API response."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -170,18 +188,21 @@ class CheckpointResponse(CheckpointBase):
 
 class CheckpointsResponse(BaseModel):
     """Response for GET /runs/{id}/checkpoints."""
+
     run_id: str
     checkpoints: List[CheckpointResponse]
 
 
 class CheckpointPromoteRequest(BaseModel):
     """Request to mark a checkpoint as restored or promoted."""
+
     restored: Optional[bool] = None
     promoted: Optional[bool] = None
 
 
 class RunFilters(BaseModel):
     """Run filter parameters."""
+
     status: Optional[str] = None
     pipeline_id: Optional[str] = None
     experiment_id: Optional[str] = None
@@ -192,18 +213,24 @@ class RunFilters(BaseModel):
 
 # ==================== Run Comparison Schemas ====================
 
+
 class RunCompareRequest(BaseModel):
     """Request to compare multiple runs."""
-    run_ids: List[str] = Field(..., min_length=2, max_length=10, description="List of run IDs to compare")
+
+    run_ids: List[str] = Field(
+        ..., min_length=2, max_length=10, description="List of run IDs to compare"
+    )
 
 
 class ParameterComparison(BaseModel):
     """Parameter comparison between runs."""
+
     value: Optional[Any] = None
 
 
 class ParameterComparisonRow(BaseModel):
     """Row in parameter comparison table."""
+
     name: str
     values: Dict[str, Optional[Any]]  # run_id -> value
     is_different: bool
@@ -211,12 +238,14 @@ class ParameterComparisonRow(BaseModel):
 
 class MetricComparison(BaseModel):
     """Metric comparison between runs."""
+
     value: Optional[float] = None
     delta_from_baseline: Optional[float] = None  # percentage difference
 
 
 class MetricComparisonRow(BaseModel):
     """Row in metric comparison table."""
+
     name: str
     values: Dict[str, MetricComparison]
     best_run_id: Optional[str] = None
@@ -225,6 +254,7 @@ class MetricComparisonRow(BaseModel):
 
 class RunSummaryForComparison(BaseModel):
     """Summary of a run for comparison view."""
+
     id: str
     run_number: int
     status: str
@@ -241,6 +271,7 @@ class RunSummaryForComparison(BaseModel):
 
 class RunDiffSummary(BaseModel):
     """Summary of differences between runs."""
+
     total_params: int
     different_params: int
     total_metrics: int
@@ -249,6 +280,7 @@ class RunDiffSummary(BaseModel):
 
 class RunCompareResponse(BaseModel):
     """Response for run comparison."""
+
     runs: List[RunSummaryForComparison]
     parameters: List[ParameterComparisonRow]
     metrics: List[MetricComparisonRow]
@@ -257,8 +289,10 @@ class RunCompareResponse(BaseModel):
 
 # ==================== Step Schemas ====================
 
+
 class StepBase(BaseModel):
     """Base step schema."""
+
     run_id: str
     name: str = Field(..., min_length=1, max_length=255)
     step_type: str = Field(..., max_length=100)
@@ -268,11 +302,12 @@ class StepBase(BaseModel):
 
 class StepCreate(StepBase):
     """Step creation schema."""
-    pass
+
 
 
 class StepUpdate(BaseModel):
     """Step update schema."""
+
     status: Optional[str] = Field(None, pattern="^(pending|running|success|failed|skipped)$")
     metrics: Optional[Dict[str, Any]] = None
     logs: Optional[str] = None
@@ -281,8 +316,9 @@ class StepUpdate(BaseModel):
 
 class StepInDB(StepBase):
     """Step database schema."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     status: str
     started_at: Optional[datetime] = None
@@ -296,18 +332,21 @@ class StepInDB(StepBase):
 
 class StepResponse(StepInDB):
     """Step API response."""
-    pass
+
 
 
 class StepList(BaseModel):
     """Step list response."""
+
     items: List[StepResponse]
 
 
 # ==================== Experiment Schemas ====================
 
+
 class ExperimentBase(BaseModel):
     """Base experiment schema."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
@@ -316,11 +355,12 @@ class ExperimentBase(BaseModel):
 
 class ExperimentCreate(ExperimentBase):
     """Experiment creation schema."""
-    pass
+
 
 
 class ExperimentUpdate(BaseModel):
     """Experiment update schema."""
+
     description: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
@@ -328,16 +368,20 @@ class ExperimentUpdate(BaseModel):
 
 class TrialLaunchRequest(BaseModel):
     """Request to launch trial runs for an experiment."""
+
     pipeline_id: str
     strategy: str = Field(default="random", pattern="^(random|grid)$")
     n_trials: int = Field(default=5, ge=1, le=100)
-    simulate: bool = Field(default=True, description="Auto-advance runs through lifecycle with metrics")
+    simulate: bool = Field(
+        default=True, description="Auto-advance runs through lifecycle with metrics"
+    )
 
 
 class ExperimentInDB(ExperimentBase):
     """Experiment database schema."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     created_at: datetime
     updated_at: datetime
@@ -351,16 +395,18 @@ class ExperimentInDB(ExperimentBase):
 
 class ExperimentResponse(ExperimentInDB):
     """Experiment API response."""
-    pass
+
 
 
 class ExperimentList(PaginatedResponse):
     """Experiment list response."""
+
     items: List[ExperimentResponse]
 
 
 class TrialLaunchResponse(BaseModel):
     """Response for launching trial runs."""
+
     experiment_id: str
     runs: List[RunResponse]
     strategy: str
@@ -369,8 +415,10 @@ class TrialLaunchResponse(BaseModel):
 
 # ==================== Model Registry Schemas ====================
 
+
 class ModelBase(BaseModel):
     """Base model registry schema."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     framework: str = Field(..., max_length=50)  # sklearn, pytorch, tensorflow, etc.
@@ -381,19 +429,21 @@ class ModelBase(BaseModel):
 
 class ModelCreate(ModelBase):
     """Model creation schema."""
-    pass
+
 
 
 class ModelUpdate(BaseModel):
     """Model update schema."""
+
     description: Optional[str] = None
     tags: Optional[List[str]] = None
 
 
 class ModelInDB(ModelBase):
     """Model database schema."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     current_stage: str
     created_at: datetime
@@ -403,8 +453,10 @@ class ModelInDB(ModelBase):
 
 # ==================== Model Version Schemas ====================
 
+
 class ModelVersionCreate(BaseModel):
     """Model version creation schema."""
+
     description: Optional[str] = None
     metrics: Optional[Dict[str, Any]] = None
     params: Optional[Dict[str, Any]] = None
@@ -415,6 +467,7 @@ class ModelVersionCreate(BaseModel):
 
 class ModelVersionUpdate(BaseModel):
     """Model version update schema."""
+
     stage: Optional[str] = Field(None, pattern="^(pending|staging|production|archived)$")
     description: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -422,6 +475,7 @@ class ModelVersionUpdate(BaseModel):
 
 class ModelVersionInDB(BaseModel):
     """Model version database schema."""
+
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: str
@@ -441,27 +495,31 @@ class ModelVersionInDB(BaseModel):
 
 class ModelVersionResponse(ModelVersionInDB):
     """Model version API response."""
-    pass
+
 
 
 class ModelVersionList(BaseModel):
     """Model version list response."""
+
     items: List[ModelVersionResponse]
     total: int
 
 
 class ModelResponse(ModelInDB):
     """Model API response."""
+
     versions: List[ModelVersionResponse] = Field(default_factory=list)
 
 
 class ModelList(PaginatedResponse):
     """Model list response."""
+
     items: List[ModelResponse]
 
 
 class ModelComparisonRequest(BaseModel):
     """Model comparison request."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
@@ -471,6 +529,7 @@ class ModelComparisonRequest(BaseModel):
 
 class ModelComparisonResponse(BaseModel):
     """Model comparison response."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_name: str
@@ -483,14 +542,17 @@ class ModelComparisonResponse(BaseModel):
 
 class ModelPromoteRequest(BaseModel):
     """Model promotion request."""
+
     stage: str = Field(..., pattern="^(pending|staging|production|archived)$")
     description: Optional[str] = None
 
 
 # ==================== Drift Detection Schemas ====================
 
+
 class DriftReportBase(BaseModel):
     """Base drift report schema."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: Optional[str] = None
@@ -504,13 +566,14 @@ class DriftReportBase(BaseModel):
 
 class DriftReportCreate(DriftReportBase):
     """Drift report creation schema."""
-    pass
+
 
 
 class DriftReportInDB(DriftReportBase):
     """Drift report database schema."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     created_at: datetime
     alert_generated: bool
@@ -518,16 +581,19 @@ class DriftReportInDB(DriftReportBase):
 
 class DriftReportResponse(DriftReportInDB):
     """Drift report API response."""
+
     features_drifted: Optional[int] = None
 
 
 class DriftReportList(PaginatedResponse):
     """Drift report list response."""
+
     items: List[DriftReportResponse]
 
 
 class FeatureDrift(BaseModel):
     """Feature drift details."""
+
     feature_name: str
     drift_score: float
     p_value: Optional[float] = None
@@ -538,6 +604,7 @@ class FeatureDrift(BaseModel):
 
 class DriftDetectRequest(BaseModel):
     """Drift detection request."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: Optional[str] = None
@@ -549,6 +616,7 @@ class DriftDetectRequest(BaseModel):
 
 class DriftDetectResponse(BaseModel):
     """Drift detection response."""
+
     drift_detected: bool
     overall_drift_score: float
     features_analyzed: int
@@ -559,8 +627,9 @@ class DriftDetectResponse(BaseModel):
 
 class DriftAlertResponse(BaseModel):
     """Drift alert response."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     feature_name: str
     severity: str
@@ -574,13 +643,16 @@ class DriftAlertResponse(BaseModel):
 
 class DriftAlertList(PaginatedResponse):
     """Drift alert list response."""
+
     items: List[DriftAlertResponse]
 
 
 # ==================== Dashboard Overview Schemas ====================
 
+
 class PipelineStats(BaseModel):
     """Pipeline-related dashboard statistics."""
+
     total: int = 0
     running: int = 0
     completed_today: int = 0
@@ -591,6 +663,7 @@ class PipelineStats(BaseModel):
 
 class ModelStats(BaseModel):
     """Model-related dashboard statistics."""
+
     total: int = 0
     in_production: int = 0
     in_staging: int = 0
@@ -599,6 +672,7 @@ class ModelStats(BaseModel):
 
 class DriftStats(BaseModel):
     """Drift-related dashboard statistics."""
+
     alerts_today: int = 0
     features_drifted: int = 0
     drift_ratio: float = 0.0
@@ -607,6 +681,7 @@ class DriftStats(BaseModel):
 
 class ExperimentStats(BaseModel):
     """Experiment-related dashboard statistics."""
+
     total: int = 0
     active: int = 0
     completed_today: int = 0
@@ -615,6 +690,7 @@ class ExperimentStats(BaseModel):
 
 class ProjectStats(BaseModel):
     """Project-related dashboard statistics."""
+
     total: int = 0
     active: int = 0
     recent_runs: int = 0
@@ -622,6 +698,7 @@ class ProjectStats(BaseModel):
 
 class DashboardStats(BaseModel):
     """Dashboard statistics overview."""
+
     pipelines: PipelineStats = Field(default_factory=PipelineStats)
     models: ModelStats = Field(default_factory=ModelStats)
     drift: DriftStats = Field(default_factory=DriftStats)
@@ -631,6 +708,7 @@ class DashboardStats(BaseModel):
 
 class ActivityItem(BaseModel):
     """Dashboard activity item."""
+
     action: str  # run_started, run_completed, model_promoted, drift_alert, etc.
     timestamp: datetime
     title: str
@@ -642,11 +720,13 @@ class ActivityItem(BaseModel):
 
 class ActivityFeed(BaseModel):
     """Dashboard activity feed."""
+
     items: List[ActivityItem]
 
 
 class HealthStatus(BaseModel):
     """System health status."""
+
     service: str
     status: str  # healthy, degraded, down
     message: Optional[str] = None
@@ -655,14 +735,17 @@ class HealthStatus(BaseModel):
 
 class SystemHealth(BaseModel):
     """Overall system health."""
+
     status: str
     services: List[HealthStatus]
 
 
 # ==================== WebSocket Schemas ====================
 
+
 class WebSocketMessage(BaseModel):
     """WebSocket message envelope."""
+
     type: str  # event type: run.status, run.log, run.metric, etc.
     data: Dict[str, Any]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -670,6 +753,7 @@ class WebSocketMessage(BaseModel):
 
 class RunLogMessage(BaseModel):
     """Run log WebSocket message."""
+
     run_id: str
     step_id: Optional[str] = None
     level: str  # DEBUG, INFO, WARN, ERROR
@@ -679,6 +763,7 @@ class RunLogMessage(BaseModel):
 
 class RunMetricMessage(BaseModel):
     """Run metric WebSocket message."""
+
     run_id: str
     step_id: Optional[str] = None
     metric_name: str
@@ -689,6 +774,7 @@ class RunMetricMessage(BaseModel):
 
 class RunStatusMessage(BaseModel):
     """Run status change WebSocket message."""
+
     run_id: str
     pipeline_id: str
     pipeline_name: str
@@ -699,8 +785,10 @@ class RunStatusMessage(BaseModel):
 
 # ==================== Artifact Schemas ====================
 
+
 class ArtifactBase(BaseModel):
     """Base artifact schema."""
+
     name: str = Field(..., min_length=1, max_length=255)
     artifact_type: str = Field(..., max_length=50)  # model, plot, metric, data
     file_path: str
@@ -709,14 +797,16 @@ class ArtifactBase(BaseModel):
 
 class ArtifactCreate(ArtifactBase):
     """Artifact creation schema."""
+
     run_id: Optional[str] = None
     step_id: Optional[str] = None
 
 
 class ArtifactInDB(ArtifactBase):
     """Artifact database schema."""
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: str
     run_id: Optional[str] = None
     step_id: Optional[str] = None
@@ -726,18 +816,22 @@ class ArtifactInDB(ArtifactBase):
 
 class ArtifactResponse(ArtifactInDB):
     """Artifact API response."""
+
     download_url: Optional[str] = None
 
 
 class ArtifactList(PaginatedResponse):
     """Artifact list response."""
+
     items: List[ArtifactResponse]
 
 
 # ==================== Chart Data Schemas ====================
 
+
 class ChartMetricPoint(BaseModel):
     """Single data point for a metric-over-time chart."""
+
     run_number: int
     value: float
     completed_at: Optional[str] = None
@@ -745,12 +839,14 @@ class ChartMetricPoint(BaseModel):
 
 class RunMetricsOverTimeResponse(BaseModel):
     """Response for GET /charts/run-metrics-over-time."""
+
     metric: str
     points: List[ChartMetricPoint]
 
 
 class StepDurationPoint(BaseModel):
     """Single step duration entry."""
+
     name: str
     duration_seconds: Optional[float] = None
     status: str
@@ -759,12 +855,14 @@ class StepDurationPoint(BaseModel):
 
 class StepDurationsResponse(BaseModel):
     """Response for GET /charts/step-durations."""
+
     run_id: str
     steps: List[StepDurationPoint]
 
 
 class ExperimentMetricTraceResponse(BaseModel):
     """Response for GET /charts/experiment-metric-trace."""
+
     experiment_id: str
     metrics: List[str]
     points: List[Dict[str, Any]]
@@ -772,6 +870,7 @@ class ExperimentMetricTraceResponse(BaseModel):
 
 class ModelVersionMetricsResponse(BaseModel):
     """Response for GET /charts/model-version-metrics."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
@@ -782,6 +881,7 @@ class ModelVersionMetricsResponse(BaseModel):
 
 class DriftFeatureScorePoint(BaseModel):
     """Single feature drift score entry."""
+
     name: str
     drift_score: float
     threshold: float
@@ -791,6 +891,7 @@ class DriftFeatureScorePoint(BaseModel):
 
 class DriftFeatureScoresResponse(BaseModel):
     """Response for GET /charts/drift-feature-scores."""
+
     report_id: str
     drift_detected: bool
     features: List[DriftFeatureScorePoint]
@@ -798,6 +899,7 @@ class DriftFeatureScoresResponse(BaseModel):
 
 class DriftTrendPoint(BaseModel):
     """Single point in drift trend."""
+
     created_at: str
     drift_score: float
     drift_detected: bool
@@ -806,6 +908,7 @@ class DriftTrendPoint(BaseModel):
 
 class DriftTrendResponse(BaseModel):
     """Response for GET /charts/drift-trend."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: Optional[str] = None
@@ -814,8 +917,10 @@ class DriftTrendResponse(BaseModel):
 
 # ==================== Metric Log Schemas ====================
 
+
 class MetricLogPoint(BaseModel):
     """Single metric log entry."""
+
     step_index: Optional[int] = None
     value: float
     recorded_at: str
@@ -823,6 +928,7 @@ class MetricLogPoint(BaseModel):
 
 class MetricSeriesResponse(BaseModel):
     """Response for GET /charts/metric-series."""
+
     metric_name: str
     run_id: str
     run_number: int
@@ -831,11 +937,13 @@ class MetricSeriesResponse(BaseModel):
 
 class AvailableMetricsResponse(BaseModel):
     """Response for GET /charts/available-metrics."""
+
     metrics: List[str]
 
 
 class MetricLogCreate(BaseModel):
     """Request to log a single metric value."""
+
     run_id: str
     step_id: Optional[str] = None
     pipeline_id: Optional[str] = None
@@ -847,8 +955,10 @@ class MetricLogCreate(BaseModel):
 
 # ==================== Chart Artifact Schemas ====================
 
+
 class ChartArtifactCreate(BaseModel):
     """Chart artifact creation schema."""
+
     run_id: Optional[str] = None
     step_id: Optional[str] = None
     experiment_id: Optional[str] = None
@@ -860,6 +970,7 @@ class ChartArtifactCreate(BaseModel):
 
 class ChartArtifactResponse(BaseModel):
     """Chart artifact API response."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -875,13 +986,16 @@ class ChartArtifactResponse(BaseModel):
 
 class ChartArtifactList(PaginatedResponse):
     """Chart artifact list response."""
+
     items: List[ChartArtifactResponse]
 
 
 # ==================== Training Metrics Schemas ====================
 
+
 class TrainingEpochPoint(BaseModel):
     """Single epoch of training/validation metrics."""
+
     epoch: int
     loss: Optional[float] = None
     val_loss: Optional[float] = None
@@ -891,6 +1005,7 @@ class TrainingEpochPoint(BaseModel):
 
 class TrainingMetricsTraceResponse(BaseModel):
     """Response for GET /charts/training-metrics-trace."""
+
     run_id: str
     run_number: int
     points: List[TrainingEpochPoint]
@@ -898,8 +1013,10 @@ class TrainingMetricsTraceResponse(BaseModel):
 
 # ==================== Explainability Schemas ====================
 
+
 class ShapValuePoint(BaseModel):
     """Single SHAP value for a feature."""
+
     feature: str
     value: float
     impact: float
@@ -908,12 +1025,14 @@ class ShapValuePoint(BaseModel):
 
 class LimeExplanationPoint(BaseModel):
     """Single LIME explanation weight for a feature."""
+
     feature: str
     weight: float
 
 
 class PermutationImportancePoint(BaseModel):
     """Permutation importance for a feature."""
+
     feature: str
     importance: float
     std: float
@@ -921,6 +1040,7 @@ class PermutationImportancePoint(BaseModel):
 
 class ExplainabilityRequest(BaseModel):
     """Request for POST /explainability/shap and /lime."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
@@ -929,6 +1049,7 @@ class ExplainabilityRequest(BaseModel):
 
 class ShapResponse(BaseModel):
     """Response for POST /explainability/shap."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
@@ -937,6 +1058,7 @@ class ShapResponse(BaseModel):
 
 class LimeResponse(BaseModel):
     """Response for POST /explainability/lime."""
+
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
@@ -945,6 +1067,7 @@ class LimeResponse(BaseModel):
 
 class ExplainabilityResponse(BaseModel):
     """Response for GET /charts/explainability."""
+
     run_id: str
     shap_values: List[ShapValuePoint]
     lime_explanation: List[LimeExplanationPoint]
@@ -953,8 +1076,10 @@ class ExplainabilityResponse(BaseModel):
 
 # ==================== AutoML / Optuna Schemas ====================
 
+
 class TrialPoint(BaseModel):
     """Single Optuna trial result."""
+
     number: int
     state: str
     value: Optional[float] = None
@@ -967,17 +1092,20 @@ class TrialPoint(BaseModel):
 
 class AutomlTrialsResponse(BaseModel):
     """Response for GET /charts/automl-trials."""
+
     experiment_id: str
     trials: List[TrialPoint]
 
 
 class TrialDetailResponse(BaseModel):
     """Response for GET /trials/{id}."""
+
     trial: TrialPoint
 
 
 class TrialHistoryPoint(BaseModel):
     """Single point in a trial's optimization history."""
+
     step: int
     value: float
     timestamp: datetime
@@ -985,18 +1113,21 @@ class TrialHistoryPoint(BaseModel):
 
 class TrialHistoryResponse(BaseModel):
     """Response for GET /trials/{id}/history."""
+
     trial_id: str
     history: List[TrialHistoryPoint]
 
 
 class ParamImportancePoint(BaseModel):
     """Parameter importance for radar chart."""
+
     param: str
     importance: float
 
 
 class ParetoFrontPoint(BaseModel):
     """Single point on Pareto front."""
+
     trial_number: int
     objective_1: float
     objective_2: float
@@ -1005,6 +1136,7 @@ class ParetoFrontPoint(BaseModel):
 
 class PruningHistoryPoint(BaseModel):
     """Pruning event for a trial."""
+
     trial_number: int
     step: int
     intermediate_value: float
@@ -1013,6 +1145,7 @@ class PruningHistoryPoint(BaseModel):
 
 class AutomlVisualizationsResponse(BaseModel):
     """Response for GET /charts/automl-visualizations."""
+
     experiment_id: str
     param_importance: List[ParamImportancePoint]
     pareto_front: List[ParetoFrontPoint]
@@ -1022,8 +1155,10 @@ class AutomlVisualizationsResponse(BaseModel):
 
 # ==================== Feature Engineering Schemas ====================
 
+
 class TransformStep(BaseModel):
     """Single transform in a feature engineering pipeline."""
+
     name: str
     type: str
     params: Dict[str, Any]
@@ -1032,6 +1167,7 @@ class TransformStep(BaseModel):
 
 class FeatureStats(BaseModel):
     """Statistics for a single feature."""
+
     name: str
     dtype: str
     nulls: int
@@ -1044,6 +1180,7 @@ class FeatureStats(BaseModel):
 
 class FeatureTransformsResponse(BaseModel):
     """Response for GET /charts/feature-transforms."""
+
     run_id: str
     pipeline: List[TransformStep]
     before: List[FeatureStats]
@@ -1052,6 +1189,7 @@ class FeatureTransformsResponse(BaseModel):
 
 class FeatureExtractRequest(BaseModel):
     """Request for POST /features/extract."""
+
     pipeline_id: str
     data: List[Dict[str, Any]]
     transforms: Optional[List[TransformStep]] = None
@@ -1059,6 +1197,7 @@ class FeatureExtractRequest(BaseModel):
 
 class FeatureExtractResponse(BaseModel):
     """Response for POST /features/extract."""
+
     pipeline_id: str
     before_count: int
     after_count: int
@@ -1069,6 +1208,7 @@ class FeatureExtractResponse(BaseModel):
 
 class FeaturePreviewResponse(BaseModel):
     """Response for GET /features/preview/{pipeline_id}."""
+
     pipeline_id: str
     pipeline: List[TransformStep]
     before: List[FeatureStats]
@@ -1077,8 +1217,10 @@ class FeaturePreviewResponse(BaseModel):
 
 # ==================== Experiment Artifacts Schemas ====================
 
+
 class ExperimentArtifact(BaseModel):
     """Single experiment artifact."""
+
     id: str
     artifact_type: str  # image, figure, csv, json, other
     title: str
@@ -1089,14 +1231,17 @@ class ExperimentArtifact(BaseModel):
 
 class ExperimentArtifactsResponse(BaseModel):
     """Response for GET /experiments/{id}/artifacts."""
+
     experiment_id: str
     artifacts: List[ExperimentArtifact]
 
 
 # ==================== Project Schemas ====================
 
+
 class ProjectBase(BaseModel):
     """Base project schema."""
+
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     status: Optional[str] = Field(default="active", pattern="^(active|archived)$")
@@ -1106,11 +1251,12 @@ class ProjectBase(BaseModel):
 
 class ProjectCreate(ProjectBase):
     """Project creation schema."""
-    pass
+
 
 
 class ProjectUpdate(BaseModel):
     """Project update schema."""
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|archived)$")
@@ -1120,6 +1266,7 @@ class ProjectUpdate(BaseModel):
 
 class ProjectInDB(ProjectBase):
     """Project database schema."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -1132,18 +1279,21 @@ class ProjectInDB(ProjectBase):
 
 class ProjectResponse(ProjectInDB):
     """Project API response."""
-    pass
+
 
 
 class ProjectList(PaginatedResponse):
     """Project list response."""
+
     items: List[ProjectResponse]
 
 
 # ==================== System Resource Schemas ====================
 
+
 class ResourceUsagePoint(BaseModel):
     """Single resource usage measurement."""
+
     timestamp: datetime
     cpu_percent: float
     memory_percent: float
@@ -1152,4 +1302,5 @@ class ResourceUsagePoint(BaseModel):
 
 class ResourceUsageResponse(BaseModel):
     """Response for GET /dashboard/resources."""
+
     points: List[ResourceUsagePoint]

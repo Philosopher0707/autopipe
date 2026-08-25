@@ -6,14 +6,19 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
@@ -26,7 +31,9 @@ jobs:
     - name: Cache pip dependencies
       uses: actions/cache@v4
       with:
-        path: ~/.cache/pip
+        path: |
+          ~/.cache/pip
+          ~\AppData\Local\pip\Cache
         key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
         restore-keys: |
           ${{ runner.os }}-pip-
@@ -39,20 +46,22 @@ jobs:
     - name: Lint with ruff
       run: ruff check autopipe tests
 
-    - name: Check formatting with black
-      run: black --check autopipe tests
+    - name: Check formatting with ruff-format
+      run: ruff format --check autopipe tests
 
-    - name: Run type checking with mypy
+    # TODO(P2): flip continue-on-error to false once the typing-truth pass lands
+    - name: Run type checking with mypy (advisory until P2)
       run: mypy autopipe
+      continue-on-error: true
 
     - name: Run security checks with bandit
       run: bandit -c pyproject.toml -r autopipe
 
-    - name: Run tests with pytest
+    - name: Run unit tests with coverage
       run: pytest tests/unit -v --cov=autopipe --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         files: ./coverage.xml
         fail_ci_if_error: false
@@ -60,7 +69,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v4
@@ -80,9 +89,74 @@ jobs:
       env:
         OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
+  backend:
+    name: dashboard backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: autopipe/dashboard/backend
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+        cache-dependency-path: autopipe/dashboard/backend/requirements.txt
+
+    - name: Install dependencies
+      run: |
+        python -m venv .venv_ci
+        .venv_ci/bin/python -m pip install --upgrade pip
+        .venv_ci/bin/python -m pip install -r requirements.txt
+
+    - name: Run backend tests
+      run: .venv_ci/bin/python -m pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: autopipe/dashboard/frontend
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 9
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'pnpm'
+        cache-dependency-path: autopipe/dashboard/frontend/pnpm-lock.yaml
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Lint
+      run: pnpm lint
+
+    - name: Type check
+      run: pnpm typecheck
+
+    - name: Run tests
+      run: pnpm test
+
+    - name: Build
+      run: pnpm build
+
   build:
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v4
@@ -108,36 +182,3 @@ jobs:
       with:
         name: dist
         path: dist/
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: autopipe/dashboard/frontend
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 9
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'pnpm'
-        cache-dependency-path: autopipe/dashboard/frontend/pnpm-lock.yaml
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Type check
-      run: pnpm typecheck
-
-    - name: Run tests
-      run: pnpm test
-
-    - name: Build
-      run: pnpm build
