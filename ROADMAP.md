@@ -38,7 +38,7 @@ state. Every phase lands as verified commits with green suites.
 - [x] Step-type allowlist in loader (no arbitrary imports from YAML)
 - [ ] REPL evaluator isolated or disabled by default; secret redaction in
       history/config display
-- [ ] Pin promptfoo version; single credential path with masking
+- [x] Pin promptfoo version; single credential path with masking
 
 ## P4 — Product honesty
 - [x] pi_coding + REPL behind optional extras (removed from top-level exports; explicit imports only; modules marked non-core)
