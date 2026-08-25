@@ -3,8 +3,11 @@
 import hashlib
 import json
 import logging
+import os
 import pickle
 import shutil
+import threading
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +41,7 @@ class ModelVersion:
     description: str = ""
     status: str = "PENDING"  # PENDING, STAGING, PRODUCTION, ARCHIVED
     user: Optional[str] = None
+    artifact_sha256: Optional[str] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -119,6 +123,7 @@ class ModelRegistry:
         self.registry_dir = Path(registry_dir)
         self.registry_dir.mkdir(parents=True, exist_ok=True)
 
+        self._lock = threading.RLock()
         self.models: Dict[str, List[ModelVersion]] = {}
         self._load_registry()
 
@@ -157,6 +162,7 @@ class ModelRegistry:
                             description=v.get("description", ""),
                             status=v.get("status", "PENDING"),
                             user=v.get("user"),
+                            artifact_sha256=v.get("artifact_sha256"),
                         )
                         for v in versions_data
                     ]
@@ -164,11 +170,18 @@ class ModelRegistry:
                 logger.warning(f"Failed to load registry: {e}")
 
     def _save_registry(self):
-        """Save registry index to disk."""
+        """Atomically persist the registry index.
+
+        Writes to a temp file in the same directory then os.replace()s it into
+        place: a crash mid-write can never leave a truncated index behind.
+        """
         index_path = self.registry_dir / "registry_index.json"
+        tmp_path = index_path.with_suffix(".json.tmp")
         data = {name: [v.to_dict() for v in versions] for name, versions in self.models.items()}
-        with open(index_path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+        with self._lock:
+            with open(tmp_path, "w") as f:
+                json.dump(data, f, indent=2, default=str)
+            os.replace(tmp_path, index_path)
 
     def register(
         self,
@@ -205,7 +218,9 @@ class ModelRegistry:
             self.models[name] = []
 
         version = len(self.models[name]) + 1
-        model_id = f"{name}_v{version}_{hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]}"
+        # uuid4: timestamp-md5 ids collided when two registrations landed in
+        # the same second.
+        model_id = f"{name}_v{version}_{uuid.uuid4().hex[:12]}"
 
         # Create model directory
         model_dir = self.registry_dir / name / f"v{version}"
@@ -215,7 +230,9 @@ class ModelRegistry:
         if artifact_path is None:
             artifact_path = str(model_dir / "model")
 
-        self._save_model_artifact(model, artifact_path, framework)
+        with self._lock:
+            self._save_model_artifact(model, artifact_path, framework)
+            artifact_sha256 = self._sha256_artifact(artifact_path, framework)
 
         # Create version metadata
         version_info = ModelVersion(
@@ -231,10 +248,12 @@ class ModelRegistry:
             framework=framework,
             description=description,
             status=stage.upper(),
+            artifact_sha256=artifact_sha256,
         )
 
-        self.models[name].append(version_info)
-        self._save_registry()
+        with self._lock:
+            self.models[name].append(version_info)
+            self._save_registry()
 
         # Log to MLflow if enabled
         if self.use_mlflow:
@@ -256,14 +275,36 @@ class ModelRegistry:
         logger.info(f"Registered {name} v{version} with metrics: {metrics}")
         return version_info
 
+    @staticmethod
+    def _sha256_artifact(path: str, framework: str) -> str:
+        """SHA-256 of the persisted artifact file (integrity on load)."""
+        save_path = Path(path)
+        suffixes = {
+            "sklearn": ".pkl",
+            "pytorch": ".pt",
+            "tensorflow": ".keras",
+            "xgboost": ".json",
+        }
+        artifact = save_path.with_suffix(suffixes.get(framework, ".pkl"))
+        digest = hashlib.sha256()
+        with open(artifact, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def _save_model_artifact(self, model: Any, path: str, framework: str):
-        """Save model to disk."""
+        """Save model to disk (joblib when available: safer for large arrays)."""
         save_path = Path(path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
         if framework == "sklearn":
-            with open(save_path.with_suffix(".pkl"), "wb") as f:
-                pickle.dump(model, f)
+            try:
+                import joblib
+
+                joblib.dump(model, save_path.with_suffix(".pkl"))
+            except ImportError:
+                with open(save_path.with_suffix(".pkl"), "wb") as f:
+                    pickle.dump(model, f)
         elif framework == "pytorch":
             import torch
 
@@ -273,9 +314,13 @@ class ModelRegistry:
         elif framework == "xgboost":
             model.save_model(save_path.with_suffix(".json"))
         else:
-            # Generic pickle fallback
-            with open(save_path.with_suffix(".pkl"), "wb") as f:
-                pickle.dump(model, f)
+            try:
+                import joblib
+
+                joblib.dump(model, save_path.with_suffix(".pkl"))
+            except ImportError:
+                with open(save_path.with_suffix(".pkl"), "wb") as f:
+                    pickle.dump(model, f)
 
     def load(self, name: str, version: Optional[int] = None, stage: Optional[str] = None) -> Any:
         """Load a model from registry.
@@ -306,19 +351,36 @@ class ModelRegistry:
 
         return self._load_model_artifact(target)
 
+    def _verify_artifact_checksum(self, version: ModelVersion) -> None:
+        """Refuse to deserialize artifacts whose bytes changed on disk."""
+        if not version.artifact_sha256:
+            return
+        actual = self._sha256_artifact(version.artifact_path, version.framework)
+        if actual != version.artifact_sha256:
+            raise ValueError(
+                f"Artifact integrity check failed for {version.name} "
+                f"v{version.version}: sha256 mismatch (file modified or corrupted)"
+            )
+
     def _load_model_artifact(self, version: ModelVersion) -> Any:
-        """Load model artifact from disk."""
+        """Load model artifact from disk after verifying its checksum."""
+        self._verify_artifact_checksum(version)
         path = Path(version.artifact_path)
         framework = version.framework
 
         if framework == "sklearn":
-            with open(path.with_suffix(".pkl"), "rb") as f:
-                return pickle.load(f)
+            try:
+                import joblib
+
+                return joblib.load(path.with_suffix(".pkl"))
+            except ImportError:
+                with open(path.with_suffix(".pkl"), "rb") as f:
+                    return pickle.load(f)
         elif framework == "pytorch":
             import torch
 
             # Note: model class needs to be provided separately
-            state_dict = torch.load(path.with_suffix(".pt"), map_location="cpu")
+            state_dict = torch.load(path.with_suffix(".pt"), map_location="cpu", weights_only=True)
             return state_dict
         elif framework == "tensorflow":
             from tensorflow import keras
@@ -331,8 +393,13 @@ class ModelRegistry:
             model.load_model(path.with_suffix(".json"))
             return model
         else:
-            with open(path.with_suffix(".pkl"), "rb") as f:
-                return pickle.load(f)
+            try:
+                import joblib
+
+                return joblib.load(path.with_suffix(".pkl"))
+            except ImportError:
+                with open(path.with_suffix(".pkl"), "rb") as f:
+                    return pickle.load(f)
 
     def transition_stage(self, name: str, version: int, stage: str) -> ModelVersion:
         """Transition model to a new stage.
