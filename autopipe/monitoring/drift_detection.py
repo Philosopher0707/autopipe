@@ -21,6 +21,27 @@ from autopipe.core.step import Step
 logger = logging.getLogger(__name__)
 
 
+def benjamini_hochberg(p_values: List[float]) -> List[float]:
+    """Benjamini-Hochberg FDR-adjusted p-values (step-up procedure).
+
+    Returns adjusted p-values in the ORIGINAL order; monotone-enforced so the
+    result is a valid step-up adjustment (never below the raw p-value).
+    """
+    n = len(p_values)
+    if n == 0:
+        return []
+    order = sorted(range(n), key=lambda i: p_values[i])
+    ranked = [p_values[i] for i in order]
+    adjusted_sorted = [min(1.0, p * n / (rank + 1)) for rank, p in enumerate(ranked)]
+    # Enforce monotonicity from largest to smallest
+    for k in range(n - 2, -1, -1):
+        adjusted_sorted[k] = min(adjusted_sorted[k], adjusted_sorted[k + 1])
+    result = [0.0] * n
+    for idx_in_order, original_idx in enumerate(order):
+        result[original_idx] = adjusted_sorted[idx_in_order]
+    return result
+
+
 @dataclass
 class DriftReport:
     """Drift detection report."""
@@ -32,6 +53,7 @@ class DriftReport:
     metric_value: float
     threshold: float
     p_value: Optional[float] = None
+    adjusted_p_value: Optional[float] = None
     reference_stats: Optional[Dict] = None
     current_stats: Optional[Dict] = None
 
@@ -44,6 +66,7 @@ class DriftReport:
             "metric_value": self.metric_value,
             "threshold": self.threshold,
             "p_value": self.p_value,
+            "adjusted_p_value": self.adjusted_p_value,
             "reference_stats": self.reference_stats,
             "current_stats": self.current_stats,
         }
@@ -76,6 +99,7 @@ class StatisticalDriftDetectorStep(Step):
         super().__init__(name, **kwargs)
         self.method = method
         self.threshold = threshold
+        self.multiple_testing: str = kwargs.get("multiple_testing", "bh")
         self.categorical_features = categorical_features or []
         self.drift_reports: List[DriftReport] = []
 
@@ -118,10 +142,29 @@ class StatisticalDriftDetectorStep(Step):
 
             self.drift_reports.append(report)
 
+        # Family-wise control across features: BH on all p-valued reports so
+        # testing 50 features at alpha=0.05 does not manufacture ~3 false hits.
+        if self.multiple_testing == "bh":
+            bh_flags = self._apply_bh_correction(self.drift_reports)
+        else:
+            bh_flags = {id(r): r.drift_detected for r in self.drift_reports}
+
+        for report in self.drift_reports:
+            report.drift_detected = (
+                bh_flags.get(id(report), report.drift_detected)
+                if (report.p_value is not None and self.multiple_testing == "bh")
+                else report.drift_detected
+            )
             if report.drift_detected:
                 drift_detected_count += 1
                 logger.warning(
-                    f"Drift detected in feature '{feature}': {report.metric_name}={report.metric_value:.4f}"
+                    f"Drift detected in feature '{feature_names[0] if False else report.feature_name}': "
+                    f"{report.metric_name}={report.metric_value:.4f}"
+                    + (
+                        f" (BH-adjusted p={report.adjusted_p_value:.4g})"
+                        if report.adjusted_p_value is not None
+                        else ""
+                    )
                 )
 
         # Summary
@@ -194,20 +237,38 @@ class StatisticalDriftDetectorStep(Step):
         ref_counts = ref.value_counts(normalize=True).sort_index()
         cur_counts = cur.value_counts(normalize=True).sort_index()
 
-        # Align categories
-        all_categories = set(ref_counts.index) | set(cur_counts.index)
-        ref_aligned = pd.Series(
-            [ref_counts.get(c, 0) for c in all_categories], index=all_categories
+        # Align categories on RAW counts; chi-square needs observed counts vs
+        # expected counts under the reference distribution.
+        all_categories = sorted(set(ref_counts.index) | set(cur_counts.index), key=str)
+        ref_props = pd.Series(
+            [ref_counts.get(c, 0.0) for c in all_categories], index=all_categories
         )
-        cur_aligned = pd.Series(
-            [cur_counts.get(c, 0) for c in all_categories], index=all_categories
+        cur_counts_raw = pd.Series(
+            [cur.value_counts().get(c, 0) for c in all_categories], index=all_categories
         )
 
-        _chi2, p_value = stats.chisquare(cur_aligned * len(cur), ref_aligned * len(cur))
-        drift = p_value < self.threshold
+        # Cells with zero expected count make chi-square undefined; drop them
+        # (they contribute no information about distributional change).
+        expected_counts = ref_props * len(cur)
+        mask = expected_counts > 0
+        if mask.sum() < 2 or (int(mask.sum()) != len(all_categories) and mask.sum() < 2):
+            p_value = None
+            drift = False
+        elif (mask).all():
+            _chi2, p_value = stats.chisquare(
+                cur_counts_raw[mask].to_numpy(), expected_counts[mask].to_numpy()
+            )
+            drift = p_value < self.threshold
+        else:
+            # Some zero-expected cells dropped; renormalize expectation
+            _chi2, p_value = stats.chisquare(
+                cur_counts_raw[mask].to_numpy(),
+                (expected_counts[mask] / expected_counts[mask].sum() * len(cur)).to_numpy(),
+            )
+            drift = p_value < self.threshold
 
-        # Compute total variation distance
-        tv_distance = np.sum(np.abs(cur_aligned - ref_aligned)) / 2
+        # Compute total variation distance on proportions
+        tv_distance = float(np.abs(ref_props - cur_counts_raw / max(len(cur), 1)).sum() / 2)
 
         return DriftReport(
             timestamp=datetime.now(),
@@ -222,37 +283,54 @@ class StatisticalDriftDetectorStep(Step):
         )
 
     def _compute_psi(self, expected: pd.Series, actual: pd.Series, buckets: int = 10) -> float:
-        """Compute Population Stability Index."""
+        """Population Stability Index over EXPECTED-quantile bins.
 
-        def scale_range(input_data, min_val, max_val):
-            input_data += -(np.min(input_data))
-            input_data /= np.max(input_data) / (max_val - min_val)
-            input_data += min_val
-            return input_data
+        The previous implementation rescaled each series to its own min/max,
+        which erased location/scale shifts entirely — identical distributions
+        and fully shifted ones produced the same PSI. Bins are now deciles of
+        the REFERENCE distribution with infinite outer edges so current values
+        beyond the reference range land in the edge bins instead of being
+        clipped away by a shared range.
+        """
+        exp = np.asarray(expected, dtype=float)
+        act = np.asarray(actual, dtype=float)
+        if exp.size == 0 or act.size == 0:
+            return 0.0
 
-        breakpoints = np.arange(0, buckets + 1) / buckets
+        quantiles = np.linspace(0, 1, buckets + 1)[1:-1]
+        edges = np.unique(np.quantile(exp, quantiles))
+        edges = np.concatenate(([-np.inf], edges, [np.inf]))
 
-        expected_scaled = scale_range(expected, expected.min(), expected.max())
-        actual_scaled = scale_range(actual, actual.min(), actual.max())
+        eps = 1e-6
+        expected_percents = np.clip(np.histogram(exp, edges)[0] / exp.size, eps, None)
+        actual_percents = np.clip(np.histogram(act, edges)[0] / act.size, eps, None)
 
-        expected_percents = np.histogram(expected_scaled, breakpoints)[0] / len(expected)
-        actual_percents = np.histogram(actual_scaled, breakpoints)[0] / len(actual)
-
-        def sub_psi(e_perc, a_perc):
-            if a_perc == 0:
-                a_perc = 0.0001
-            if e_perc == 0:
-                e_perc = 0.0001
-            value = (e_perc - a_perc) * np.log(e_perc / a_perc)
-            return value
-
-        psi_value = np.sum(
-            [
-                sub_psi(e_perc, a_perc)
-                for e_perc, a_perc in zip(expected_percents, actual_percents, strict=False)
-            ]
+        return float(
+            np.sum(
+                (expected_percents - actual_percents) * np.log(expected_percents / actual_percents)
+            )
         )
-        return psi_value
+
+    @staticmethod
+    def _apply_bh_correction(reports: List["DriftReport"]) -> dict:
+        """Apply Benjamini-Hochberg across reports carrying raw p-values.
+
+        Returns {id(report): drift_detected} for those reports only.
+        """
+        with_p = [(r, r.p_value) for r in reports if r.p_value is not None]
+        if not with_p:
+            return {}
+        adjusted = benjamini_hochberg([p for _, p in with_p])
+        flags: dict = {}
+        alpha = None
+        for (report, _raw), adj in zip(with_p, adjusted, strict=True):
+            report.adjusted_p_value = adj
+            if alpha is None:
+                # BH rejects when adjusted p <= the family alpha; each report
+                # carries the configured threshold.
+                alpha = report.threshold
+            flags[id(report)] = bool(adj <= (report.threshold or 0.05))
+        return flags
 
     def visualize(self, **kwargs):
         """Visualize drift detection results."""

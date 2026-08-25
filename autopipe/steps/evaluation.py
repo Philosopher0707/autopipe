@@ -250,19 +250,39 @@ class ModelEvaluatorStep(Step):
                 pass
 
     def _calculate_calibration(self, y_true):
+        """Expected Calibration Error over equal-width probability bins.
+
+        The previous version paired sklearn's ``calibration_curve`` output —
+        which DROPS empty bins — against a full histogram of all bins,
+        silently misaligning counts with accuracies whenever any bin was
+        empty. Binning is now done once and reused for both terms.
+        """
         if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
             prob_pos = self.result.probabilities[:, 1]
         else:
             prob_pos = self.result.probabilities[np.arange(len(y_true)), y_true.astype(int)]
 
-        from sklearn.calibration import calibration_curve
+        n_bins = self.calibration_bins
+        n = len(prob_pos)
+        if n == 0:
+            self.result.calibration_error = 0.0
+            return
 
-        prob_true, prob_pred = calibration_curve(
-            y_true, prob_pos, n_bins=self.calibration_bins, strategy="uniform"
-        )
+        bin_idx = np.clip((prob_pos * n_bins).astype(int), 0, n_bins - 1)
+        ece = 0.0
+        reliability = []
+        for b in range(n_bins):
+            mask = bin_idx == b
+            count = int(mask.sum())
+            if count == 0:
+                continue
+            confidence = float(prob_pos[mask].mean())
+            accuracy = float(np.asarray(y_true)[mask].mean())
+            ece += (count / n) * abs(accuracy - confidence)
+            reliability.append(
+                {"bin": b, "count": count, "confidence": confidence, "accuracy": accuracy}
+            )
 
-        bin_counts = np.histogram(prob_pos, bins=self.calibration_bins)[0]
-        ece = np.sum(np.abs(prob_true - prob_pred) * bin_counts / len(prob_pos))
         self.result.calibration_error = float(ece)
         self.result.metrics["expected_calibration_error"] = float(ece)
 
