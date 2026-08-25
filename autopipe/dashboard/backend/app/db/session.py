@@ -23,6 +23,26 @@ if ASYNC_DATABASE_URL.startswith("sqlite"):
 
 engine = create_async_engine(ASYNC_DATABASE_URL, **engine_kwargs)
 
+if ASYNC_DATABASE_URL.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+        """Harden SQLite per-connection.
+
+        - foreign_keys=ON: FK constraints are off by default in SQLite, so
+          orphaned rows could be inserted silently.
+        - busy_timeout: concurrent writer contention raises 'database is
+          locked' immediately instead of waiting.
+        - WAL: readers no longer block the writer (and vice versa).
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(
     engine,

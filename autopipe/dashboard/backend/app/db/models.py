@@ -5,7 +5,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 Base = declarative_base()
@@ -124,7 +134,9 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    pipeline_id: Mapped[str] = mapped_column(String, ForeignKey("pipelines.id"), nullable=False)
+    pipeline_id: Mapped[str] = mapped_column(
+        String, ForeignKey("pipelines.id"), nullable=False, index=True
+    )
     experiment_id: Mapped[Optional[str]] = mapped_column(
         String, ForeignKey("experiments.id"), nullable=True
     )
@@ -266,7 +278,9 @@ class ModelVersion(Base):
     model: Mapped["Model"] = relationship("Model", back_populates="versions")
 
     __table_args__ = (
-        # Ensure version numbers are unique per model
+        # Enforce version numbers unique per model (the comment previously
+        # claimed this while the tuple held only engine kwargs).
+        UniqueConstraint("model_id", "version", name="uq_model_version"),
         {"sqlite_autoincrement": True},
     )
 
@@ -297,7 +311,7 @@ class DriftAlert(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     drift_report_id: Mapped[str] = mapped_column(
-        String, ForeignKey("drift_reports.id"), nullable=False
+        String, ForeignKey("drift_reports.id"), nullable=False, index=True
     )
     feature_name: Mapped[str] = mapped_column(String(255), nullable=False)
     severity: Mapped[AlertSeverity] = mapped_column(
@@ -323,8 +337,12 @@ class Artifact(Base):
     __tablename__ = "artifacts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
-    step_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("steps.id"), nullable=True)
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("runs.id"), nullable=True, index=True
+    )
+    step_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("steps.id"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     artifact_type: Mapped[str] = mapped_column(
         String(50), nullable=False
