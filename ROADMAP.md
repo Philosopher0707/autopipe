@@ -57,3 +57,8 @@ state. Every phase lands as verified commits with green suites.
 - [x] G2: deleted orphaned subsystems (tracking/, caching/, observability/)
       — zero non-test consumers; dashboard implements these concepts for
       real. cachetools/prometheus-client deps dropped; CacheError removed.
+- [x] G3: single drift-verdict interpretation — count_drifted_features
+      moved into app/utils/drift_utils.py delegating to normalize (the old
+      private copy used a different fallback threshold); normalization now
+      honors the detector's stored `drift_detected` before guessing from
+      p_value/score, matching core DriftReport.to_dict() field names.

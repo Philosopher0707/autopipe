@@ -98,7 +98,7 @@ Three independent subsystems sharing data concepts but not code:
   - Pipeline config must have `"steps"` key to trigger actual execution; otherwise runs stay PENDING
 - `GET /experiments/{id}/compare?metric=X` — compares runs by metric, returns run IDs with metric values and params
 - `GET /charts/training-metrics-trace?run_id={id}` — queries `MetricLog` for `loss`/`val_loss`/`accuracy`/`val_accuracy` grouped by `step_index` as epoch; falls back to `ChartArtifact.data.points` if no logs; returns `TrainingMetricsTraceResponse`
-- `count_drifted_features()` helper in `dashboard.py` deduplicates drift-counting logic across `/overview` and `/counts` endpoints
+- `count_drifted_features()` lives in `app/utils/drift_utils.py` and delegates to `normalize_feature_drifts()` — ONE drift-verdict interpretation for `/overview`, `/counts`, and charts; the detector's stored `drift_detected` wins over re-derivation
 - DriftReport queries use column-level selects (`select(DriftReport.drift_score, DriftReport.feature_drifts)`) instead of full ORM loads
 - `normalize_feature_drifts()` lives in `app/utils/drift_utils.py` — shared by both `drift.py` and `charts.py`; do NOT duplicate inline
 - **Explainability API** (`/api/v1/explainability/`): `POST /shap` and `POST /lime` accept `model_id` + `data` payload, return `feature_importance` arrays

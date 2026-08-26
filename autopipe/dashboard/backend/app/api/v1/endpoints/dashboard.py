@@ -32,33 +32,12 @@ from app.schemas import (
     SidebarCounts,
     SystemHealth,
 )
+from app.utils.drift_utils import count_drifted_features
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
-
-
-def count_drifted_features(feature_drifts: dict | None) -> int:
-    """Count how many features have drifted in a DriftReport.feature_drifts dict."""
-    if not feature_drifts:
-        return 0
-    count = 0
-    for stats in feature_drifts.values():
-        if isinstance(stats, dict):
-            if stats.get("is_drifted"):
-                count += 1
-            elif "p_value" in stats:
-                threshold = float(stats.get("threshold", 0.05))
-                if float(stats.get("p_value", 1.0)) < threshold:
-                    count += 1
-            elif "drift_score" in stats:
-                threshold = float(stats.get("threshold", 0.1))
-                if float(stats.get("drift_score", 0.0)) > threshold:
-                    count += 1
-        elif isinstance(stats, (int, float)) and float(stats) > 0.1:
-            count += 1
-    return count
 
 
 @router.get("/overview", response_model=DashboardStats)
