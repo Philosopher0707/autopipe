@@ -48,3 +48,9 @@ state. Every phase lands as verified commits with green suites.
 - [x] pi_coding + REPL behind optional extras (removed from top-level exports; explicit imports only; modules marked non-core)
 - [x] Distributed tuning honest or deleted (deleted: zero consumers, K8s result collection was NotImplementedError, Hyperband formula wrong)
 - [x] 0.2.0 released: v0.2.0 tagged (9daa2def), CHANGELOG complete, bumpversion schema fixed
+
+## Structural hardening (post-0.2.0 zoom-out)
+
+- [x] G1: full step alias coverage — every public Step class addressable
+      from YAML (34 aliases, was 6); shadowing trainer stubs deleted;
+      tests/unit/test_step_alias_coverage.py makes starvation impossible

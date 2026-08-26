@@ -7,10 +7,9 @@ This module provides training steps for:
 - Transfer learning support
 """
 
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -162,91 +161,6 @@ class SklearnTrainerStep(Step):
         return self.model
 
 
-class _PyTorchTrainerStepStub(Step):
-    """DEPRECATED: PyTorch model training step.
-
-    .. deprecated::
-        Use :class:`autopipe.steps.deep_learning.PyTorchTrainerStep` instead.
-        This stub provides minimal functionality. Import from deep_learning module
-        for full training support.
-    """
-
-    def __init__(
-        self,
-        name: str = "pytorch_trainer",
-        model_builder: Optional[Callable] = None,
-        config: Optional[TrainingConfig] = None,
-        loss_fn: Optional[str] = None,
-        task_type: str = "classification",
-        **kwargs,
-    ):
-        warnings.warn(
-            "PyTorchTrainerStep from training module is deprecated. "
-            "Use autopipe.steps.deep_learning.PyTorchTrainerStep for full training support.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(name, **kwargs)
-        self.model_builder = model_builder
-        self.config = config or TrainingConfig()
-        self.loss_fn_name = loss_fn or ("cross_entropy" if task_type == "classification" else "mse")
-        self.task_type = task_type
-        self.history = {"train_loss": [], "val_loss": []}
-
-    def run(self, **kwargs) -> Any:
-        """Build model without training. Use deep_learning.PyTorchTrainerStep for training."""
-        try:
-            import torch  # noqa: F401  (availability probe)
-            import torch.nn as nn
-        except ImportError:
-            raise ImportError("PyTorch is required. Install with: pip install torch")
-
-        # Build model only (no training)
-        if self.model_builder:
-            self.model = self.model_builder()
-        else:
-            self.model = nn.Sequential(nn.Linear(10, 2))
-
-        return self.model
-
-
-# Backwards compatibility alias
-PyTorchTrainerStep = _PyTorchTrainerStepStub
-
-
-class _TensorFlowTrainerStepStub(Step):
-    """DEPRECATED: TensorFlow/Keras model training step.
-
-    .. deprecated::
-        Use :class:`autopipe.steps.deep_learning.TensorFlowTrainerStep` instead.
-        This stub provides minimal functionality.
-    """
-
-    def __init__(self, name: str = "tensorflow_trainer", **kwargs):
-        warnings.warn(
-            "TensorFlowTrainerStep from training module is deprecated. "
-            "Use autopipe.steps.deep_learning.TensorFlowTrainerStep for full training support.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(name, **kwargs)
-        self.history = None
-
-    def run(self, **kwargs) -> Any:
-        try:
-            import tensorflow as tf
-        except ImportError:
-            raise ImportError("TensorFlow is required. Install with: pip install tensorflow")
-
-        # Placeholder
-        self.model = tf.keras.Sequential([tf.keras.layers.Dense(2, input_shape=(10,))])
-        return self.model
-
-
-# Backwards compatibility alias
-TensorFlowTrainerStep = _TensorFlowTrainerStepStub
-
-
 class HyperparameterTunerStep(Step):
     """Sklearn GridSearchCV / RandomizedSearchCV hyperparameter tuning step."""
 
@@ -313,41 +227,3 @@ class HyperparameterTunerStep(Step):
             **{f"best_{k}": v for k, v in self.best_params_.items() if isinstance(v, (int, float))},
         )
         return self.best_estimator_
-
-
-class _TransferLearningStepStub(Step):
-    """DEPRECATED: Transfer learning step for pretrained models.
-
-    .. deprecated::
-        Use :class:`autopipe.steps.deep_learning.TransferLearningStep` instead.
-    """
-
-    def __init__(
-        self,
-        name: str = "transfer_learning",
-        base_model: str = "resnet50",
-        num_classes: int = 10,
-        **kwargs,
-    ):
-        warnings.warn(
-            "TransferLearningStep from training module is deprecated. "
-            "Use autopipe.steps.deep_learning.TransferLearningStep for full support.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        super().__init__(name, **kwargs)
-        self.base_model = base_model
-        self.num_classes = num_classes
-
-    def run(self, **kwargs) -> Any:
-        try:
-            import torchvision.models as models
-        except ImportError:
-            raise ImportError("torchvision is required")
-
-        self.model = getattr(models, self.base_model)(pretrained=True)
-        return self.model
-
-
-# Backwards compatibility alias
-TransferLearningStep = _TransferLearningStepStub
