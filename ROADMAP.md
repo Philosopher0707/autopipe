@@ -54,3 +54,6 @@ state. Every phase lands as verified commits with green suites.
 - [x] G1: full step alias coverage — every public Step class addressable
       from YAML (34 aliases, was 6); shadowing trainer stubs deleted;
       tests/unit/test_step_alias_coverage.py makes starvation impossible
+- [x] G2: deleted orphaned subsystems (tracking/, caching/, observability/)
+      — zero non-test consumers; dashboard implements these concepts for
+      real. cachetools/prometheus-client deps dropped; CacheError removed.

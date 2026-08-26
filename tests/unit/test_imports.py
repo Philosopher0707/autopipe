@@ -28,9 +28,12 @@ def test_all_exports_resolve():
 
 
 def test_broken_packages_import():
-    """Regression: these packages previously raised ModuleNotFoundError."""
-    import autopipe.experiments
-    import autopipe.tracking  # noqa: F401
+    """Regression: this package previously raised ModuleNotFoundError.
+
+    (tracking/caching/observability were deleted as orphaned subsystems in
+    the structural hardening pass — they had zero non-test consumers.)
+    """
+    import autopipe.experiments  # noqa: F401
 
 
 @pytest.mark.parametrize(

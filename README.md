@@ -104,9 +104,6 @@ autopipe/
 ├── registry/           # Model versioning and export
 ├── monitoring/         # Drift detection
 ├── tuning/             # Search spaces, Optuna search, schedulers
-├── tracking/           # Tracker abstractions (in progress)
-├── caching/            # Memory/disk caches (integration in progress)
-├── observability/      # structlog logging, Prometheus/OTel metrics
 ├── llm/                # Provider clients + factory
 ├── credentials/        # Credential resolution and masking
 └── dashboard/

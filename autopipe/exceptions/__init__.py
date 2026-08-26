@@ -88,9 +88,6 @@ class AuthenticationError(LLMError):
     """Raised when authentication fails."""
 
 
-class CacheError(AutoPipeError):
-    """Raised when cache operations fail."""
-
 
 class VisualizationError(AutoPipeError):
     """Raised when visualization fails."""
