@@ -2,7 +2,9 @@
 
 import logging
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
+from .execution import ExecutionContext, ExecutionEngine, NullEventSink
 from .step import Step
 
 logger = logging.getLogger(__name__)
@@ -68,55 +70,39 @@ class Pipeline:
     def run(self, initial_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute the pipeline.
 
+        Delegates to the canonical engine
+        (:class:`~autopipe.core.execution.ExecutionEngine`) so that the library,
+        the CLI, the dashboard and future workers all share one execution
+        semantic (invariants I1/I4). This method used to contain a second,
+        hand-written execution loop.
+
+        The historical contract is preserved exactly: the first step exception is
+        re-raised unchanged, ``step.output`` is assigned per step, and the return
+        value is the step-name-keyed output mapping. Callers that want a
+        structured outcome instead of an exception should use the engine directly.
+
         Args:
             initial_inputs: Optional dictionary of inputs for steps that have no dependencies.
 
         Returns:
             Dictionary of step outputs keyed by step name.
+
+        Raises:
+            Exception: whatever the failing step (or an invalid dependency graph)
+                raised, unchanged.
         """
         logger.info("Running pipeline %s", self.name)
-        self._execution_order = self._topological_sort()
-
-        outputs: Dict[str, Any] = dict(initial_inputs or {})
-
-        for step in self._execution_order:
-            bindings = getattr(step, "input_bindings", None)
-            if bindings:
-                # Named bindings win: each run() parameter gets exactly the
-                # output of the step it names.
-                missing = [src for src in bindings.values() if src not in outputs]
-                if missing:
-                    from autopipe.exceptions import AutoPipeError
-
-                    raise AutoPipeError(
-                        f"Step '{step.name}' binds inputs to unexecuted/unknown "
-                        f"steps: {sorted(set(missing))}"
-                    )
-                inputs = {param: outputs[src] for param, src in bindings.items()}
-            elif step.depends_on:
-                inputs = {dep: outputs[dep] for dep in step.depends_on if dep in outputs}
-            else:
-                inputs = dict(initial_inputs or {})
-
-            logger.info("Running step %s", step.name)
-            try:
-                step_output = step.run(**inputs)
-                outputs[step.name] = step_output
-                # Persist on the step itself so visualize() and introspection
-                # can access this step's result (was never assigned before).
-                step.output = step_output
-            except Exception:
-                logger.error("Step %s failed", step.name)
-                raise
-
-            # Generate visualizations
-            try:
-                step.visualize(**inputs)
-            except Exception as e:
-                logger.warning("Visualization failed for step %s: %s", step.name, e)
-
-        logger.info("Pipeline %s completed", self.name)
-        return outputs
+        engine = ExecutionEngine()
+        context = ExecutionContext(
+            run_id=uuid4().hex,
+            pipeline_name=self.name,
+            initial_inputs=initial_inputs,
+            sink=NullEventSink(),
+        )
+        result = engine.execute(self, context)
+        if result.exception is not None:
+            raise result.exception
+        return result.outputs
 
     def visualize_all(self) -> None:
         """Generate visualizations for all steps."""

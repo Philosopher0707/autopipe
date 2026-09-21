@@ -25,7 +25,12 @@ class TestConfigDefaults:
 
 
 class TestGetLlmConfig:
-    def test_ollama_config_never_raises(self):
+    def test_ollama_config_never_raises(self, monkeypatch):
+        # Config.OLLAMA_API_KEY is captured from the environment at import time,
+        # so it can carry an ambient value from the developer's shell. The intent
+        # of this test is that Ollama never raises and has a base_url; control the
+        # input rather than depending on whatever happens to be exported.
+        monkeypatch.setattr(Config, "OLLAMA_API_KEY", "ollama")
         config = Config.get_llm_config("ollama")
         assert config["api_key"] == "ollama"
         assert "base_url" in config

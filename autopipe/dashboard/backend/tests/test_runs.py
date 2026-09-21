@@ -69,6 +69,24 @@ async def test_cancel_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     assert resp.json()["status"] in ("cancelled", "CANCELLED")
 
 
+async def test_cannot_resurrect_a_terminal_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
+    """PATCH /runs/{id} rejects a transition out of a terminal state (I5/I6)."""
+    run_id = (await _create_run(auth_client, seed_pipeline.id))["id"]
+
+    # Drive the run to a terminal state through legal transitions.
+    start = await auth_client.patch(f"/api/v1/runs/{run_id}", json={"status": "running"})
+    assert start.status_code == 200
+    finish = await auth_client.patch(f"/api/v1/runs/{run_id}", json={"status": "failed"})
+    assert finish.status_code == 200
+
+    # Resurrecting it is a 409, and the stored state must be untouched.
+    resp = await auth_client.patch(f"/api/v1/runs/{run_id}", json={"status": "running"})
+    assert resp.status_code == 409
+
+    follow = await auth_client.get(f"/api/v1/runs/{run_id}")
+    assert follow.json()["status"] in ("failed", "FAILED")
+
+
 async def test_get_run_steps(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """GET /runs/{id}/steps returns step list."""
     run_data = await _create_run(auth_client, seed_pipeline.id)

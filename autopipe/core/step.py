@@ -2,7 +2,10 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .execution import CancellationToken
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +21,11 @@ class Step(ABC):
         # Named input bindings (param -> upstream step), set by the loader
         # when a step declares `inputs:` in config; empty means legacy behavior.
         self.input_bindings: Dict[str, str] = {}
+        # Set by the execution engine before invocation so that long-running
+        # steps can cooperatively abort mid-step. Deliberately an attribute
+        # rather than a run() kwarg: run() kwargs are a duck-typed data bag, so
+        # a control object there would corrupt input semantics.
+        self.cancellation_token: Optional[CancellationToken] = None
 
     def __repr__(self) -> str:
         return f"Step(name={self.name})"

@@ -1,55 +1,78 @@
-"""Background task runner for executing autopipe pipelines.
+"""Background execution coordinator for dashboard-triggered pipeline runs.
 
-Bridges the dashboard's Run/Step DB records with autopipe.core.Pipeline:
-1. Loads a pipeline from config dict using autopipe's loader
-2. Runs it step-by-step in a background thread
-3. Creates/updates Step DB records with status, timestamps, metrics
-4. Broadcasts status changes via WebSocket in real time
-5. Updates DB run record with final status, timestamps, metrics, errors
+This module is deliberately thin. It does **not** implement pipeline semantics:
+it loads a configuration, hands the pipeline to the canonical engine
+(:mod:`autopipe.core.execution`), projects the resulting events into the database
+via :class:`app.executor.sink.RunEventSink`, and guarantees that every run
+reaches a terminal state.
+
+The execution loop that used to live here has been deleted. It had drifted from
+the core loop — it ignored named input bindings (``inputs:`` in YAML) and never
+assigned ``step.output`` — so the same pipeline behaved differently depending on
+whether it was launched from the CLI or the dashboard. See
+``docs/architecture/EXECUTION_MODEL.md``.
+
+Failure containment (invariant I11)
+-----------------------------------
+``_run_pipeline_in_thread`` is the target of a daemon thread. Nothing may escape
+it: an escaping exception used to kill the thread and leave the run row claiming
+RUNNING forever, with no error message and no event, until the next process
+restart swept it. This module therefore guarantees that:
+
+* the engine never propagates (it returns a terminal ``ExecutionResult``),
+* ``finally`` always attempts a terminal write,
+* if that write itself fails, the failure is logged at CRITICAL level,
+* the run slot, log handler and cancellation registration are always released.
 """
 
 import asyncio
-import contextvars
 import logging
-import sys
 import threading
+import time
 import traceback
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
-from app.db.models import Run, RunStatus, Step, StepStatus
 from app.executor.registry import register_run, unregister_run
-from app.utils.datetime_utils import safe_duration_seconds
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
+from app.executor.sink import (
+    RunEventSink,
+    RunStateStore,
+    _current_run_id,
+    _WebSocketLogHandler,
+)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from autopipe.core.execution import (
+    ENGINE_VERSION,
+    CancellationToken,
+    EventKind,
+    ExecutionContext,
+    ExecutionEngine,
+    ExecutionEvent,
+    ExecutionResult,
+)
+from autopipe.core.run_state import RunState
+from autopipe.exceptions import StateTransitionError
 
 try:
     import psutil
-except ImportError:  # pragma: no cover
-    psutil = None
+except ImportError:  # pragma: no cover - optional runtime dependency
+    psutil = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
-# Ensure autopipe is importable — add project root to sys.path
-_PROJECT_ROOT = str(Path(__file__).resolve().parents[5])
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
-
-# Sync DB engine for background threads (can't use async engine from threads)
-_sync_engine = None
-_SyncSessionLocal = None
+# Sync DB engine for background threads (SQLAlchemy async sessions cannot be used
+# from a non-async thread). ``autopipe`` importability is established once in this
+# package's ``__init__``, which runs before this module is imported.
+_sync_engine: Any = None
+_SyncSessionLocal: Optional[sessionmaker] = None
 _sync_engine_lock = threading.Lock()
 
-# Reference to the running event loop for scheduling async broadcasts
-_event_loop: asyncio.AbstractEventLoop | None = None
-
-# Identifies which run a background thread is executing; log handlers use it
-# to keep concurrent runs' records out of each other's WebSocket streams.
-_current_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "current_run_id", default=None
-)
+# Reference to the running event loop for scheduling async broadcasts. Retained
+# as module state because existing callers (and tests) patch it; its value is
+# passed explicitly into each RunEventSink rather than read by the sink itself.
+_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # Upper bound on simultaneously executing pipeline runs. Each run occupies a
 # daemon thread; unbounded spawning let N parallel requests exhaust memory.
@@ -58,9 +81,28 @@ _run_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
 
 
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
-    """Store the event loop reference for async broadcasts from threads."""
+    """Record the application event loop for thread -> loop broadcasts."""
     global _event_loop
     _event_loop = loop
+
+
+def _configure_sqlite(engine: Any) -> None:
+    """Apply the same SQLite hardening the async app engine uses.
+
+    The executor previously created its own engine with none of these pragmas, so
+    the code path that actually writes run/step rows ran with foreign keys OFF, a
+    default busy timeout, and no WAL — while the API's engine had all three. That
+    asymmetry is a data-integrity bug, not a tuning difference.
+    """
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
 
 
 def _get_sync_session_factory() -> sessionmaker:
@@ -79,436 +121,216 @@ def _get_sync_session_factory() -> sessionmaker:
         if not db_url.startswith("sqlite"):
             db_url = db_url.replace("sqlite://", "sqlite:///")
         _sync_engine = create_engine(db_url, echo=False)
+        if db_url.startswith("sqlite"):
+            _configure_sqlite(_sync_engine)
         _SyncSessionLocal = sessionmaker(_sync_engine, expire_on_commit=False)
         return _SyncSessionLocal
 
 
-def _load_pipeline(config: dict):
-    """Load a Pipeline from a config dict using autopipe's loader."""
-    if _PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, _PROJECT_ROOT)
+def _load_pipeline(config: dict) -> Any:
+    """Load a Pipeline from a config dict using the core loader."""
     from autopipe.core.loader import load_pipeline_from_config
 
     return load_pipeline_from_config(config)
 
 
-def _schedule_async(coro):
-    """Schedule an async coroutine on the event loop from a sync thread."""
-    if _event_loop is None or _event_loop.is_closed():
-        return
-    try:
-        asyncio.run_coroutine_threadsafe(coro, _event_loop)
-    except RuntimeError:
-        logger.debug("Failed to schedule async coroutine", exc_info=True)
-
-
-def _broadcast_run_status(run_id: str, status: str, data: dict | None = None) -> None:
-    """Broadcast a run status change via WebSocket."""
-    from app.api.v1.endpoints.websocket import broadcast_run_status
-
-    _schedule_async(broadcast_run_status(run_id, status, data))
-
-
-def _broadcast_step_status(run_id: str, step_id: str, step_name: str, status: str) -> None:
-    """Broadcast a step status change via WebSocket as a run.log event."""
-    from app.api.v1.endpoints.websocket import broadcast_run_log
-
-    _schedule_async(broadcast_run_log(run_id, step_id, "info", f"Step {step_name}: {status}"))
-
-
-def _broadcast_step_metric(run_id: str, step_id: str, metric_name: str, value: float) -> None:
-    """Broadcast a step metric via WebSocket."""
-    from app.api.v1.endpoints.websocket import broadcast_run_metric
-
-    _schedule_async(broadcast_run_metric(run_id, step_id, metric_name, value))
-
-
-class _WebSocketLogHandler(logging.Handler):
-    """Captures Python log records during step execution and broadcasts them."""
-
-    def __init__(self, run_id: str, step_id: str):
-        super().__init__()
-        self.run_id = run_id
-        self.step_id = step_id
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Drop records emitted by OTHER concurrently-running pipelines.
-
-        The 'autopipe' logger tree is shared across threads; without this,
-        run B's step logs stream into run A's WebSocket channel.
-        """
-        return _current_run_id.get() == self.run_id
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            _broadcast_step_status(self.run_id, self.step_id, "", f"[{record.levelname}] {msg}")
-        except Exception:
-            logger.debug("WebSocket log broadcast failed", exc_info=True)
-
-
-def _update_run_status(
-    db: Session,
-    run_id: str,
-    status: RunStatus,
-    error_message: str | None = None,
-    metrics: dict | None = None,
-) -> None:
-    """Update run status and timestamps in the DB."""
-    run = db.get(Run, run_id)
-    if not run:
-        return
-    run.status = status
-    if status == RunStatus.RUNNING and not run.started_at:
-        run.started_at = datetime.now(timezone.utc)
-    if status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
-        run.completed_at = datetime.now(timezone.utc)
-        if run.started_at:
-            run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
-    if error_message:
-        run.error_message = error_message
-    if metrics:
-        run.metrics = metrics
-    db.commit()
-
-    # Broadcast status change
-    status_str = status.value if hasattr(status, "value") else str(status)
-    data: dict = {}
-    if error_message:
-        data["error_message"] = error_message
-    if metrics:
-        data["metrics"] = metrics
-    _broadcast_run_status(run_id, status_str, data)
-
-
-def _update_step_status(
-    db: Session,
-    step_id: str,
-    status: StepStatus,
-    run_id: str = "",
-    step_name: str = "",
-    metrics: dict | None = None,
-    error_message: str | None = None,
-    duration_seconds: float | None = None,
-) -> None:
-    """Update step status and timestamps in the DB + broadcast."""
-    step = db.get(Step, step_id)
-    if not step:
-        return
-    step.status = status
-    if status == StepStatus.RUNNING and not step.started_at:
-        step.started_at = datetime.now(timezone.utc)
-    if status == StepStatus.SUCCESS:
-        step.completed_at = datetime.now(timezone.utc)
-        if step.started_at:
-            step.duration_seconds = safe_duration_seconds(step.started_at, step.completed_at)
-    if status == StepStatus.FAILED:
-        step.error_message = error_message
-    if metrics:
-        step.metrics = metrics
-    if duration_seconds is not None:
-        step.duration_seconds = duration_seconds
-    db.commit()
-
-    # Broadcast step status change
-    if run_id:
-        status_str = status.value if hasattr(status, "value") else str(status)
-        _broadcast_step_status(run_id, step_id, step_name, status_str)
-
-        # Broadcast individual metrics
-        if metrics and status == StepStatus.SUCCESS:
-            for metric_name, value in metrics.items():
-                if isinstance(value, (int, float)):
-                    _broadcast_step_metric(run_id, step_id, metric_name, float(value))
-
-
-def _build_step_inputs(core_step, outputs: dict, initial_inputs: dict | None) -> dict:
-    """Build inputs for a step from dependency outputs or initial inputs."""
-    if core_step.depends_on:
-        return {dep: outputs[dep] for dep in core_step.depends_on if dep in outputs}
-    return dict(initial_inputs or {})
-
-
-def _try_visualize(core_step, inputs: dict) -> None:
-    """Attempt to visualize step output; non-critical."""
-    try:
-        core_step.visualize(**inputs)
-    except Exception:
-        logger.debug("Step visualization failed", exc_info=True)
-
-
-def _collect_run_metrics(pipeline, execution_order: list) -> dict:
-    """Collect run-level metrics from all step metrics."""
-    run_metrics: dict = {}
-    for step_name in execution_order:
-        core_step = pipeline.steps[step_name]
-        if core_step.metrics:
-            for k, v in core_step.metrics.items():
-                run_metrics[f"{step_name}_{k}" if k != step_name else k] = v
-    return run_metrics
-
-
-def _collect_system_metrics() -> dict:
-    """Collect CPU and memory usage via psutil."""
-    metrics: dict = {}
+def _collect_system_metrics() -> Dict[str, Any]:
+    """Collect CPU and memory usage via psutil (best-effort telemetry)."""
+    metrics: Dict[str, Any] = {}
     if not psutil:
         return metrics
-
     try:
         metrics["cpu_percent"] = round(psutil.cpu_percent(interval=0.1), 1)
         metrics["memory_percent"] = round(psutil.virtual_memory().percent, 1)
     except Exception:
         logger.debug("psutil CPU/memory metrics failed", exc_info=True)
-
     return metrics
 
 
-def _finalize_run(
-    SessionLocal: sessionmaker,
+def _load_failure_result(
     run_id: str,
-    pipeline,
-    execution_order: list,
+    pipeline_name: str,
+    exc: Exception,
+    sink: RunEventSink,
     cancelled: bool,
-    run_failed: bool,
-    failed_step_name: str | None,
-) -> None:
-    """Update final run status and metrics."""
-    with SessionLocal() as db:
-        if cancelled:
-            _update_run_status(
-                db, run_id, RunStatus.CANCELLED, error_message="Run cancelled by user"
-            )
-        elif run_failed:
-            error_msg = (
-                f"Step '{failed_step_name}' failed" if failed_step_name else "Pipeline failed"
-            )
-            _update_run_status(db, run_id, RunStatus.FAILED, error_message=error_msg)
-        else:
-            run_metrics = _collect_run_metrics(pipeline, execution_order)
-            run_metrics.update(_collect_system_metrics())
-            _update_run_status(db, run_id, RunStatus.SUCCESS, metrics=run_metrics or None)
+) -> ExecutionResult:
+    """Build a FAILED result for a configuration that never became a pipeline.
+
+    A configuration that cannot be loaded never reaches the engine, so the engine
+    cannot produce its ``RUN_STARTED`` event. Emitting it here keeps the event
+    stream shape identical to every other failure (a plan that could not be
+    resolved), so consumers need no special case.
+    """
+    message = f"Pipeline load error: {exc}"
+    now = time.time()
+    state = RunState.CANCELLED if cancelled else RunState.FAILED
+    sink.emit(
+        ExecutionEvent(
+            kind=EventKind.RUN_STARTED,
+            run_id=run_id,
+            sequence=0,
+            timestamp=now,
+            state=RunState.RUNNING.value,
+            data={"execution_order": [], "plan_resolved": False},
+            error=message,
+            error_type=type(exc).__name__,
+        )
+    )
+    return ExecutionResult(
+        run_id=run_id,
+        pipeline_name=pipeline_name,
+        state=state,
+        started_at=now,
+        finished_at=now,
+        error=message,
+        error_type=type(exc).__name__,
+        exception=exc,
+        engine_version=ENGINE_VERSION,
+    )
 
 
-def _mark_step_skipped(
-    SessionLocal: sessionmaker, step_id: str, run_id: str, step_name: str
-) -> None:
-    """Mark a single step as SKIPPED and broadcast."""
-    with SessionLocal() as db:
-        _update_step_status(db, step_id, StepStatus.SKIPPED, run_id=run_id, step_name=step_name)
-
-
-def _mark_remaining_skipped(
-    SessionLocal: sessionmaker,
-    execution_order: list,
-    step_id_map: dict,
+def _execute(
     run_id: str,
-    from_step_name: str,
-) -> None:
-    """Mark remaining steps after `from_step_name` as SKIPPED."""
-    idx = execution_order.index(from_step_name) + 1
-    for remaining in execution_order[idx:]:
-        _mark_step_skipped(SessionLocal, step_id_map[remaining], run_id, remaining)
+    pipeline_config: dict,
+    initial_inputs: Optional[dict],
+    cancel_event: threading.Event,
+    sink: RunEventSink,
+) -> ExecutionResult:
+    """Load the pipeline and run it on the canonical engine.
+
+    Loading is not execution: a configuration that cannot be instantiated is
+    reported as a FAILED result rather than handed to the engine, because there
+    is no pipeline object for the engine to plan.
+    """
+    pipeline_name = str((pipeline_config or {}).get("name") or run_id)
+    try:
+        pipeline = _load_pipeline(pipeline_config)
+    except Exception as exc:
+        logger.error("Failed to load pipeline for run %s: %s", run_id, exc)
+        return _load_failure_result(run_id, pipeline_name, exc, sink, cancel_event.is_set())
+
+    context = ExecutionContext(
+        run_id=run_id,
+        pipeline_name=str(getattr(pipeline, "name", pipeline_name)),
+        initial_inputs=dict(initial_inputs) if initial_inputs else None,
+        # The registry's event *is* the token's event, so a PATCH /runs/{id}
+        # cancellation reaches the engine without polling a second flag.
+        cancellation=CancellationToken(cancel_event),
+        sink=sink,
+        metadata={"origin": "dashboard", "engine": ENGINE_VERSION},
+    )
+    return ExecutionEngine().execute(pipeline, context)
 
 
-class _LogCapture:
-    """Context manager that attaches a WebSocket log handler for the duration."""
+def _finalize(run_id: str, result: ExecutionResult | None, store: RunStateStore) -> None:
+    """Write the terminal state. The single place a dashboard run's life ends.
 
-    def __init__(self, run_id: str, step_id: str):
-        self.handler = _WebSocketLogHandler(run_id, step_id)
-        self.handler.setLevel(logging.DEBUG)
-        self.logger = logging.getLogger("autopipe")
+    A ``None`` result means the engine never produced one (an escape inside
+    ``_execute``), in which case the run is forced into FAILED. Any persistence
+    failure here is logged loudly rather than left to rot the row.
+    """
+    if result is None:
+        _force_terminal(run_id, store)
+        return
 
-    def __enter__(self):
-        self.logger.addHandler(self.handler)
-        return self
+    metrics = dict(result.metrics)
+    if result.state is RunState.SUCCESS:
+        metrics.update(_collect_system_metrics())
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.logger.removeHandler(self.handler)
-        return False
+    persisted = store.finish_run(
+        run_id,
+        result.state,
+        error=result.error,
+        metrics=metrics or None,
+        loop=_event_loop,
+    )
+    if not persisted:
+        logger.critical(
+            "Run %s terminal state %s was NOT persisted to the database",
+            run_id,
+            result.state.value,
+        )
+    if result.sink_errors:
+        logger.warning(
+            "Run %s recorded %d observability failure(s): %s",
+            run_id,
+            len(result.sink_errors),
+            result.sink_errors[:3],
+        )
+    logger.info(
+        "Run %s finished as %s in %.3fs", run_id, result.state.value, result.duration_seconds
+    )
+
+
+def _force_terminal(run_id: str, store: RunStateStore) -> None:
+    """Last-resort terminal write when the engine never returned a result.
+
+    No recovery override is used: ``PENDING -> FAILED`` and ``RUNNING -> FAILED``
+    are ordinary legal transitions. If the run already reached a terminal state
+    there is nothing to force. If the write itself fails, all that remains is to
+    say so at the highest severity.
+    """
+    try:
+        store.finish_run(
+            run_id,
+            RunState.FAILED,
+            error="Execution aborted by an internal error",
+            loop=_event_loop,
+        )
+    except StateTransitionError:
+        logger.info("Run %s is already terminal; nothing to force", run_id)
+    except BaseException:
+        logger.critical("Could not force run %s into a terminal state", run_id, exc_info=True)
 
 
 def _run_pipeline_in_thread(
-    run_id: str, pipeline_config: dict, initial_inputs: dict | None = None
+    run_id: str, pipeline_config: dict, initial_inputs: Optional[dict] = None
 ) -> None:
-    """Execute a pipeline run in a background thread with step-level tracking."""
-    SessionLocal = _get_sync_session_factory()
+    """Execute one run on the canonical engine. Guaranteed not to raise.
 
-    # Register run for cancellation tracking
-    cancel_event = register_run(run_id)
-    token = _current_run_id.set(run_id)
-
-    # Queue behind other active runs; the row stays PENDING (never marked
-    # RUNNING) until a slot frees up.
-    _run_slots.acquire()
-    try:
-        # Mark run as RUNNING
-        with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if not run:
-                logger.error("Run %s not found, cannot execute", run_id)
-                return
-            run.status = RunStatus.RUNNING
-            run.started_at = datetime.now(timezone.utc)
-            db.commit()
-
-        _broadcast_run_status(run_id, "running")
-
-        # Load pipeline from config
-        try:
-            pipeline = _load_pipeline(pipeline_config)
-        except Exception as e:
-            logger.error("Failed to load pipeline for run %s: %s", run_id, e)
-            logger.error(traceback.format_exc())
-            with SessionLocal() as db:
-                _update_run_status(
-                    db, run_id, RunStatus.FAILED, error_message=f"Pipeline load error: {e}"
-                )
-            return
-
-        # Resolve execution order
-        try:
-            execution_order = pipeline.execution_order
-        except ValueError as e:
-            logger.error("Pipeline has cycle or invalid deps for run %s: %s", run_id, e)
-            with SessionLocal() as db:
-                _update_run_status(db, run_id, RunStatus.FAILED, error_message=str(e))
-            return
-
-        # Create Step DB records (PENDING)
-        step_id_map: dict = {}
-        with SessionLocal() as db:
-            for i, step_name in enumerate(execution_order):
-                core_step = pipeline.steps[step_name]
-                db_step = Step(
-                    id=str(uuid.uuid4()),
-                    run_id=run_id,
-                    name=step_name,
-                    step_type=type(core_step).__name__,
-                    status=StepStatus.PENDING,
-                    order_index=i,
-                )
-                db.add(db_step)
-                db.flush()
-                step_id_map[step_name] = db_step.id
-            db.commit()
-
-        # Execute pipeline step-by-step
-        outputs = dict(initial_inputs or {})
-        run_failed = False
-        failed_step_name = None
-        cancelled = False
-
-        for step_name in execution_order:
-            # Check for cancellation between steps
-            if cancel_event.is_set():
-                cancelled = True
-                _mark_step_skipped(SessionLocal, step_id_map[step_name], run_id, step_name)
-                _mark_remaining_skipped(
-                    SessionLocal, execution_order, step_id_map, run_id, step_name
-                )
-                break
-
-            if run_failed:
-                _mark_step_skipped(SessionLocal, step_id_map[step_name], run_id, step_name)
-                continue
-
-            core_step = pipeline.steps[step_name]
-            step_id = step_id_map[step_name]
-
-            # Mark step as RUNNING
-            with SessionLocal() as db:
-                _update_step_status(
-                    db, step_id, StepStatus.RUNNING, run_id=run_id, step_name=step_name
-                )
-
-            # Build inputs and execute
-            inputs = _build_step_inputs(core_step, outputs, initial_inputs)
-
-            with _LogCapture(run_id, step_id):
-                try:
-                    step_output = core_step.run(**inputs)
-                    outputs[step_name] = step_output
-
-                    step_metrics = dict(core_step.metrics) if core_step.metrics else None
-                    _try_visualize(core_step, inputs)
-
-                    with SessionLocal() as db:
-                        _update_step_status(
-                            db,
-                            step_id,
-                            StepStatus.SUCCESS,
-                            metrics=step_metrics,
-                            run_id=run_id,
-                            step_name=step_name,
-                        )
-
-                except Exception as e:
-                    step_error = f"{type(e).__name__}: {e}"
-                    logger.error("Step %s failed for run %s: %s", step_name, run_id, step_error)
-                    run_failed = True
-                    failed_step_name = step_name
-
-                    with SessionLocal() as db:
-                        _update_step_status(
-                            db,
-                            step_id,
-                            StepStatus.FAILED,
-                            error_message=step_error,
-                            run_id=run_id,
-                            step_name=step_name,
-                        )
-
-        # Finalize run status
-        _finalize_run(
-            SessionLocal, run_id, pipeline, execution_order, cancelled, run_failed, failed_step_name
-        )
-
-        logger.info(
-            "Run %s %s",
-            run_id,
-            "cancelled" if cancelled else "failed" if run_failed else "completed successfully",
-        )
-    finally:
-        _run_slots.release()
-        _current_run_id.reset(token)
-        # Always unregister the run
-        unregister_run(run_id)
-
-
-def sweep_orphaned_runs() -> int:
-    """Mark runs/steps stuck in RUNNING from a previous process as FAILED.
-
-    A crash or restart leaves rows claiming active execution forever; the UI
-    then shows phantom running pipelines. Called once at application startup,
-    before any new run can be dispatched.
+    This is a daemon-thread target: an escaping exception would kill the thread
+    and leave the run row claiming RUNNING forever. The structure below is the
+    containment boundary; do not add an unguarded operation outside the try.
     """
     SessionLocal = _get_sync_session_factory()
-    swept = 0
-    with SessionLocal() as db:
-        orphan_runs = db.scalars(select(Run).where(Run.status == RunStatus.RUNNING)).all()
-        for run in orphan_runs:
-            run.status = RunStatus.FAILED
-            run.error_message = "Interrupted by server restart"
-            run.completed_at = datetime.now(timezone.utc)
-            swept += 1
-        orphan_steps = db.scalars(select(Step).where(Step.status == StepStatus.RUNNING)).all()
-        for step in orphan_steps:
-            step.status = StepStatus.FAILED
-            step.error_message = "Interrupted by server restart"
-        db.commit()
-    if swept:
-        logger.warning("Swept %d orphaned RUNNING run(s) at startup", swept)
-    return swept
+    store = RunStateStore(SessionLocal)
+    cancel_event = register_run(run_id)
+    token = _current_run_id.set(run_id)
+    sink = RunEventSink(run_id, store, loop=_event_loop)
+
+    _run_slots.acquire()
+    result: Optional[ExecutionResult] = None
+    try:
+        result = _execute(run_id, pipeline_config, initial_inputs, cancel_event, sink)
+    except BaseException as exc:
+        logger.critical(
+            "Run %s escaped the execution engine: %s: %s\n%s",
+            run_id,
+            type(exc).__name__,
+            exc,
+            traceback.format_exc(),
+        )
+    finally:
+        try:
+            sink.close()
+            _finalize(run_id, result, store)
+        except BaseException:
+            logger.critical("Run %s could not be finalized", run_id, exc_info=True)
+            _force_terminal(run_id, store)
+        finally:
+            _run_slots.release()
+            _current_run_id.reset(token)
+            unregister_run(run_id)
 
 
 async def execute_run(
-    run_id: str, pipeline_config: dict, initial_inputs: dict | None = None
+    run_id: str, pipeline_config: dict, initial_inputs: Optional[dict] = None
 ) -> None:
     """Launch a pipeline run in a background thread.
 
-    This is the async entry point called by FastAPI BackgroundTasks.
-    It captures the current event loop for WebSocket broadcasts,
-    then spawns a daemon thread for the actual work.
+    The async entry point called by FastAPI BackgroundTasks. It captures the
+    current event loop for WebSocket broadcasts, then spawns a daemon thread for
+    the actual work.
     """
     global _event_loop
     try:
@@ -523,3 +345,40 @@ async def execute_run(
         name=f"pipeline-run-{str(run_id)[:8]}",
     )
     thread.start()
+
+
+def sweep_orphaned_runs() -> int:
+    """Mark runs/steps left RUNNING by a dead process as FAILED.
+
+    A crash or restart leaves rows claiming active execution forever; the UI then
+    shows phantom running pipelines. Called once at application startup, before
+    any new run can be dispatched. This is the sanctioned recovery path — the
+    ``RUNNING -> FAILED`` transition is ordinary and legal.
+    """
+    SessionLocal = _get_sync_session_factory()
+    return RunStateStore(SessionLocal).sweep_orphaned()
+
+
+# --------------------------------------------------------------------------
+# Re-exports
+#
+# These names have callers in endpoints and tests outside this module. They are
+# gathered here deliberately so that the set of symbols other code may rely on
+# is explicit rather than "whatever happens to be module-level".
+# --------------------------------------------------------------------------
+from app.executor.registry import cancel_run  # noqa: E402  (re-export)
+from app.executor.sink import schedule_broadcast  # noqa: E402  (re-export)
+
+__all__ = [
+    "MAX_CONCURRENT_RUNS",
+    "_WebSocketLogHandler",
+    "_current_run_id",
+    "_event_loop",
+    "_get_sync_session_factory",
+    "_run_pipeline_in_thread",
+    "cancel_run",
+    "execute_run",
+    "schedule_broadcast",
+    "set_event_loop",
+    "sweep_orphaned_runs",
+]

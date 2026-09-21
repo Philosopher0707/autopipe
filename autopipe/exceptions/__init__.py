@@ -88,9 +88,18 @@ class AuthenticationError(LLMError):
     """Raised when authentication fails."""
 
 
-
 class VisualizationError(AutoPipeError):
     """Raised when visualization fails."""
+
+
+class StateTransitionError(AutoPipeError):
+    """Raised when an execution lifecycle transition is not permitted.
+
+    The single mutation gate for run/step state is
+    :func:`autopipe.core.run_state.ensure_transition`; it raises this when a
+    transition is unknown or would leave a terminal state without an explicit
+    recovery override (invariants I5/I6).
+    """
 
 
 class DataLoadingError(AutoPipeError):

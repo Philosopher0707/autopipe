@@ -29,6 +29,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from autopipe.core.run_state import RunState, ensure_transition
+from autopipe.exceptions import StateTransitionError
+
 router = APIRouter()
 
 
@@ -202,15 +205,26 @@ async def update_run(
 
     # Update fields
     if update.status:
-        run.status = RunStatus(update.status)
-        if update.status == RunStatus.RUNNING and not run.started_at:
+        # All run-state mutation — API, executor, sweep — passes through the one
+        # transition gate (invariant I5). An illegal move (e.g. resurrecting a
+        # finished run) is a 409, not a silent write.
+        try:
+            target = ensure_transition(old_status, update.status, context=f"run={run_id}")
+        except StateTransitionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+        run.status = RunStatus(target.value)
+        if target is RunState.RUNNING and not run.started_at:
             run.started_at = datetime.now(timezone.utc)
-        if update.status in [RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED]:
+        if target.is_terminal:
             run.completed_at = datetime.now(timezone.utc)
             if run.started_at:
                 run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
         # Signal the executor thread to stop if cancelling
-        if update.status == RunStatus.CANCELLED.value:
+        if target is RunState.CANCELLED:
             signal_cancel(run_id)
 
     if update.config is not None:
