@@ -173,6 +173,7 @@ class Run(Base):
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    provenance: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     metrics: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     logs_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

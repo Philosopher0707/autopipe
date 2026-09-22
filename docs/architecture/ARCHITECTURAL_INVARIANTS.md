@@ -217,16 +217,19 @@ request persists nothing.
 ## Provenance (Tier 4)
 
 ### I14 — Results have provenance. / I15 — Missing provenance is explicit.
-- **Definition:** a run records the hash of the config it executed; where a
-  provenance field cannot be populated it is NULL/absent, never a placeholder.
+- **Definition:** a run records the hash of the config it executed plus an
+  env/code/origin snapshot; where a provenance field cannot be populated it
+  is NULL/absent (or the explicit string "unavailable" for code_revision),
+  never a placeholder.
 - **Owner:** `autopipe/dashboard/backend/app/db/models.py` (`hash_config`,
-  `validates("config")`, `Run.config_hash`).
+  `validates("config")`, `Run.config_hash`, `Run.provenance`);
+  `app/core/provenance.py` (`build_provenance`).
 - **Test:** `tests/test_run_provenance.py` (backend).
-- **Status:** PARTIAL. Config-version provenance is implemented and tested
-  (Pipeline + Run `config_hash`, canonical sha256). Engine version, environment
-  fingerprint, artifact linkage, data and seeds are still not durable;
-  pre-migration runs keep `config_hash = NULL` (explicit "not recorded", never
-  retro-fitted).
+- **Status:** VERIFIED for config hash + engine/origin/environment/code
+  snapshot on all Run creation paths (dashboard, experiment, seed).
+  Pre-migration runs keep `provenance = NULL` (explicit "not recorded",
+  never retro-fitted). Artifact linkage and step-level data/seed provenance
+  remain open — see PROVENANCE_MODEL.md.
 
 ---
 

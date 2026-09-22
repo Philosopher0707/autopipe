@@ -24,6 +24,12 @@ adheres to [Semantic Versioning](https://semver.org/).
   hash is maintained by a `validates("config")` hook; the run hash is written
   once at insert and describes that run's own config copy. Pre-existing rows
   keep NULL ("not recorded").
+- `Run.provenance` JSON snapshot at creation on every path (dashboard
+  trigger, experiment trials, demo seed): engine version, origin, environment
+  fingerprint (python/platform/package versions), git `code_revision`
+  (`-dirty` aware, `"unavailable"` when git cannot run), and top-level
+  config `seed`/`seeds`. Historical rows keep NULL (I15, no retro-fitting).
+  Alembic migration `3e7a9c4d1f62` (additive, reversible).
 - Unique `(pipeline_id, run_number)` on runs with a retrying allocator
   (`app/api/v1/endpoints/run_numbers.py`): concurrent triggers no longer race
   the read-max-then-insert numbering; exhaustion is an explicit 409 instead of

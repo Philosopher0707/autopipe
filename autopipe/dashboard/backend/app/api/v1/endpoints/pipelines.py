@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from app.api.v1.endpoints.run_numbers import RunNumberConflictError, insert_runs_numbered
 from app.core.auth import require_role
+from app.core.provenance import build_provenance
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus, hash_config
 from app.db.session import get_db
 from app.executor.admission import RunAdmissionError, admit_run_config
@@ -38,6 +39,7 @@ def _serialize_run(run: Run, pipeline_name: Optional[str] = None) -> RunResponse
         completed_at=run.completed_at,
         duration_seconds=run.duration_seconds,
         config=run.config,
+        provenance=run.provenance,
         metrics=run.metrics,
         error_message=run.error_message,
         created_by=run.created_by,
@@ -281,6 +283,7 @@ async def trigger_run(
     # project_id is hoisted: a retry rolls back, which expires session
     # objects, and the closure must not lazy-load outside a greenlet.
     project_id = pipeline.project_id
+    provenance = build_provenance("dashboard", run_config)
     try:
         run = (
             await insert_runs_numbered(
@@ -294,6 +297,7 @@ async def trigger_run(
                         run_number=first,
                         config=run_config,
                         config_hash=hash_config(run_config),
+                        provenance=provenance,
                     )
                 ],
             )

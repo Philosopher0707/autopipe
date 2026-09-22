@@ -9,6 +9,7 @@ import logging
 import uuid
 
 from app.core.auth import get_password_hash
+from app.core.provenance import build_provenance
 from app.db.models import (
     ActivityLog,
     AlertSeverity,
@@ -325,6 +326,7 @@ async def seed_runs(
                 completed_at=completed,
                 duration_seconds=duration,
                 config={"override": f"run_{i}"},
+                provenance=build_provenance("seed", {"override": f"run_{i}"}),
                 metrics={
                     "loss": round(random.uniform(0.05, 0.35), 4),
                     "accuracy": round(random.uniform(0.85, 0.97), 4),

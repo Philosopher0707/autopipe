@@ -124,6 +124,7 @@ class RunInDB(RunBase):
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     metrics: Optional[Dict[str, Any]] = None
+    provenance: Optional[Dict[str, Any]] = None
     logs_path: Optional[str] = None
     error_message: Optional[str] = None
     created_by: Optional[str] = None

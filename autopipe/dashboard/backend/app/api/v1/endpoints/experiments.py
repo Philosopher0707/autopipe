@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from app.api.v1.endpoints.run_numbers import RunNumberConflictError, insert_runs_numbered
 from app.core.auth import require_role
+from app.core.provenance import build_provenance
 from app.db.models import ChartArtifact, Experiment, Pipeline, Run, RunStatus, hash_config
 from app.db.session import get_db
 from app.executor.admission import RunAdmissionError, admit_run_config
@@ -334,6 +335,7 @@ def _serialize_run(run: Run, pipeline_name: str | None = None) -> RunResponse:
         completed_at=run.completed_at,
         duration_seconds=run.duration_seconds,
         config=run.config,
+        provenance=run.provenance,
         metrics=run.metrics,
         error_message=run.error_message,
         created_by=run.created_by,
@@ -447,6 +449,7 @@ async def launch_trials(
                     run_number=first + i,
                     config=run_config,
                     config_hash=hash_config(run_config),
+                    provenance=build_provenance("experiment", run_config),
                 )
             )
         return runs

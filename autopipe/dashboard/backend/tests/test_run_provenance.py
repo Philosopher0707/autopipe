@@ -1,6 +1,9 @@
-"""M5: run config provenance (config_hash) and the unique run_number race."""
+"""M5/M6: run provenance (config_hash, env/code/seed snapshot) and run_number race."""
+
+import platform
 
 from app.api.v1.endpoints import run_numbers
+from app.core.provenance import build_provenance, seeds_from_config
 from app.db.models import Run, RunStatus, hash_config
 from httpx import AsyncClient
 
@@ -98,3 +101,60 @@ async def test_pipeline_config_hash_updates_on_config_change(
     assert resp.status_code == 200, resp.text
     assert resp.json()["config_hash"] == hash_config(new_config)
     assert resp.json()["config_hash"] != old_hash
+
+
+# --- env/code/seed snapshot (PROVENANCE_MODEL steps 2-3) ---
+
+
+def test_build_provenance_structure():
+    prov = build_provenance("dashboard", {"seed": 42})
+    assert prov["engine_version"], "engine_version must be recorded"
+    assert prov["origin"] == "dashboard"
+    assert prov["environment"]["python"] == platform.python_version()
+    assert prov["environment"]["platform"]
+    assert isinstance(prov["environment"]["packages"], dict)
+    assert prov["code_revision"], "code_revision is a sha or 'unavailable', never empty"
+    assert prov["seeds"] == {"seed": 42}
+
+
+def test_build_provenance_code_revision_unavailable_when_git_fails(monkeypatch):
+    """Git failure records the explicit marker, never a placeholder or crash."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("no git")
+
+    monkeypatch.setattr("app.core.provenance.subprocess.run", boom)
+    prov = build_provenance("dashboard")
+    assert prov["code_revision"] == "unavailable"
+
+
+def test_seeds_from_config():
+    assert seeds_from_config(None) is None
+    assert seeds_from_config({}) is None
+    assert seeds_from_config({"steps": []}) is None
+    assert seeds_from_config({"seeds": [1, 2]}) == {"seeds": [1, 2]}
+    assert seeds_from_config({"seed": 7, "steps": []}) == {"seed": 7}
+
+
+async def test_triggered_run_persists_provenance_snapshot(
+    auth_client: AsyncClient, seed_pipeline, db_session, wait_terminal
+):
+    """A real triggered run carries the env/code/origin snapshot through the API."""
+    resp = await auth_client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
+    assert resp.status_code == 201, resp.text
+    run_id = resp.json()["id"]
+    assert await wait_terminal(run_id)
+
+    detail = (await auth_client.get(f"/api/v1/runs/{run_id}")).json()
+    prov = detail.get("provenance")
+    assert prov, "triggered runs must persist a provenance snapshot"
+    assert prov["origin"] == "dashboard"
+    assert prov["engine_version"]
+    assert prov["environment"]["python"] == platform.python_version()
+    assert prov["code_revision"]
+    assert "seeds" in prov
+
+    db_session.expire_all()
+    run = await db_session.get(Run, run_id)
+    assert run is not None
+    assert run.provenance == prov, "API response must equal the durable row"
