@@ -30,6 +30,12 @@ adheres to [Semantic Versioning](https://semver.org/).
   (`-dirty` aware, `"unavailable"` when git cannot run), and top-level
   config `seed`/`seeds`. Historical rows keep NULL (I15, no retro-fitting).
   Alembic migration `3e7a9c4d1f62` (additive, reversible).
+- Executor writes the `MetricLog` time series: numeric step metrics land as
+  append-only rows (run/step/pipeline/experiment ids, `step_index` =
+  order_index) inside the same transaction as the step status CAS — a
+  conflict rolls the points back with it. Previously only demo seeds and a
+  manual POST endpoint populated metric series, so real runs had no
+  chartable trace.
 - Unique `(pipeline_id, run_number)` on runs with a retrying allocator
   (`app/api/v1/endpoints/run_numbers.py`): concurrent triggers no longer race
   the read-max-then-insert numbering; exhaustion is an explicit 409 instead of

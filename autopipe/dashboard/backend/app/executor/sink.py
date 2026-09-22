@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
-from app.db.models import Run, RunStatus, Step, StepStatus
+from app.db.models import MetricLog, Run, RunStatus, Step, StepStatus
 from app.utils.datetime_utils import safe_duration_seconds
 from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
@@ -262,6 +262,38 @@ def _conflict_error(context: str, expected: object, actual: object) -> StateTran
     )
 
 
+def _insert_metric_logs(
+    db: Any,
+    run_id: str,
+    step_id: str,
+    step_index: Optional[int],
+    metrics: Mapping[str, Any],
+) -> int:
+    """Append numeric step metrics to the MetricLog time series.
+
+    Called inside the mark_step transaction, so a CAS rollback discards the
+    rows with the status write — a conflict never leaves orphan points.
+    Non-numeric values and bools are skipped (they are not scalar series).
+    """
+    run = db.get(Run, run_id)
+    added = 0
+    for name, value in metrics.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            db.add(
+                MetricLog(
+                    run_id=run_id,
+                    step_id=step_id,
+                    pipeline_id=run.pipeline_id if run else None,
+                    experiment_id=run.experiment_id if run else None,
+                    metric_name=str(name)[:255],
+                    step_index=step_index,
+                    value=float(value),
+                )
+            )
+            added += 1
+    return added
+
+
 class RunStateStore:
     """The single owner of persisted run/step lifecycle state (invariant I5).
 
@@ -410,6 +442,8 @@ class RunStateStore:
                 fresh = db.get(Step, step_id)
                 actual = fresh.status if fresh else None
                 raise _conflict_error(f"run={run_id} step={step_name}", expected, actual)
+            if metrics:
+                _insert_metric_logs(db, run_id, step_id, row.order_index, metrics)
             db.commit()
 
         _broadcast_step_log(run_id, step_id, "info", f"Step {step_name}: {state.value}", loop)

@@ -75,8 +75,8 @@ ruff check . && ruff format --check .                            # whole-repo (e
 | 2 | Whole-repo ruff clean (examples/, test_simple.py) | DONE `4d52d740` |
 | 3 | WS auth parity + RunDetail token (I17) | DONE `6bdb5c08` |
 | 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | DONE `c240f604` (Run.provenance JSON + migration `3e7a9c4d1f62`; I14/I15 VERIFIED) |
-| 5 | MetricLog writer: nothing in executor writes metric series | **NOW** |
-| 6 | Artifact content-addressing in dashboard ORM | pending |
+| 5 | MetricLog writer: nothing in executor writes metric series | DONE (mark_step inserts MetricLog rows in CAS txn) |
+| 6 | Artifact content-addressing in dashboard ORM | **NOW** |
 | 7 | Drift producer bridge (core DriftReport → durable row) | pending |
 | 8 | LLM: drop SDK global-key mutation (I12) | pending |
 | 9 | Legacy SHA256 password migration/removal path | pending |

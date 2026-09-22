@@ -3,10 +3,13 @@
 import uuid
 from pathlib import Path
 
-from app.db.models import Base, Pipeline, Run, RunStatus, Step, StepStatus
+from app.db.models import Base, MetricLog, Pipeline, Run, RunStatus, Step, StepStatus
 from app.executor import runner
+from app.executor.sink import RunStateStore
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+
+from autopipe.core.run_state import StepState
 
 
 def _make_sync_session(db_path: Path) -> sessionmaker:
@@ -465,3 +468,57 @@ def test_registry_pending_cancel_survives_until_register():
     event = register_run(rid)
     assert event.is_set(), "queued cancel was lost before register"
     unregister_run(rid)
+
+
+def test_mark_step_writes_metric_log_series(tmp_path: Path):
+    """Numeric step metrics must land in MetricLog (the charts read path)."""
+    SessionLocal = _make_sync_session(tmp_path / "metrics.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    store = RunStateStore(SessionLocal)
+
+    store.mark_run_running(run_id)
+    store.create_steps(run_id, ["step1"], {"step1": "print"})
+    store.mark_step(run_id, "step1", StepState.RUNNING)
+    store.mark_step(
+        run_id,
+        "step1",
+        StepState.SUCCESS,
+        metrics={"loss": 0.25, "accuracy": 0.9, "ok": True, "note": "skip"},
+    )
+
+    with SessionLocal() as db:
+        rows = db.scalars(select(MetricLog).where(MetricLog.run_id == run_id)).all()
+        assert len(rows) == 2, "only numeric non-bool metrics become series points"
+        by_name = {r.metric_name: r for r in rows}
+        assert by_name["loss"].value == 0.25
+        assert by_name["accuracy"].value == 0.9
+        step = db.scalars(select(Step).where(Step.run_id == run_id)).first()
+        for r in rows:
+            assert r.step_id == step.id
+            assert r.step_index == step.order_index
+            assert r.pipeline_id is not None
+
+
+def test_mark_step_conflict_leaves_no_metric_logs(tmp_path: Path):
+    """A CAS conflict rolls back the status write and the metric rows with it."""
+    SessionLocal = _make_sync_session(tmp_path / "conflict.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    store = RunStateStore(SessionLocal)
+
+    store.mark_run_running(run_id)
+    store.create_steps(run_id, ["step1"], {"step1": "print"})
+    store.mark_step(run_id, "step1", StepState.RUNNING)
+    store.mark_step(run_id, "step1", StepState.SUCCESS, metrics={"first": 1.0})
+
+    # A terminal step is immutable: SUCCESS -> FAILED must raise and write
+    # nothing (the metric insert shares the rolled-back transaction).
+    import pytest
+
+    from autopipe.exceptions import StateTransitionError
+
+    with pytest.raises(StateTransitionError):
+        store.mark_step(run_id, "step1", StepState.FAILED, metrics={"second": 2.0})
+
+    with SessionLocal() as db:
+        rows = db.scalars(select(MetricLog).where(MetricLog.run_id == run_id)).all()
+        assert [r.metric_name for r in rows] == ["first"]
