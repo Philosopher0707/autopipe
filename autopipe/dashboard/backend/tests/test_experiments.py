@@ -1,7 +1,7 @@
 """Tests for experiment endpoints."""
 
 import pytest
-from app.db.models import Experiment, Pipeline
+from app.db.models import Experiment, Pipeline, RunStatus
 from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
@@ -86,9 +86,16 @@ async def test_launch_trials_simulate_rejected(
 
 
 async def test_launch_trials_real_dispatch(
-    auth_client: AsyncClient, seed_experiment: Experiment, seed_pipeline: Pipeline
+    auth_client: AsyncClient,
+    seed_experiment: Experiment,
+    seed_pipeline: Pipeline,
+    wait_terminal,
 ):
-    """POST /experiments/{id}/trials (default simulate=false) creates PENDING runs."""
+    """POST /experiments/{id}/trials (default simulate=false) dispatches real runs.
+
+    Each created run must reach a terminal state in the shared database:
+    creating PENDING rows nothing executes is exactly the old defect (I12).
+    """
     resp = await auth_client.post(
         f"/api/v1/experiments/{seed_experiment.id}/trials",
         json={
@@ -101,3 +108,5 @@ async def test_launch_trials_real_dispatch(
     data = resp.json()
     assert data["experiment_id"] == seed_experiment.id
     assert len(data["runs"]) == 3
+    for run in data["runs"]:
+        assert await wait_terminal(run["id"]) is RunStatus.SUCCESS

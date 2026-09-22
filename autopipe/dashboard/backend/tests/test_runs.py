@@ -1,7 +1,7 @@
 """Tests for run endpoints."""
 
 import pytest
-from app.db.models import Pipeline
+from app.db.models import Pipeline, Run, RunStatus
 from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
@@ -12,6 +12,22 @@ async def _create_run(auth_client: AsyncClient, pipeline_id: str) -> dict:
     resp = await auth_client.post(f"/api/v1/pipelines/{pipeline_id}/runs")
     assert resp.status_code == 201
     return resp.json()
+
+
+async def _insert_run(
+    db_session, pipeline_id: str, run_number: int = 1, status: RunStatus = RunStatus.PENDING
+) -> dict:
+    """Insert a run row directly, without dispatching the executor.
+
+    PATCH/DELETE/compare tests exercise those endpoints, not execution; a
+    real dispatch would race the worker for the run's status and metrics.
+    Trigger-path behavior is covered by test_trigger_run (terminal SUCCESS).
+    """
+    run = Run(pipeline_id=pipeline_id, status=status, run_number=run_number, config={})
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+    return {"id": run.id, "pipeline_id": run.pipeline_id, "status": run.status.value}
 
 
 async def test_list_runs_empty(auth_client: AsyncClient):
@@ -43,9 +59,9 @@ async def test_get_run_not_found(auth_client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_update_run_status(auth_client: AsyncClient, seed_pipeline: Pipeline):
+async def test_update_run_status(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """PATCH /runs/{id} updates run status."""
-    run_data = await _create_run(auth_client, seed_pipeline.id)
+    run_data = await _insert_run(db_session, seed_pipeline.id)
     resp = await auth_client.patch(
         f"/api/v1/runs/{run_data['id']}",
         json={
@@ -56,9 +72,9 @@ async def test_update_run_status(auth_client: AsyncClient, seed_pipeline: Pipeli
     assert resp.json()["status"] in ("running", "RUNNING")
 
 
-async def test_cancel_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
+async def test_cancel_run(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """PATCH /runs/{id} with status=cancelled cancels the run."""
-    run_data = await _create_run(auth_client, seed_pipeline.id)
+    run_data = await _insert_run(db_session, seed_pipeline.id)
     resp = await auth_client.patch(
         f"/api/v1/runs/{run_data['id']}",
         json={
@@ -69,9 +85,11 @@ async def test_cancel_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     assert resp.json()["status"] in ("cancelled", "CANCELLED")
 
 
-async def test_cannot_resurrect_a_terminal_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
+async def test_cannot_resurrect_a_terminal_run(
+    auth_client: AsyncClient, db_session, seed_pipeline: Pipeline
+):
     """PATCH /runs/{id} rejects a transition out of a terminal state (I5/I6)."""
-    run_id = (await _create_run(auth_client, seed_pipeline.id))["id"]
+    run_id = (await _insert_run(db_session, seed_pipeline.id))["id"]
 
     # Drive the run to a terminal state through legal transitions.
     start = await auth_client.patch(f"/api/v1/runs/{run_id}", json={"status": "running"})
@@ -96,9 +114,9 @@ async def test_get_run_steps(auth_client: AsyncClient, db_session, seed_pipeline
     assert "items" in data
 
 
-async def test_delete_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
+async def test_delete_run(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """DELETE /runs/{id} removes the run."""
-    run_data = await _create_run(auth_client, seed_pipeline.id)
+    run_data = await _insert_run(db_session, seed_pipeline.id)
     resp = await auth_client.delete(f"/api/v1/runs/{run_data['id']}")
     assert resp.status_code == 204
 
@@ -106,11 +124,11 @@ async def test_delete_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
     assert resp.status_code == 404
 
 
-async def test_compare_runs(auth_client: AsyncClient, seed_pipeline: Pipeline):
+async def test_compare_runs(auth_client: AsyncClient, db_session, seed_pipeline: Pipeline):
     """POST /runs/compare returns structured comparison for multiple runs."""
-    # Create two runs via the pipeline trigger endpoint
-    run_a = await _create_run(auth_client, seed_pipeline.id)
-    run_b = await _create_run(auth_client, seed_pipeline.id)
+    # Two run rows; no dispatch — this test owns the metrics it patches.
+    run_a = await _insert_run(db_session, seed_pipeline.id, run_number=1)
+    run_b = await _insert_run(db_session, seed_pipeline.id, run_number=2)
     run_id_a = run_a["id"]
     run_id_b = run_b["id"]
 

@@ -1,7 +1,7 @@
 """Tests for pipeline endpoints."""
 
 import pytest
-from app.db.models import Pipeline
+from app.db.models import Pipeline, RunStatus
 from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
@@ -91,10 +91,15 @@ async def test_list_pipelines_with_search(auth_client: AsyncClient, seed_pipelin
     assert "test-pipeline" in names
 
 
-async def test_trigger_run(auth_client: AsyncClient, seed_pipeline: Pipeline):
-    """POST /pipelines/{id}/runs creates a new run."""
+async def test_trigger_run(auth_client: AsyncClient, seed_pipeline: Pipeline, wait_terminal):
+    """POST /pipelines/{id}/runs creates a run and executes it to SUCCESS.
+
+    The response is written before dispatch, so its status is still pending;
+    the real claim is that the shared-database worker drives it terminal.
+    """
     resp = await auth_client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
     assert resp.status_code == 201
     data = resp.json()
     assert data["pipeline_id"] == seed_pipeline.id
     assert data["status"] in ("pending", "running")
+    assert await wait_terminal(data["id"]) is RunStatus.SUCCESS

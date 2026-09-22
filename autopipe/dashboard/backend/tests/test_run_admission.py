@@ -15,7 +15,7 @@ These tests pin the corrected behavior: a rejection persists nothing.
 import uuid
 
 import pytest
-from app.db.models import Pipeline, Run
+from app.db.models import Pipeline, Run, RunStatus
 from app.executor.admission import RunAdmissionError, admit_run_config
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -104,7 +104,7 @@ class TestTriggerRunAdmission:
         assert await _run_count(db_session) == before, "a rejected config must not create a Run"
 
     async def test_loadable_override_is_admitted_and_stored_verbatim(
-        self, auth_client: AsyncClient, seed_pipeline: Pipeline, db_session
+        self, auth_client: AsyncClient, seed_pipeline: Pipeline, db_session, wait_terminal
     ):
         resp = await auth_client.post(
             f"/api/v1/pipelines/{seed_pipeline.id}/runs",
@@ -113,6 +113,8 @@ class TestTriggerRunAdmission:
 
         assert resp.status_code == 201, resp.text
         run_id = resp.json()["id"]
+        # Admitted means dispatched: the run must actually execute (I11/I12).
+        assert await wait_terminal(run_id) is RunStatus.SUCCESS
         db_session.expire_all()
         run = await db_session.get(Run, run_id)
         assert run is not None
@@ -172,7 +174,7 @@ class TestTrialAdmission:
         assert await _run_count(db_session) == before
 
     async def test_admitted_trials_create_the_requested_number_of_runs(
-        self, auth_client: AsyncClient, seed_experiment, seed_pipeline: Pipeline, db_session
+        self, auth_client: AsyncClient, seed_experiment, seed_pipeline: Pipeline, wait_terminal
     ):
         resp = await auth_client.post(
             f"/api/v1/experiments/{seed_experiment.id}/trials",
@@ -180,4 +182,7 @@ class TestTrialAdmission:
         )
 
         assert resp.status_code == 200, resp.text
-        assert len(resp.json()["runs"]) == 3
+        runs = resp.json()["runs"]
+        assert len(runs) == 3
+        for run in runs:
+            assert await wait_terminal(run["id"]) is RunStatus.SUCCESS
