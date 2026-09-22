@@ -217,9 +217,16 @@ request persists nothing.
 ## Provenance (Tier 4)
 
 ### I14 — Results have provenance. / I15 — Missing provenance is explicit.
-- **Status:** PROPOSED. `ExecutionResult.engine_version` and
-  `ExecutionContext.metadata` are the anchor points; durable provenance columns
-  are not yet implemented. Per the no-fabricated-data rule, nothing is invented.
+- **Definition:** a run records the hash of the config it executed; where a
+  provenance field cannot be populated it is NULL/absent, never a placeholder.
+- **Owner:** `autopipe/dashboard/backend/app/db/models.py` (`hash_config`,
+  `validates("config")`, `Run.config_hash`).
+- **Test:** `tests/test_run_provenance.py` (backend).
+- **Status:** PARTIAL. Config-version provenance is implemented and tested
+  (Pipeline + Run `config_hash`, canonical sha256). Engine version, environment
+  fingerprint, artifact linkage, data and seeds are still not durable;
+  pre-migration runs keep `config_hash = NULL` (explicit "not recorded", never
+  retro-fitted).
 
 ---
 
@@ -236,6 +243,8 @@ request persists nothing.
   routes, WS token handshake.
 
 ### I18 — Security controls claimed by configuration actually execute.
-- **Status:** **PROPOSED — violated at baseline.** The documented
-  `max_request_body` limit is a silent no-op (FastAPI stores it in `self.extra`
-  and never applies it). Fixing this is a Tier 5 item.
+- **Status:** VERIFIED. The `max_request_body` FastAPI no-op was replaced by
+  `RequestSizeLimitMiddleware` (`app/core/body_limit.py`): declared-length
+  rejection before reading, counting wrapper for streamed bodies, 413 on
+  breach; wired in `create_application`. Test asserts 413
+  (`tests/test_security.py`).

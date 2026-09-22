@@ -110,6 +110,7 @@ def test_sweep_uses_ensure_transition_and_skips_terminal(tmp_path: Path):
             pipeline_id="p1",
             status=RunStatus.SUCCESS,
             config={"steps": []},
+            run_number=2,
         )
         db.add(terminal)
         db.commit()
@@ -155,7 +156,10 @@ def test_alembic_fresh_db_matches_create_all(tmp_path: Path, monkeypatch):
             if name == "alembic_version":  # alembic's own bookkeeping, not app schema
                 continue
             cols = {c["name"]: str(c["type"]) for c in insp.get_columns(name)}
-            tables[name] = cols
+            # Unique constraints are schema too (M5: uq_run_pipeline_run_number);
+            # compare by column set so constraint naming cannot hide drift.
+            uniques = sorted(tuple(c["column_names"]) for c in insp.get_unique_constraints(name))
+            tables[name] = (cols, uniques)
         return tables
 
     assert schema(engine_a) == schema(engine_c)

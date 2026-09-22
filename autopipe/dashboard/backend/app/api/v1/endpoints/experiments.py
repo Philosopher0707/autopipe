@@ -4,8 +4,9 @@ import itertools
 import random
 from typing import List, Optional
 
+from app.api.v1.endpoints.run_numbers import RunNumberConflictError, insert_runs_numbered
 from app.core.auth import require_role
-from app.db.models import ChartArtifact, Experiment, Pipeline, Run, RunStatus
+from app.db.models import ChartArtifact, Experiment, Pipeline, Run, RunStatus, hash_config
 from app.db.session import get_db
 from app.executor.admission import RunAdmissionError, admit_run_config
 from app.schemas import (
@@ -433,31 +434,32 @@ async def launch_trials(
     # Generate trial configs
     trial_configs = _generate_trial_configs(search_space, body.strategy, body.n_trials)
 
-    # Get next run number for this experiment
-    max_run_result = await db.execute(
-        select(func.max(Run.run_number)).where(Run.experiment_id == experiment_id)
-    )
-    max_run_number = max_run_result.scalar() or 0
+    def _trial_run(first: int) -> list[Run]:
+        runs = []
+        for i, trial_config in enumerate(trial_configs):
+            run_config = dict(config)
+            run_config.update(trial_config)
+            runs.append(
+                Run(
+                    pipeline_id=body.pipeline_id,
+                    experiment_id=experiment_id,
+                    status=RunStatus.PENDING,
+                    run_number=first + i,
+                    config=run_config,
+                    config_hash=hash_config(run_config),
+                )
+            )
+        return runs
 
-    # Create runs
-    created_runs = []
-    for i, trial_config in enumerate(trial_configs):
-        run_config = dict(config)
-        run_config.update(trial_config)
-
-        run = Run(
-            pipeline_id=body.pipeline_id,
-            experiment_id=experiment_id,
-            status=RunStatus.PENDING,
-            run_number=max_run_number + i + 1,
-            config=run_config,
-        )
-        db.add(run)
-        created_runs.append(run)
-
-    await db.commit()
-    for run in created_runs:
-        await db.refresh(run)
+    # Run numbers are unique per pipeline (not per experiment), so numbering
+    # reads the pipeline's max and retries through the shared allocator.
+    try:
+        created_runs = await insert_runs_numbered(db, body.pipeline_id, _trial_run)
+    except RunNumberConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     # Simulated trials are rejected above, before any Run is created.
     # Admission already passed, so every trial is dispatched. There is

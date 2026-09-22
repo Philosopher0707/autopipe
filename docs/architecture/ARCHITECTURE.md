@@ -93,7 +93,11 @@ exceptions re-raised to preserve the historical API contract.
 - No distributed workers, external queues, or multi-process coordination. The
   Tier 8 work is explicitly deferred until the single-process semantics are
   correct and proven.
-- No provenance columns yet (Tier 4). `ExecutionResult.engine_version` and
-  `ExecutionContext.metadata` are the anchor points; nothing is fabricated.
-- No request-body-size enforcement yet (Tier 5): the documented `max_request_body`
-  kwarg is a FastAPI no-op. Recorded in `ARCHITECTURAL_INVARIANTS.md` as I18.
+- Provenance (Tier 4) is partial: `Pipeline.config_hash` and `Run.config_hash`
+  record the config version each run executed (canonical sha256, tested in
+  `tests/test_run_provenance.py`); `ExecutionResult.engine_version`,
+  environment, data and seed provenance are still not persisted. Nothing is
+  fabricated.
+- Request-body size is enforced by `RequestSizeLimitMiddleware`
+  (`app/core/body_limit.py`, invariant I18); the old `max_request_body`
+  FastAPI no-op is gone.

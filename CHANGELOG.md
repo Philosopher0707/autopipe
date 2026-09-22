@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Run provenance: `Pipeline.config_hash` and `Run.config_hash` now store a
+  sha256 of the canonical JSON config (key order independent). The pipeline
+  hash is maintained by a `validates("config")` hook; the run hash is written
+  once at insert and describes that run's own config copy. Pre-existing rows
+  keep NULL ("not recorded").
+- Unique `(pipeline_id, run_number)` on runs with a retrying allocator
+  (`app/api/v1/endpoints/run_numbers.py`): concurrent triggers no longer race
+  the read-max-then-insert numbering; exhaustion is an explicit 409 instead of
+  a 500. Alembic migration `b7e4c2a91f03` (additive, reversible).
 - Alembic migration environment for the dashboard database
   (`autopipe/dashboard/backend/migrations`). Existing create_all databases
   adopt it via `alembic stamp head`; fresh deployments use `alembic upgrade

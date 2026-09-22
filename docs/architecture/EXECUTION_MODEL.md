@@ -89,8 +89,9 @@ stopped — that would mask a real defect. Covered by
 
 ## Known remaining limitations (not fabricated as solved)
 
-- **Provenance** is not yet recorded durably (Tier 4). `engine_version` is
-  available on the result; no provenance columns exist yet.
+- **Provenance** is partial (Tier 4): each run stores a sha256 of the config
+  it executed (`Run.config_hash`); `engine_version` is available on the result
+  but not yet persisted, and environment/data/seed provenance does not exist.
 - **Multi-process deployment**: the run registry, WebSocket connection manager
   and rate limiter are per-process. Single-process is the supported topology.
 - **`sys.path` bootstrap**: the backend venv does not install the core library,

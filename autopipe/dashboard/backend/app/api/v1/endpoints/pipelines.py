@@ -3,8 +3,9 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from app.api.v1.endpoints.run_numbers import RunNumberConflictError, insert_runs_numbered
 from app.core.auth import require_role
-from app.db.models import ActivityLog, Pipeline, Run, RunStatus
+from app.db.models import ActivityLog, Pipeline, Run, RunStatus, hash_config
 from app.db.session import get_db
 from app.executor.admission import RunAdmissionError, admit_run_config
 from app.schemas import PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
@@ -151,12 +152,14 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new pipeline."""
+    # config_hash is derived (validates on the model) — never accept it from
+    # the client, and never pass it here: a kwarg would overwrite the value
+    # the config setter just computed.
     db_pipeline = Pipeline(
         name=pipeline.name,
         description=pipeline.description,
         config=pipeline.config,
         tags=pipeline.tags,
-        config_hash=pipeline.config_hash if hasattr(pipeline, "config_hash") else None,
         project_id=pipeline.project_id if hasattr(pipeline, "project_id") else None,
     )
 
@@ -259,12 +262,6 @@ async def trigger_run(
             detail=f"Pipeline {pipeline_id} not found",
         )
 
-    # Get next run number
-    result = await db.execute(
-        select(func.max(Run.run_number)).where(Run.pipeline_id == pipeline_id)
-    )
-    max_run = result.scalar() or 0
-
     # Admission happens *before* anything is persisted. A configuration that
     # cannot be loaded must not become a Run: a Run that is never dispatched can
     # never reach a terminal state (invariants I11/I12/I19). The cross-field
@@ -278,18 +275,37 @@ async def trigger_run(
             detail=f"Cannot run this configuration: {exc.reason}",
         ) from exc
 
-    # Create run
-    run = Run(
-        pipeline_id=pipeline_id,
-        project_id=pipeline.project_id,
-        status=RunStatus.PENDING,
-        run_number=max_run + 1,
-        config=run_config,
-    )
-
-    db.add(run)
-    await db.commit()
-    await db.refresh(run)
+    # Numbering goes through the shared allocator: the unique
+    # (pipeline_id, run_number) constraint makes a concurrent duplicate insert
+    # fail, and the allocator re-reads and retries rather than 500-ing.
+    # project_id is hoisted: a retry rolls back, which expires session
+    # objects, and the closure must not lazy-load outside a greenlet.
+    project_id = pipeline.project_id
+    try:
+        run = (
+            await insert_runs_numbered(
+                db,
+                pipeline_id,
+                lambda first: [
+                    Run(
+                        pipeline_id=pipeline_id,
+                        project_id=project_id,
+                        status=RunStatus.PENDING,
+                        run_number=first,
+                        config=run_config,
+                        config_hash=hash_config(run_config),
+                    )
+                ],
+            )
+        )[0]
+    except RunNumberConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    # A retry inside insert_runs_numbered rolled back, expiring this
+    # session's objects; reload pipeline before the accesses below.
+    await db.refresh(pipeline)
 
     # Log activity
     activity = ActivityLog(

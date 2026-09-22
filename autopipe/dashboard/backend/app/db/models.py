@@ -1,6 +1,8 @@
 """Database models for the Dashboard."""
 
 import enum
+import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -16,9 +18,21 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, validates
 
 Base = declarative_base()
+
+
+def hash_config(config: Optional[Dict]) -> Optional[str]:
+    """SHA-256 of the canonical JSON encoding of a config (sorted keys).
+
+    Provenance anchor: two configs that differ only in key order hash the
+    same, so the value identifies the configuration, not its serialization.
+    """
+    if config is None:
+        return None
+    canonical = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class RunStatus(str, enum.Enum):
@@ -92,6 +106,13 @@ class Pipeline(Base):
     )
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    @validates("config")
+    def _sync_config_hash(self, key: str, value: Optional[Dict]) -> Optional[Dict]:
+        # The column long predated its writer (PROVENANCE_MODEL.md); keep it
+        # equal to the stored config so it is provenance, not decoration.
+        self.config_hash = hash_config(value)
+        return value
+
     # Relationships
     runs: Mapped[List["Run"]] = relationship("Run", back_populates="pipeline", lazy="select")
     project: Mapped[Optional["Project"]] = relationship("Project")
@@ -151,11 +172,16 @@ class Run(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+    config_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     metrics: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     logs_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     run_number: Mapped[int] = mapped_column(Integer, default=1)
     created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("pipeline_id", "run_number", name="uq_run_pipeline_run_number"),
+    )
 
     # Relationships
     pipeline: Mapped["Pipeline"] = relationship("Pipeline", back_populates="runs")
