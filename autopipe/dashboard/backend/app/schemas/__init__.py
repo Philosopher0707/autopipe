@@ -806,6 +806,7 @@ class ArtifactInDB(ArtifactBase):
     run_id: Optional[str] = None
     step_id: Optional[str] = None
     file_size: Optional[int] = None
+    sha256: Optional[str] = None
     created_at: datetime
 
 
@@ -975,6 +976,7 @@ class ChartArtifactResponse(BaseModel):
     chart_type: str
     title: str
     data: Dict[str, Any]
+    sha256: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     created_at: datetime
 

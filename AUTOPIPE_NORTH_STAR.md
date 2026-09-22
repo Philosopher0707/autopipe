@@ -193,7 +193,7 @@ Current state maps as: dashboard `Experiment` ≈ ACTIVE experiments with config
 - *Input snapshot:* artifact references + hashes for all bound inputs (today: absent — OBSERVED absence).
 - *Environment/code identity:* absent today; required for Level ≥2 (§14).
 - *Execution state:* **enforced state machine** (below), currently a permissive enum writers ignore (SOURCE-DERIVED forensic §8).
-- *Outputs:* artifact references; *metrics:* typed, epoch-aware series (MetricLog exists but nothing in the executor writes it — SOURCE-DERIVED); *logs:* append-only, executor-written (today: a separate HTTP endpoint appends, executor broadcasts only — SOURCE-DERIVED forensic §12); *errors:* structured (type/message/step) — today a freeform `error_message`.
+- *Outputs:* artifact references; *metrics:* typed, epoch-aware series (executor `mark_step` now inserts MetricLog rows in the CAS transaction — OBSERVED); *logs:* append-only, executor-written (today: a separate HTTP endpoint appends, executor broadcasts only — SOURCE-DERIVED forensic §12); *errors:* structured (type/message/step) — today a freeform `error_message`.
 - *Nature:* append-only facts + state-machine status; **not** event-sourced in v1 (cost > value at this scale — INFERRED); **not resumable** across process death until a durable queue exists; cancellable with explicit semantics (§19 invariants).
 - *Lifecycle (derived, tightening today's enum):* `CREATED → QUEUED → RUNNING → (SUCCESS | FAILED | CANCELLED)`; terminal states immutable; `PARTIAL` is a *derived view*, not a stored state (today it is a stored enum value — OBSERVED in `RunStatus`).
 

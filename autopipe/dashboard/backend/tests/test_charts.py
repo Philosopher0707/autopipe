@@ -34,19 +34,45 @@ async def test_step_durations(auth_client: AsyncClient):
 
 
 async def test_create_chart_artifact(auth_client: AsyncClient):
-    """POST /charts/artifacts creates a chart artifact."""
-    resp = await auth_client.post(
-        "/api/v1/charts/artifacts",
-        json={
-            "chart_type": "line",
-            "title": "Test Chart",
-            "data": {"x": [1, 2, 3], "y": [4, 5, 6]},
-        },
-    )
+    """POST /charts/artifacts creates a chart artifact with a content hash."""
+    payload = {
+        "chart_type": "line",
+        "title": "Test Chart",
+        "data": {"x": [1, 2, 3], "y": [4, 5, 6]},
+    }
+    resp = await auth_client.post("/api/v1/charts/artifacts", json=payload)
     assert resp.status_code == 201
     data = resp.json()
     assert data["title"] == "Test Chart"
     assert data["chart_type"] == "line"
+    from app.db.models import hash_config
+
+    assert data["sha256"] == hash_config(payload["data"]), (
+        "chart artifact identity must be the content hash of its data"
+    )
+
+
+async def test_chart_artifact_hash_tracks_data_content(auth_client: AsyncClient):
+    """Different data => different sha256; same data => same sha256."""
+    from app.db.models import hash_config
+
+    base = {"chart_type": "bar", "title": "T", "data": {"a": 1}}
+    first = (await auth_client.post("/api/v1/charts/artifacts", json=base)).json()
+    same = (
+        await auth_client.post(
+            "/api/v1/charts/artifacts",
+            json={"chart_type": "bar", "title": "Other title", "data": {"a": 1}},
+        )
+    ).json()
+    other = (
+        await auth_client.post(
+            "/api/v1/charts/artifacts", json={"chart_type": "bar", "title": "T", "data": {"a": 2}}
+        )
+    ).json()
+
+    assert first["sha256"] == same["sha256"], "hash must cover data, not title"
+    assert first["sha256"] == hash_config({"a": 1})
+    assert other["sha256"] != first["sha256"]
 
 
 async def test_list_chart_artifacts(auth_client: AsyncClient):

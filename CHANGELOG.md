@@ -36,6 +36,12 @@ adheres to [Semantic Versioning](https://semver.org/).
   conflict rolls the points back with it. Previously only demo seeds and a
   manual POST endpoint populated metric series, so real runs had no
   chartable trace.
+- Dashboard artifacts are content-addressed: `ChartArtifact.sha256` is
+  written by a `validates("data")` hook (canonical JSON sha256, same as
+  `hash_config`) so identity follows content, not row id; the file
+  `artifacts` table gains a `sha256` column (NULL until a writer exists —
+  "not recorded", never a placeholder). Alembic migration `8b5d2e1a7c34`
+  (additive, reversible).
 - Unique `(pipeline_id, run_number)` on runs with a retrying allocator
   (`app/api/v1/endpoints/run_numbers.py`): concurrent triggers no longer race
   the read-max-then-insert numbering; exhaustion is an explicit 409 instead of

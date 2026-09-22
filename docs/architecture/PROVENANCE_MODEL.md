@@ -20,7 +20,12 @@ Which model / parameters?            not captured (partially in config)
 Which random seeds?                  PARTIAL: top-level config `seed`/`seeds`
                                      copied into Run.provenance.seeds; step-level
                                      cooperation still absent
-Which artifacts?                     registry has sha256; not linked to Run
+Which artifacts?                     PARTIAL: dashboard chart_artifacts carry
+                                     sha256 of canonical data JSON (content
+                                     address) + run_id linkage; registry has
+                                     file sha256 but not linked to Run; the
+                                     file `artifacts` table has a sha256 column
+                                     but no writer (NULL = not recorded)
 Which execution engine version?      DONE: Run.provenance.engine_version
 ```
 
@@ -49,13 +54,19 @@ Which execution engine version?      DONE: Run.provenance.engine_version
 - Unique `(pipeline_id, run_number)` with a retrying allocator
   (`app/api/v1/endpoints/run_numbers.py`): concurrent triggers can name and
   compare runs deterministically; exhaustion is an explicit 409, not a 500.
+- `ChartArtifact.sha256` — written by a `validates("data")` hook with the
+  same canonical `hash_config` used for configs: the chart's identity is its
+  content, not its row id. `Artifact.sha256` column exists for file
+  artifacts; no writer exists yet, so rows keep NULL.
 - Rows that predate a migration keep the new field NULL, which means
   "not recorded" (invariant I15). No retro-fitting.
 
 ## Remaining gaps
 
-- **Artifact linkage** — registry artifacts have sha256 but do not reference
-  the Run that produced them.
+- **Registry artifact ↔ Run linkage** — the Python model registry hashes
+  files but does not record which Run produced them.
+- **File-artifact writer** — the dashboard `artifacts` table has no code
+  path that inserts rows; when one exists it must populate `sha256`.
 - **Data provenance** — which dataset a run consumed; needs step cooperation.
 - **Full seed provenance** — seeds declared inside step parameters (not
   top-level in config) are not visible to the Run-level snapshot.

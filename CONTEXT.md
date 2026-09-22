@@ -50,7 +50,7 @@
 ruff check autopipe tests && ruff format --check autopipe tests  # repo CI gate
 mypy autopipe/core                                               # strict engine gate
 pytest tests -q                                                  # 296 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 153 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 155 pass expected
 ruff check . && ruff format --check .                            # whole-repo (examples had violations)
 ```
 
@@ -75,9 +75,9 @@ ruff check . && ruff format --check .                            # whole-repo (e
 | 2 | Whole-repo ruff clean (examples/, test_simple.py) | DONE `4d52d740` |
 | 3 | WS auth parity + RunDetail token (I17) | DONE `6bdb5c08` |
 | 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | DONE `c240f604` (Run.provenance JSON + migration `3e7a9c4d1f62`; I14/I15 VERIFIED) |
-| 5 | MetricLog writer: nothing in executor writes metric series | DONE (mark_step inserts MetricLog rows in CAS txn) |
-| 6 | Artifact content-addressing in dashboard ORM | **NOW** |
-| 7 | Drift producer bridge (core DriftReport → durable row) | pending |
+| 5 | MetricLog writer: nothing in executor writes metric series | DONE (mark_step inserts MetricLog rows in CAS txn; 155 backend tests) |
+| 6 | Artifact content-addressing in dashboard ORM | DONE (ChartArtifact.sha256 hook + artifacts.sha256 col; migration `8b5d2e1a7c34`; 156 backend tests) |
+| 7 | Drift producer bridge (core DriftReport → durable row) | **NOW** |
 | 8 | LLM: drop SDK global-key mutation (I12) | pending |
 | 9 | Legacy SHA256 password migration/removal path | pending |
 | 10 | Frontend WS contract fixes (RunDetail token/shape) | pending |

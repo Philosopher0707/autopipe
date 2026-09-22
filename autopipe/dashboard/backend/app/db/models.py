@@ -376,6 +376,10 @@ class Artifact(Base):
     )  # model, plot, metric, data
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Content address of the file at registration time (NORTH_STAR: identity
+    # is the hash, not the path). No writer exists yet, so rows keep NULL
+    # ("not recorded", I15) — never a placeholder.
+    sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     meta_data: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
@@ -481,7 +485,17 @@ class ChartArtifact(Base):
     )  # line, bar, scatter, area, pie, heatmap
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     data: Mapped[Dict] = mapped_column(JSON, nullable=False)
+    # Content address of `data` (canonical JSON sha256) — written by the
+    # validates hook below, same discipline as Pipeline/Run.config_hash.
+    sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     config: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
+
+    @validates("data")
+    def _sync_data_hash(self, key: str, value: Optional[Dict]) -> Optional[Dict]:
+        # Derived from the data actually stored, so the hash is content
+        # identity, not decoration.
+        self.sha256 = hash_config(value)
+        return value
