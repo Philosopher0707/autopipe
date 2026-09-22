@@ -442,6 +442,23 @@ class TestContainment:
         assert result.sink_errors, "but the broken observer must be recorded"
         assert "sink down" in result.sink_errors[0]
 
+    def test_post_processing_failure_still_returns_terminal(self, monkeypatch):
+        """A bug after the steps (e.g. metrics aggregation) must not escape execute()."""
+
+        def _boom(self, result):
+            raise RuntimeError("metrics aggregation exploded")
+
+        monkeypatch.setattr(ExecutionEngine, "_aggregate_metrics", _boom)
+        pipeline = Pipeline("agg-fail")
+        pipeline.add_step(RecordingStep("a"))
+
+        result = ExecutionEngine().execute(
+            pipeline, ExecutionContext(run_id="r", pipeline_name="agg-fail")
+        )
+
+        assert result.state is RunState.FAILED
+        assert "metrics aggregation exploded" in (result.error or "")
+
     def test_result_round_trips_to_dict_without_output_payloads(self):
         pipeline = Pipeline("serialise")
         pipeline.add_step(RecordingStep("a", result={"big": "payload"}))

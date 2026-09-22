@@ -126,8 +126,12 @@ request persists nothing.
   result; the coordinator's `finally` always finalizes, and a last-resort
   `_force_terminal` runs if finalization itself fails.
 - **Test:** `test_engine_never_raises_when_a_step_raises_base_exception`;
+  `test_post_processing_failure_still_returns_terminal`;
   `backend/tests/test_executor_integration.py::test_failing_step_is_failed_not_stranded`;
-  `backend/tests/test_executor.py` (DB-level failures contained).
+  `backend/tests/test_executor.py::test_prologue_register_failure_still_forces_terminal`;
+  `backend/tests/test_executor.py::test_sink_close_failure_still_finalizes`;
+  `backend/tests/test_executor.py::test_finalize_failure_forces_terminal`;
+  `backend/tests/test_executor.py::test_shutdown_executor_cancels_and_sweeps`.
 - **Failure mode:** exception → daemon thread dies → Run claims RUNNING forever
   with no error and no event. This was reproducible at baseline and is now
   closed (backend suite: 28 swallowed thread exceptions → 0).
@@ -137,7 +141,9 @@ request persists nothing.
 - **Definition:** For any execution, the result's state is terminal and a
   terminal write is attempted.
 - **Owner:** `ExecutionEngine.execute` + `runner._finalize`.
-- **Test:** `test_engine_reaches_a_terminal_state_for_every_outcome`.
+- **Test:** `test_engine_reaches_a_terminal_state_for_every_outcome`;
+  `backend/tests/test_executor.py::test_cancel_before_register_is_honoured`
+  (pending-cancel queue: a cancel before `register_run` still ends CANCELLED).
 - **Status:** VERIFIED.
 
 ### I13 — Cancellation is observable.

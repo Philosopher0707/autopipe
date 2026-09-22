@@ -26,6 +26,7 @@ restart swept it. This module therefore guarantees that:
 """
 
 import asyncio
+import contextvars
 import logging
 import threading
 import time
@@ -78,6 +79,21 @@ _event_loop: Optional[asyncio.AbstractEventLoop] = None
 # daemon thread; unbounded spawning let N parallel requests exhaust memory.
 MAX_CONCURRENT_RUNS = 4
 _run_slots = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
+
+# Live executor threads by run id, so shutdown can cancel and join them
+# instead of letting daemon threads die mid-write.
+_live_threads: Dict[str, threading.Thread] = {}
+_live_threads_lock = threading.Lock()
+
+
+def _remember_thread(run_id: str, thread: threading.Thread) -> None:
+    with _live_threads_lock:
+        _live_threads[run_id] = thread
+
+
+def _forget_thread(run_id: str) -> None:
+    with _live_threads_lock:
+        _live_threads.pop(run_id, None)
 
 
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -289,38 +305,65 @@ def _run_pipeline_in_thread(
     """Execute one run on the canonical engine. Guaranteed not to raise.
 
     This is a daemon-thread target: an escaping exception would kill the thread
-    and leave the run row claiming RUNNING forever. The structure below is the
-    containment boundary; do not add an unguarded operation outside the try.
+    and leave the run row claiming RUNNING forever. **Every** operation —
+    store creation, registration, slot acquisition, execution — lives inside
+    the containment boundary below; the previous version performed prologue
+    work outside the try, violating its own rule. When a store exists, a
+    terminal write is always attempted; when it does not, the failure is
+    logged at CRITICAL and the startup sweep recovers the row.
     """
-    SessionLocal = _get_sync_session_factory()
-    store = RunStateStore(SessionLocal)
-    cancel_event = register_run(run_id)
-    token = _current_run_id.set(run_id)
-    sink = RunEventSink(run_id, store, loop=_event_loop)
-
-    _run_slots.acquire()
+    store: Optional[RunStateStore] = None
+    sink: Optional[RunEventSink] = None
+    token: Optional[contextvars.Token] = None
+    registered = False
+    slot_acquired = False
     result: Optional[ExecutionResult] = None
+
     try:
+        SessionLocal = _get_sync_session_factory()
+        store = RunStateStore(SessionLocal)
+        cancel_event = register_run(run_id)
+        registered = True
+        token = _current_run_id.set(run_id)
+        sink = RunEventSink(run_id, store, loop=_event_loop)
+        _run_slots.acquire()
+        slot_acquired = True
         result = _execute(run_id, pipeline_config, initial_inputs, cancel_event, sink)
     except BaseException as exc:
         logger.critical(
-            "Run %s escaped the execution engine: %s: %s\n%s",
+            "Run %s escaped setup or execution: %s: %s\n%s",
             run_id,
             type(exc).__name__,
             exc,
             traceback.format_exc(),
         )
     finally:
-        try:
-            sink.close()
-            _finalize(run_id, result, store)
-        except BaseException:
-            logger.critical("Run %s could not be finalized", run_id, exc_info=True)
-            _force_terminal(run_id, store)
-        finally:
+        # close and finalize are independent: a failing close must not skip
+        # the terminal write (it used to share one try, so a close error
+        # routed through _force_terminal and could overwrite a valid result).
+        if sink is not None:
+            try:
+                sink.close()
+            except BaseException:
+                logger.critical("Run %s sink close failed", run_id, exc_info=True)
+        if store is not None:
+            try:
+                _finalize(run_id, result, store)
+            except BaseException:
+                logger.critical("Run %s could not be finalized", run_id, exc_info=True)
+                _force_terminal(run_id, store)
+        else:
+            logger.critical(
+                "Run %s has no state store; terminal write impossible until startup sweep",
+                run_id,
+            )
+        if slot_acquired:
             _run_slots.release()
+        if token is not None:
             _current_run_id.reset(token)
+        if registered:
             unregister_run(run_id)
+        _forget_thread(run_id)
 
 
 async def execute_run(
@@ -344,7 +387,38 @@ async def execute_run(
         daemon=True,
         name=f"pipeline-run-{str(run_id)[:8]}",
     )
+    _remember_thread(str(run_id), thread)
     thread.start()
+
+
+def shutdown_executor(timeout: float = 5.0) -> None:
+    """Cancel active runs, join their threads, then sweep anything left.
+
+    Daemon threads die with the process; without this, a graceful shutdown
+    left rows claiming RUNNING until the *next* boot's sweep, and in-memory
+    error context was lost. Called from the FastAPI stop handler before the
+    database is closed.
+    """
+    from app.executor.registry import get_active_run_ids
+
+    for run_id in get_active_run_ids():
+        cancel_run(run_id)
+
+    with _live_threads_lock:
+        threads = list(_live_threads.values())
+    deadline = time.monotonic() + timeout
+    for t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
+
+    try:
+        swept = sweep_orphaned_runs()
+        if swept:
+            logger.warning("Shutdown sweep marked %d non-terminal run(s) FAILED", swept)
+    except BaseException:
+        logger.critical("Shutdown sweep failed", exc_info=True)
 
 
 def sweep_orphaned_runs() -> int:
@@ -380,5 +454,6 @@ __all__ = [
     "execute_run",
     "schedule_broadcast",
     "set_event_loop",
+    "shutdown_executor",
     "sweep_orphaned_runs",
 ]

@@ -20,7 +20,15 @@ def create_stop_app_handler(app: FastAPI):
     """Create shutdown handler."""
 
     async def stop_app():
-        """Shutdown event handler."""
+        """Shutdown event handler.
+
+        Executor first: cancel active runs, join threads, sweep non-terminal
+        rows — all of which need the database — then tear down the rate
+        limiter and close the async engine.
+        """
+        from app.executor.runner import shutdown_executor
+
+        shutdown_executor()
         await close_rate_limiter()
         await close_db()
 

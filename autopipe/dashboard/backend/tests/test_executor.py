@@ -313,3 +313,155 @@ def test_log_handler_filters_other_runs():
         assert handler.filter(record) is True
     finally:
         _current_run_id.reset(token)
+
+
+def _basic_config() -> dict:
+    return {
+        "name": "test-pipeline",
+        "steps": [
+            {
+                "name": "step1",
+                "type": "autopipe.core.steps.PrintStep",
+                "params": {"message": "hello"},
+            },
+            {
+                "name": "step2",
+                "type": "autopipe.core.steps.PrintStep",
+                "depends_on": ["step1"],
+                "params": {"message": "world"},
+            },
+        ],
+    }
+
+
+def test_prologue_register_failure_still_forces_terminal(tmp_path: Path, monkeypatch):
+    """A registry failure in the prologue must not strand the run as PENDING."""
+    SessionLocal = _make_sync_session(tmp_path / "test.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr(runner, "register_run", boom)
+    runner._run_pipeline_in_thread(run_id, _basic_config())
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.FAILED
+        assert run.error_message is not None
+
+
+def test_cancel_before_register_is_honoured(tmp_path: Path, monkeypatch):
+    """cancel_run before register queues a cancel; the run must end CANCELLED."""
+    from app.executor.registry import cancel_run, unregister_run
+
+    SessionLocal = _make_sync_session(tmp_path / "test.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+
+    assert cancel_run(run_id) is False
+    runner._run_pipeline_in_thread(run_id, _basic_config())
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.CANCELLED
+        steps = db.query(Step).filter(Step.run_id == run_id).all()
+        assert steps
+        assert all(s.status == StepStatus.SKIPPED for s in steps)
+    unregister_run(run_id)
+
+
+def test_sink_close_failure_still_finalizes(tmp_path: Path, monkeypatch):
+    """RunEventSink.close raising must not prevent DB finalization."""
+    SessionLocal = _make_sync_session(tmp_path / "test.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+    from app.executor.sink import RunEventSink
+
+    def boom(self):
+        raise RuntimeError("ws sink closed unexpectedly")
+
+    monkeypatch.setattr(RunEventSink, "close", boom)
+    runner._run_pipeline_in_thread(run_id, _basic_config())
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.SUCCESS
+
+
+def test_finalize_failure_forces_terminal(tmp_path: Path, monkeypatch):
+    """A raising finish_run must fall through to _force_terminal, not strand RUNNING."""
+    SessionLocal = _make_sync_session(tmp_path / "test.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+    from app.executor.sink import RunStateStore
+
+    calls = {"n": 0}
+    orig = RunStateStore.finish_run
+
+    def flaky(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("disk full")
+        return orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(RunStateStore, "finish_run", flaky)
+    runner._run_pipeline_in_thread(run_id, _basic_config())
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.FAILED
+        assert run.error_message is not None
+
+
+def test_shutdown_executor_cancels_and_sweeps(tmp_path: Path, monkeypatch):
+    """shutdown_executor must cancel active runs and sweep to a terminal state."""
+    import threading
+    import time
+
+    SessionLocal = _make_sync_session(tmp_path / "test.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+
+    from autopipe.core.steps import PrintStep
+
+    orig_run = PrintStep.run
+
+    def slow_run(self, **kwargs):
+        time.sleep(1.5)
+        return orig_run(self, **kwargs)
+
+    monkeypatch.setattr(PrintStep, "run", slow_run)
+
+    t = threading.Thread(target=runner._run_pipeline_in_thread, args=(run_id, _basic_config()))
+    runner._remember_thread(run_id, t)
+    t.start()
+    time.sleep(0.3)  # let it register and enter the step
+    runner.shutdown_executor(timeout=0.05)
+    t.join(timeout=5)
+    assert not t.is_alive(), "worker thread did not exit after shutdown"
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status in (
+            RunStatus.CANCELLED,
+            RunStatus.FAILED,
+            RunStatus.SUCCESS,
+        )
+
+
+def test_registry_pending_cancel_survives_until_register():
+    """cancel_run on an unregistered id queues the cancel for later register_run."""
+    from app.executor.registry import cancel_run, register_run, unregister_run
+
+    rid = f"pending-{uuid.uuid4()}"
+    assert cancel_run(rid) is False
+    event = register_run(rid)
+    assert event.is_set(), "queued cancel was lost before register"
+    unregister_run(rid)

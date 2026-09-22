@@ -518,30 +518,48 @@ class ExecutionEngine:
                 result.error_type = type(exc).__name__
                 result.traceback = self._format_traceback(context)
 
-        result.exception = progress.captured
-        result.outputs = progress.outputs
-        result.sink_errors = bus.failures
-        result.metrics = self._aggregate_metrics(result)
-        result.finished_at = time.time()
-        result.duration_seconds = result.finished_at - result.started_at
+        try:
+            result.exception = progress.captured
+            result.outputs = progress.outputs
+            result.sink_errors = bus.failures
+            result.metrics = self._aggregate_metrics(result)
+            result.finished_at = time.time()
+            result.duration_seconds = result.finished_at - result.started_at
 
-        # Terminal selection. A failure outranks a cancellation: a run that
-        # already broke must not be able to report itself as merely "stopped",
-        # because that would mask a real defect (no-silent-failures).
-        if progress.run_failed:
+            # Terminal selection. A failure outranks a cancellation: a run that
+            # already broke must not be able to report itself as merely
+            # "stopped", because that would mask a real defect (no-silent-failures).
+            if progress.run_failed:
+                result.state = RunState.FAILED
+            elif context.cancellation.is_cancelled:
+                result.state = RunState.CANCELLED
+            else:
+                result.state = RunState.SUCCESS
+
+            bus.emit(
+                EventKind.RUN_FINISHED,
+                state=result.state.value,
+                data={"duration_seconds": result.duration_seconds, "metrics": result.metrics},
+                error=result.error,
+                error_type=result.error_type,
+            )
+        except BaseException as exc:
+            # Post-processing bug (metrics aggregation, terminal selection):
+            # execute() still never raises — degrade to a FAILED terminal result.
+            if result.error is None:
+                result.error = f"{type(exc).__name__}: {exc}"
+                result.error_type = type(exc).__name__
+            result.exception = result.exception or exc
             result.state = RunState.FAILED
-        elif context.cancellation.is_cancelled:
-            result.state = RunState.CANCELLED
-        else:
-            result.state = RunState.SUCCESS
-
-        bus.emit(
-            EventKind.RUN_FINISHED,
-            state=result.state.value,
-            data={"duration_seconds": result.duration_seconds, "metrics": result.metrics},
-            error=result.error,
-            error_type=result.error_type,
-        )
+            result.finished_at = result.finished_at or time.time()
+            result.duration_seconds = result.finished_at - result.started_at
+            bus.emit(
+                EventKind.RUN_FINISHED,
+                state=result.state.value,
+                data={"duration_seconds": result.duration_seconds},
+                error=result.error,
+                error_type=result.error_type,
+            )
         return result
 
     # -- internal -----------------------------------------------------------

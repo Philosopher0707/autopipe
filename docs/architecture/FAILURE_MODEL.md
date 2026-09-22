@@ -20,7 +20,11 @@ still produce a correct outcome, and is never silently dropped.
 | Event sink raises | `_EventBus.emit` | recorded in `result.sink_errors`, logged WARNING | unchanged (execution is not observability's hostage) | logged; surfaced by `_finalize` |
 | DB write fails during execution | `RunEventSink` → engine | sink error recorded; execution continues | unchanged | logged |
 | Finalization write fails | `runner._finalize` | `_force_terminal` retries `FAILED` | `FAILED` | CRITICAL log if even that fails |
+| Sink `close()` raises | `runner._run_pipeline_in_thread` finally | logged CRITICAL; finalization still runs independently | unchanged (by close) | CRITICAL log |
+| Prologue (`register_run`, store) raises | same containment try | `_force_terminal` (when a store exists) | `FAILED` | CRITICAL log |
+| Post-processing raises | `ExecutionEngine.execute` outer try | forced FAILED result + `RUN_FINISHED` emitted | `FAILED` | error on the result |
 | Process crash mid-run | startup `sweep_orphaned_runs` | `RUNNING → FAILED` (legal transition), steps `FAILED` | `FAILED` | "Interrupted by server restart" |
+| Graceful shutdown | `runner.shutdown_executor` | cancel active runs, join live threads, sweep leftovers | terminal | stop handler runs before DB close |
 | Cancellation requested | `CancellationToken` | remaining steps `SKIPPED` with reason | `CANCELLED` | step states + reason |
 | Illegal state transition attempted | `ensure_transition` | raises `StateTransitionError`; API → **409** | unchanged | 409 with the transition and context |
 
@@ -53,8 +57,9 @@ Concretely:
    UI is. Not yet measured or alerted on.
 2. **No retry semantics.** A failed step is not retried. `tenacity` is a
    dependency but no execution-level retry policy exists. Tier 6.
-3. **No graceful-drain on shutdown.** In-flight daemon threads are not awaited;
-   the startup sweep is the recovery mechanism. Tier 6.
+3. **Graceful shutdown joins with a timeout** (`shutdown_executor`, default
+   5 s). A step that ignores cancellation past the deadline is swept to FAILED
+   by the same call; no drain-forever option. Tier 6.
 4. **Partial failure of a *multi-run* batch** (e.g. `POST /experiments/{id}/trials`)
    is not transactional: some trials may start while others fail. Tier 6.
 5. **SQLite contention** under concurrent writers relies on `busy_timeout`

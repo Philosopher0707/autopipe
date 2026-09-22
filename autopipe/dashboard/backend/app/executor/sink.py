@@ -29,6 +29,7 @@ from sqlalchemy.orm import sessionmaker
 
 from autopipe.core.execution import EventKind, ExecutionEvent
 from autopipe.core.run_state import RunState, StepState, ensure_transition
+from autopipe.exceptions import StateTransitionError
 
 logger = logging.getLogger(__name__)
 
@@ -421,7 +422,16 @@ class RunEventSink:
 
     def _on_run_started(self, event: ExecutionEvent) -> None:
         """Mark the run RUNNING and materialize its planned steps."""
-        self._store.mark_run_running(self.run_id, self._loop)
+        try:
+            self._store.mark_run_running(self.run_id, self._loop)
+        except StateTransitionError:
+            # The API finalized this run (e.g. CANCELLED) before the executor
+            # reached RUN_STARTED. The terminal row must stay put, but planned
+            # steps are still created so they can be written off as SKIPPED.
+            logger.info(
+                "Run %s already terminal at RUN_STARTED; materializing steps only",
+                self.run_id,
+            )
         order = list(event.data.get("execution_order") or [])
         step_types = dict(event.data.get("step_types") or {})
         if event.data.get("plan_resolved") and order:
