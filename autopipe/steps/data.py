@@ -88,7 +88,7 @@ class DataLoaderStep(Step):
         elif self.format == "hdf5" or self.format == "h5":
             df = pd.read_hdf(source, **self.options)
         elif self.format == "pickle" or self.format == "pkl":
-            df = pd.read_pickle(source, **self.options)
+            df = pd.read_pickle(source, **self.options)  # nosec B301 — pipeline's own data file
         else:
             raise ValueError(f"Unsupported format: {self.format}")
 

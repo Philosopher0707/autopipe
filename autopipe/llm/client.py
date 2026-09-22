@@ -28,7 +28,7 @@ def _resolve_api_key(
         if creds and creds.api_key:
             return creds.api_key
     except Exception:
-        pass
+        pass  # nosec B110 — missing/unreadable credential store falls back to default
     return default
 
 
@@ -102,7 +102,7 @@ class OllamaClient(LLMClient):
                 data = response.json()
                 return [m.get("id", m.get("name")) for m in data.get("data", [])]
         except Exception:
-            pass
+            pass  # nosec B110 — fall through to the native Ollama API below
 
         # Fallback to native Ollama API
         try:
@@ -112,7 +112,7 @@ class OllamaClient(LLMClient):
                 models = response.json().get("models", [])
                 return [m.get("name") for m in models]
         except Exception:
-            pass
+            pass  # nosec B110 — both listing paths failed; return empty list
 
         return []
 
@@ -130,13 +130,14 @@ class OllamaClient(LLMClient):
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         data = {"model": self.model, "messages": messages, "stream": False, **kwargs}
+        timeout = kwargs.get("timeout", 120)
 
         try:
             response = requests.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=data,
-                timeout=kwargs.get("timeout", 120),
+                timeout=timeout,
             )
             response.raise_for_status()
             result = response.json()
@@ -235,7 +236,13 @@ class OpenRouterClient(LLMClient):
             "X-Title": "AutoPipe",
         }
         data = {"model": self.model, "messages": messages, **kwargs}
-        response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=data)
+        timeout = kwargs.get("timeout", 120)
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=timeout,
+        )
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
 

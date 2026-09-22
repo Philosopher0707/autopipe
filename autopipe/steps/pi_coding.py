@@ -32,7 +32,7 @@ import dataclasses
 import json
 import logging
 import os
-import subprocess
+import subprocess  # nosec B404 — fixed-argv pi CLI invocation below
 import tempfile
 import time
 from pathlib import Path
@@ -374,7 +374,7 @@ class PiCodingStep(Step):
         proc: Optional[subprocess.Popen] = None
 
         try:
-            proc = subprocess.Popen(
+            proc = subprocess.Popen(  # nosec B603 — argv built as a fixed command list, no shell
                 cmd_args,
                 cwd=cfg.cwd,
                 stdout=subprocess.PIPE,

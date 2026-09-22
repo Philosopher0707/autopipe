@@ -471,7 +471,7 @@ def models_current():
                     marker = "[yellow]★[/yellow]" if m == current else " "
                     console.print(f"  {marker} {m}")
     except Exception:
-        pass
+        pass  # nosec B110 — best-effort model list; command still succeeds without it
 
 
 @models.command(name="use")

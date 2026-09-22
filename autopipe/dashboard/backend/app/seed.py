@@ -97,13 +97,17 @@ async def seed_projects(db: AsyncSession) -> list[Project]:
 
 
 async def seed_users(db: AsyncSession) -> None:
-    """Create initial users."""
+    """Create initial users.
+
+    Passwords below are well-known demo credentials for local seeding only;
+    never seed production users from this function without replacing them.
+    """
     users_data = [
         {
             "username": "admin",
             "email": "admin@autopipe.io",
             "full_name": "System Administrator",
-            "password": "admin123",
+            "password": "admin123",  # nosec B105 — local demo seed credential
             "role": UserRole.ADMIN,
             "is_active": True,
         },
@@ -111,7 +115,7 @@ async def seed_users(db: AsyncSession) -> None:
             "username": "data_scientist",
             "email": "ds@autopipe.io",
             "full_name": "Jane Data Scientist",
-            "password": "ds123456",
+            "password": "ds123456",  # nosec B105 — local demo seed credential
             "role": UserRole.DATA_SCIENTIST,
             "is_active": True,
         },
@@ -119,7 +123,7 @@ async def seed_users(db: AsyncSession) -> None:
             "username": "ml_engineer",
             "email": "ml@autopipe.io",
             "full_name": "John ML Engineer",
-            "password": "ml123456",
+            "password": "ml123456",  # nosec B105 — local demo seed credential
             "role": UserRole.DATA_SCIENTIST,
             "is_active": True,
         },
@@ -127,7 +131,7 @@ async def seed_users(db: AsyncSession) -> None:
             "username": "viewer",
             "email": "viewer@autopipe.io",
             "full_name": "Bob Viewer",
-            "password": "viewer123",
+            "password": "viewer123",  # nosec B105 — local demo seed credential
             "role": UserRole.VIEWER,
             "is_active": True,
         },

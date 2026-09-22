@@ -131,7 +131,7 @@ async def login(
 
     return Token(
         access_token=access_token,
-        token_type="bearer",
+        token_type="bearer",  # nosec B106 — OAuth2 token-type string (RFC 6750), not a password
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -181,7 +181,7 @@ async def login_json(
 
     return Token(
         access_token=access_token,
-        token_type="bearer",
+        token_type="bearer",  # nosec B106 — OAuth2 token-type string (RFC 6750), not a password
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 

@@ -247,7 +247,7 @@ class ModelEvaluatorStep(Step):
                     f1_score(group_y_true, group_y_pred, zero_division=0)
                 )
             except Exception:
-                pass
+                pass  # nosec B110 — one unusable group must not abort the fairness report
 
     def _calculate_calibration(self, y_true):
         """Expected Calibration Error over equal-width probability bins.

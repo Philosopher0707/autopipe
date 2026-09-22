@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 import os
-import pickle
+import pickle  # nosec B403 — registry load/store of operator-owned local model files
 import shutil
 import threading
 import uuid
@@ -375,7 +375,7 @@ class ModelRegistry:
                 return joblib.load(path.with_suffix(".pkl"))
             except ImportError:
                 with open(path.with_suffix(".pkl"), "rb") as f:
-                    return pickle.load(f)
+                    return pickle.load(f)  # nosec B301 — local registry file chosen by the operator
         elif framework == "pytorch":
             import torch
 
@@ -399,7 +399,7 @@ class ModelRegistry:
                 return joblib.load(path.with_suffix(".pkl"))
             except ImportError:
                 with open(path.with_suffix(".pkl"), "rb") as f:
-                    return pickle.load(f)
+                    return pickle.load(f)  # nosec B301 — local registry file chosen by the operator
 
     def transition_stage(self, name: str, version: int, stage: str) -> ModelVersion:
         """Transition model to a new stage.

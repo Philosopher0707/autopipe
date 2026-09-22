@@ -13,7 +13,7 @@ Requires Node.js and a pinned promptfoo version (currently 0.105).
 
 import json
 import os
-import subprocess
+import subprocess  # nosec B404 — fixed-argv promptfoo invocation below
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +28,7 @@ console = Console()
 def _check_promptfoo() -> bool:
     """Verify that promptfoo (via npx) is available."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec — fixed argv, no shell, npx on PATH by design
             ["npx", "promptfoo@0.105", "--version"],
             capture_output=True,
             text=True,
@@ -123,7 +123,7 @@ def run_eval(
         console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 — argv is a fixed promptfoo command, no shell
             cmd,
             capture_output=True,
             text=True,

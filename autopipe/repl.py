@@ -811,7 +811,9 @@ class AutoPipeREPL:
 
             # SECURITY FIX: Use restricted builtins + AST validation
             _validate_ast(value_expr)  # Block __class__, __subclasses__, etc.
-            value = eval(value_expr, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
+            value = eval(  # nosec B307 — AST-validated + restricted builtins (REPL sandbox)
+                value_expr, {"__builtins__": _RESTRICTED_BUILTINS}, namespace
+            )
             self.variables[name] = value
             ctx.print(f"[green]✓[/green] {name} = {self._format_value(value)}")
         except Exception as e:
@@ -978,12 +980,14 @@ class AutoPipeREPL:
             elif args[i] == "--params" and i + 1 < len(args):
                 try:
                     _validate_ast(args[i + 1])  # Block dangerous patterns
-                    eval(args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS})
+                    eval(  # nosec B307 — AST-validated + restricted builtins (REPL sandbox)
+                        args[i + 1], {"__builtins__": _RESTRICTED_BUILTINS}
+                    )
                 except (SecurityError, SyntaxError) as e:
                     raise CommandError(f"Invalid parameter expression: {e}")
                 except Exception:
                     # Swallow eval failures; params stays unused by this command anyway
-                    pass
+                    pass  # nosec B110 — intentional: only syntax/security errors matter here
                 i += 2
             elif args[i] == "--depends" and i + 1 < len(args):
                 depends = [d.strip() for d in args[i + 1].split(",")]
@@ -1134,12 +1138,16 @@ class AutoPipeREPL:
             # SECURITY FIX: AST validation + restricted builtins
             _validate_ast(code)  # Block __class__, __subclasses__, etc.
             try:
-                result = eval(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
+                result = eval(  # nosec B307 — AST-validated + restricted builtins (REPL sandbox)
+                    code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace
+                )
                 ctx.print(self._format_value(result))
                 self.variables["_"] = result
             except SyntaxError:
                 # Fall back to exec with restricted builtins
-                exec(code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace)
+                exec(  # nosec B102 — AST-validated + restricted builtins (REPL sandbox)
+                    code, {"__builtins__": _RESTRICTED_BUILTINS}, namespace
+                )
                 self.variables.update(
                     {
                         k: v
@@ -1182,7 +1190,7 @@ class AutoPipeREPL:
                 size = self._get_size(value)
                 ctx.print(f"  Size: {self._format_bytes(size) if size else 'N/A'}")
             except Exception:
-                pass
+                pass  # nosec B110 — size is cosmetic; skip if uncomputable
 
             # Show repr
             repr_str = repr(value)
@@ -1268,20 +1276,20 @@ class AutoPipeREPL:
         target = args[0] if args else "config"
 
         if target == "config":
-            import subprocess
+            import subprocess  # nosec B404 — fixed-argv $EDITOR invocation below
 
             editor = os.environ.get("EDITOR", "vim")
             if CONFIG_FILE.exists():
-                subprocess.call([editor, str(CONFIG_FILE)])
+                subprocess.call([editor, str(CONFIG_FILE)])  # nosec B603 — no shell, argv list
             else:
                 ctx.print(f"[yellow]Config file doesn't exist yet: {CONFIG_FILE}[/yellow]")
         else:
-            import subprocess
+            import subprocess  # nosec B404 — fixed-argv $EDITOR invocation below
 
             editor = os.environ.get("EDITOR", "vim")
             path = pathlib.Path(target)
             if path.exists():
-                subprocess.call([editor, str(path)])
+                subprocess.call([editor, str(path)])  # nosec B603 — no shell, argv list
             else:
                 ctx.print(f"[red]File not found: {target}[/red]")
 
@@ -1429,7 +1437,7 @@ class AutoPipeREPL:
                     env_file.write_text("\n".join(new_lines))
                     ctx.print("[dim]   Also updated .env file[/dim]")
             except Exception:
-                pass
+                pass  # nosec B110 — .env mirror is best-effort; env var already updated
 
     def _cmd_current_model(self, ctx: CommandContext, args: List[str]) -> None:
         """Show current model configuration."""
@@ -1460,7 +1468,7 @@ class AutoPipeREPL:
                         marker = "  ★ " if m == current_model else "    "
                         ctx.print(f"{marker}[dim]{m}[/dim]")
         except Exception:
-            pass
+            pass  # nosec B110 — best-effort model list display
 
         ctx.print("\n[dim]Change with: use <kimi|glm|minimax>[/dim]")
 
