@@ -111,7 +111,14 @@ def run(
 @cli.command()
 @click.argument("pipeline_file", type=click.Path(exists=True))
 def validate(pipeline_file: str):
-    """Validate a pipeline configuration file."""
+    """Validate a pipeline configuration file.
+
+    VALID means execution-ready: the file must pass schema validation, every
+    step type must resolve under the trusted-roots allowlist, every step must be
+    constructible with the parameters given, and the dependency graph must be
+    acyclic. This is the same loading path `autopipe run` uses, so anything that
+    validates here will load there.
+    """
     print_banner()
 
     try:
@@ -122,33 +129,23 @@ def validate(pipeline_file: str):
         with open(pipeline_file, "r") as f:
             config_dict = yaml.safe_load(f)
 
-        # Validate with Pydantic
-        from autopipe.schemas.models import PipelineConfig
+        # One validation/loading path (invariant I8): build the pipeline exactly
+        # as `run` would. This exercises schema validation, alias resolution,
+        # the step-type allowlist, constructor arity and the dependency graph —
+        # the previous implementation only checked that step classes were
+        # importable, so it reported VALID for configs that could not run.
+        from autopipe.core.loader import load_pipeline_from_config
 
-        config = PipelineConfig.model_validate(config_dict)
+        pipeline = load_pipeline_from_config(config_dict)
 
-        # Validate step types can be imported (aliases resolved via the
-        # SAME map the loader uses, so `autopipe create` output validates).
-        from autopipe.core.loader import import_class, resolve_step_type
+        for step_name, step in pipeline.steps.items():
+            cls = type(step)
+            console.print(f"  [green]✓[/green] {step_name}: {cls.__module__}.{cls.__name__}")
 
-        invalid = []
-        for step_config in config.steps:
-            resolved = resolve_step_type(step_config.type)
-            try:
-                import_class(resolved)
-                console.print(f"  [green]✓[/green] {step_config.name}: {resolved}")
-            except ValueError as e:
-                console.print(f"  [red]✗[/red] {step_config.name}: {e}")
-                invalid.append(step_config.name)
-
-        if invalid:
-            console.print(
-                "\n[bold red]✗ Pipeline configuration is INVALID "
-                f"(steps failed: {', '.join(invalid)})[/bold red]"
-            )
-            sys.exit(1)
-
-        console.print("\n[bold green]✓ Pipeline configuration is valid![/bold green]")
+        console.print(
+            f"\n[bold green]✓ Pipeline '{pipeline.name}' is valid and executable "
+            f"({len(pipeline.steps)} steps).[/bold green]"
+        )
 
     except Exception as e:
         console.print(f"\n[bold red]✗ Validation failed: {e}[/bold red]")
@@ -257,19 +254,28 @@ env:
   LOG_LEVEL: INFO
 
 steps:
+  # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).
+  # For your own CSV/parquet/SQL source, use `data_loader` with `source:`.
   - name: load_data
-    type: data_loader
+    type: sample_data_loader
     params:
       dataset: iris
 
+  # `inputs:` maps a run() parameter to an upstream step's output. A prompt
+  # template is formatted with those kwargs, so a placeholder must name one of
+  # them — otherwise the raw template would be sent to the model.
   - name: analyze
     type: llm
     depends_on: [load_data]
+    inputs:
+      data: load_data
     params:
-      # Use 'ollama' for local LLM, 'openrouter' for cloud, etc.
+      # Use 'ollama' for a local LLM, 'openrouter' for a cloud provider.
       provider: openrouter
       # For Ollama: model: llama3.1
-      prompt_template: "Analyze this dataset: {{{{data}}}}"
+      prompt_template: >
+        The Iris dataset has 150 samples, 4 numeric features and 3 species.
+        In one sentence, state the most useful first analysis to run on it.
 
   - name: visualize
     type: visualization

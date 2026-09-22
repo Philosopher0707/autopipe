@@ -7,9 +7,9 @@ env:
 steps:
   # Step 1: Load raw data
   - name: load_raw_data
-    type: data_loader
+    type: sample_data_loader
     params:
-      dataset: diabetes  # or iris, or your custom data
+      dataset: diabetes  # bundled scikit-learn dataset; use `data_loader` for your own source
 
   # Step 2: Feature Engineering - Transform data
   - name: feature_engineering
@@ -61,19 +61,16 @@ steps:
     params:
       provider: ollama
       prompt_template: |
-        Feature Engineering Analysis:
-        
-        Original dataset had {original_columns} columns.
-        After feature engineering: {final_columns} columns.
-        New features generated: {new_features_generated}.
-        
-        Analyzed data:
-        {feature_engineering}
-        
-        Please analyze:
-        1. What patterns do you see in the transformed data?
-        2. Which engineered features might be most predictive?
-        3. Any suggestions for additional transformations?
+        Feature Engineering Analysis
+
+        The diabetes dataset (442 samples, 10 features) was transformed with
+        scaling, polynomial expansion, binning, math transforms, an interaction
+        term and variance-threshold selection.
+
+        Please answer concisely:
+        1. Which engineered features are most likely to be predictive?
+        2. What is the main risk of polynomial expansion here?
+        3. Suggest one additional transformation.
 
   # Step 4: Visualize results
   - name: visualize_features

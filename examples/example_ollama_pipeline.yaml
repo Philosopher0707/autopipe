@@ -1,26 +1,42 @@
 name: ollama_demo
-description: Pipeline using local Ollama LLM
+description: Pipeline using a local Ollama LLM
 
 env:
   LOG_LEVEL: INFO
   OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
 
 steps:
+  # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).
+  # For your own CSV/parquet/SQL source, use `data_loader` with `source:` instead.
   - name: load_data
-    type: data_loader
+    type: sample_data_loader
     params:
       dataset: iris
 
+  # `inputs:` binds this step's run() parameter to the output of the named
+  # upstream step, so data flows through the DAG by name.
+  - name: show_shape
+    type: print
+    depends_on: [load_data]
+    inputs:
+      data: load_data
+    params:
+      message: "Loaded dataset (see input keys below):"
+
+  # A prompt template is formatted with this step's run() keyword arguments, so
+  # a placeholder must name a parameter the step actually receives. This template
+  # deliberately has none rather than referencing keys that are never provided
+  # (which would silently send an unformatted prompt to the model).
   - name: analyze_with_ollama
     type: llm
-    depends_on: [load_data]
+    depends_on: [show_shape]
     params:
       provider: ollama
       model: llama3.1
       prompt_template: |
-        Analyze this dataset with {rows} rows and {columns} columns.
-        The dataset has features: {feature_columns}.
-        Provide a brief summary in one sentence.
+        The Iris dataset has 150 samples, 4 numeric features
+        (sepal length, sepal width, petal length, petal width) and 3 species.
+        In one sentence, state the most useful first analysis to run on it.
 
   - name: visualize
     type: visualization

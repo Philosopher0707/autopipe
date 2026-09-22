@@ -35,9 +35,6 @@ SCANNED_PACKAGES = {
 ALIAS_EXEMPT = {
     # Quarantined non-core opt-in tool: explicit imports only (see 0.2.0).
     "autopipe.steps.pi_coding.PiCodingStep",
-    # Toy sample-dataset loader kept for the REPL probe and its own tests;
-    # the canonical `data_loader` alias points at steps.data.DataLoaderStep.
-    "autopipe.core.steps.DataLoaderStep",
 }
 
 

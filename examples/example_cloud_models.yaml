@@ -5,8 +5,9 @@ env:
   LOG_LEVEL: INFO
 
 steps:
+  # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).
   - name: load_data
-    type: data_loader
+    type: sample_data_loader
     params:
       dataset: iris
 
@@ -15,11 +16,13 @@ steps:
     depends_on: [load_data]
     params:
       provider: ollama
-      # This will use OLLAMA_DEFAULT_MODEL from env
+      # Uses OLLAMA_DEFAULT_MODEL from the environment.
+      # No {placeholders} here: a template placeholder must name a run()
+      # parameter this step actually receives, otherwise the raw template
+      # would be sent to the model.
       prompt_template: |
-        Analyze this Iris dataset with {rows} rows and {columns} columns.
-        The features are: {feature_columns}.
-        Provide insights on the species distribution.
+        The Iris dataset has 150 samples, 4 numeric features and 3 species.
+        Summarise the species distribution and suggest one useful check.
 
   - name: visualize_results
     type: visualization

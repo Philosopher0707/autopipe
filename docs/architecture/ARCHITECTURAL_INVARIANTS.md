@@ -133,23 +133,42 @@ Baseline revision for this version: `57db8694032c402ee97e479fe0a84c4f7165cb3e`.
 
 ---
 
-## Validation (Tier 2 — next milestone)
+## Validation
 
 ### I8 — VALID means execution-ready.
 - **Definition:** `autopipe validate` never reports VALID for a pipeline that
   cannot be instantiated and executed.
-- **Status:** **PROPOSED — currently violated.** `validate` checks importability
-  but not constructor arity; three shipped examples fail to load while
-  `validate` reports them VALID. Baseline finding; the fix is the next milestone.
+- **Owner:** `autopipe/cli.py` (`validate`) + `autopipe/core/loader.py`.
+- **Enforcement:** `validate` builds the pipeline through
+  `load_pipeline_from_config` — exactly the path `autopipe run` uses — so it
+  exercises schema validation, alias resolution, the step-type allowlist,
+  constructor arity, binding attachment and the dependency graph. The previous
+  implementation only checked *importability* of step classes, which is why it
+  reported VALID for three shipped examples that could not be constructed.
+- **Test:** `tests/unit/test_shipped_examples_execute.py`
+  (`test_validate_rejects_a_config_that_cannot_be_constructed`,
+  `test_schema_validation_alone_is_not_execution_readiness`).
+- **Failure mode:** a user is told their config is fine and it then fails to run.
+- **Status:** VERIFIED.
 
-### I9 — Every accepted step type is constructible.
-- **Status:** PROPOSED.
+### I9 — Every accepted step type is constructible, and every shipped config is.
+- **Definition:** Every step class reachable from YAML can be instantiated with
+  the parameters the loader accepts, and every config the repository ships loads.
+- **Owner:** `autopipe/core/loader.py` (alias map + allowlist).
+- **Enforcement:** `test_shipped_examples_execute.py` loads every file in
+  `examples/` and the template emitted by `autopipe create`;
+  `test_step_alias_coverage.py` requires every public `Step` subclass to be
+  addressable from YAML.
+- **Note:** the `sample_data_loader` alias was added for the bundled
+  scikit-learn sample loader, which **removed** the last `ALIAS_EXEMPT` entry
+  other than the quarantined `PiCodingStep`.
+- **Status:** VERIFIED.
 
 ### I10 — Every accepted binding resolves.
-- **Status:** IMPLEMENTED — dangling bindings fail loudly at run time
-  (`InputBindingError`;
-  `test_unresolvable_binding_fails_the_run_with_a_typed_error`). Validate-time
-  binding resolution is PROPOSED.
+- **Status:** IMPLEMENTED — dangling bindings fail loudly (load-time via
+  `PipelineConfig`, run-time via `InputBindingError`;
+  `test_unresolvable_binding_fails_the_run_with_a_typed_error`), and the shipped
+  examples now exercise named bindings.
 
 ---
 

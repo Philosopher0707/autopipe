@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 # every public Step subclass shipped in the library must be addressable
 # here, so YAML pipelines can use the whole step library — not just a
 # privileged few. Quarantine exception: PiCodingStep stays explicit-import
-# only. core.steps.DataLoaderStep is intentionally unaliased (toy
-# sample-dataset loader); the canonical `data_loader` is the full
-# steps.data implementation.
+# only.
 BUILTIN_ALIASES: Dict[str, str] = {
     # Core builtins
     "print": "autopipe.core.steps.PrintStep",
@@ -30,6 +28,9 @@ BUILTIN_ALIASES: Dict[str, str] = {
     "visualization": "autopipe.core.steps.VisualizationStep",
     "feature_engineering": "autopipe.core.steps.FeatureEngineeringStep",
     "fe": "autopipe.core.steps.FeatureEngineeringStep",
+    # Bundled scikit-learn sample datasets (iris, diabetes). For a real
+    # CSV/parquet/SQL source use `data_loader`, which reads via `source:`.
+    "sample_data_loader": "autopipe.core.steps.DataLoaderStep",
     # Data handling (steps.data)
     "data_loader": "autopipe.steps.data.DataLoaderStep",
     "data_validator": "autopipe.steps.data.DataValidatorStep",
