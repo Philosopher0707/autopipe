@@ -77,7 +77,7 @@ class SimpleRateLimiter:
         times: int,
         seconds: int,
         identifier: str = "",
-    ) -> None:
+    ) -> tuple[int, int]:
         """
         Check if request exceeds rate limit.
 
@@ -87,12 +87,17 @@ class SimpleRateLimiter:
             seconds: Time window in seconds
             identifier: Additional identifier for the endpoint
 
+        Returns:
+            ``(remaining, limit)`` for this window, recorded on
+            ``request.state`` so the header middleware can stamp them.
+
         Raises:
-            HTTPException: If rate limit exceeded
+            HTTPException: If rate limit exceeded (429 with ``Retry-After`` and
+                ``X-RateLimit-*`` headers).
         """
         # Skip rate limiting if request is None (e.g., in test mode with httpx.AsyncClient)
         if request is None:
-            return
+            return (times, times)
 
         self._cleanup_expired()
 
@@ -109,14 +114,27 @@ class SimpleRateLimiter:
 
         entry.count += 1
 
+        remaining = max(times - entry.count, 0)
+
+        # Record on request.state so RateLimitHeadersMiddleware can stamp them
+        # onto the response even when the handler completes normally.
+        request.state.rate_limit_limit = times
+        request.state.rate_limit_remaining = remaining
+
         if entry.count > times:
             logger.warning(f"Rate limit exceeded for {client_key} on {identifier}")
             retry_after = int(entry.reset_time - now)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests",
-                headers={"Retry-After": str(retry_after)},
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(times),
+                    "X-RateLimit-Remaining": "0",
+                },
             )
+
+        return (remaining, times)
 
 
 # Global rate limiter instance
@@ -143,9 +161,9 @@ def check_register_rate_limit(request: Request) -> None:
     )
 
 
-def check_default_rate_limit(request: Request) -> None:
-    """Check default rate limit for API endpoints."""
-    _rate_limiter.check_rate_limit(
+def check_default_rate_limit(request: Request) -> tuple[int, int]:
+    """Default rate limit for API endpoints (router-level dependency)."""
+    return _rate_limiter.check_rate_limit(
         request,
         settings.RATE_LIMIT_DEFAULT_REQUESTS,
         settings.RATE_LIMIT_DEFAULT_WINDOW,

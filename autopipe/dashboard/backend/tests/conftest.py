@@ -4,9 +4,11 @@ import asyncio
 import time
 from typing import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from app.core.auth import create_access_token, get_password_hash
 from app.core.config import settings
+from app.core.security import _rate_limiter
 from app.db.models import Base, Experiment, Model, Pipeline, Run, RunStatus, User
 from app.db.session import get_db
 from app.executor import runner as executor_runner
@@ -17,6 +19,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 TERMINAL_RUN_STATUSES = {RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED}
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Clear the module-global rate limiter around every test.
+
+    The default limiter now runs on all HTTP routes; without a reset, counters
+    accumulate across tests (one client key) and later tests would see 429s.
+    """
+    _rate_limiter.reset()
+    yield
+    _rate_limiter.reset()
 
 
 @pytest_asyncio.fixture

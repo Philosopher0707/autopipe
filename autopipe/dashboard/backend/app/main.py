@@ -12,6 +12,7 @@ from app.api.v1.router import api_router
 from app.core.body_limit import RequestSizeLimitMiddleware
 from app.core.config import settings
 from app.core.events import create_start_app_handler, create_stop_app_handler
+from app.core.rate_limit_headers import RateLimitHeadersMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,7 +96,11 @@ def create_application() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-        expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
+        expose_headers=[
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "Retry-After",
+        ],
         max_age=600,
     )
 
@@ -110,8 +115,14 @@ def create_application() -> FastAPI:
         max_bytes=settings.MAX_REQUEST_BODY_SIZE,
     )
 
-    # Outermost, so every response — including the ones above — carries headers.
+    # Security headers on every response produced by the middleware below it
+    # (host rejection, 413s, CORS). Not the outermost — RateLimitHeaders is.
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Stamps X-RateLimit-* from request.state (set by check_default_rate_limit).
+    # Added after SecurityHeadersMiddleware so it is outer and its headers survive
+    # on responses the inner middlewares (413, 429, CORS) produce.
+    app.add_middleware(RateLimitHeadersMiddleware)
 
     # Include API router
     app.include_router(api_router, prefix=settings.API_V1_STR)

@@ -2,19 +2,11 @@
 
 import pytest
 from app.core.auth import get_password_hash
-from app.core.security import _rate_limiter
 from app.db.models import User
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.asyncio
-
-
-@pytest.fixture(autouse=True)
-def reset_rate_limiter():
-    """Reset global rate limiter storage between tests to prevent side-effects."""
-    _rate_limiter.reset()
-    yield
 
 
 async def test_register_new_user(client: AsyncClient):
