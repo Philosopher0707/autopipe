@@ -6,12 +6,19 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD when this file was created:
-  `b2212315` (39 commits past origin/main at mission start).
+- Mission baseline revision: `57db8694`. HEAD: `4d52d740`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
-### DONE (verified by tests at HEAD)
+### DONE (verified by tests)
 
+- **M1 rate-limit wiring (I18) — `08e7f43b`:** default limiter on ALL HTTP
+  routes (was: only /auth despite comment claiming data routes); `_rl`
+  dependency runs before auth; `X-RateLimit-*` on every response via
+  `RateLimitHeadersMiddleware`; 429 has `Retry-After`+headers; CORS exposes
+  them; autouse limiter reset in backend conftest.
+  Tests: `backend/tests/test_rate_limit_headers.py` (6, production-wiring).
+- **M2 whole-repo ruff — `4d52d740`:** `ruff check/format .` fully clean;
+  examples get structural E402 ignore (sys.path bootstrap).
 - **One execution semantic (I1–I4):** duplicate dashboard loop deleted;
   `autopipe/core/execution.py::ExecutionEngine` is canonical. Dashboard
   executor (`app/executor/runner.py`) delegates to it.
@@ -32,15 +39,10 @@
   secret-key startup policy, rate limiter keyed by peer unless
   TRUST_PROXY_HEADERS.
 
-### IN FLIGHT (uncommitted at mission start)
+### KNOWN GAPS (not yet started)
 
-- Rate-limit response headers: `check_default_rate_limit` returns
-  (remaining, limit) → `request.state` → `RateLimitHeadersMiddleware`
-  stamps `X-RateLimit-*`; 429 gets `Retry-After` + headers; CORS
-  exposes them.
-- **DEFECT FOUND:** `app/api/v1/router.py` comment says default limit is on
-  all data routes and /auth excluded — code does the OPPOSITE (limits only
-  /auth, data routes unlimited). Fix in progress this milestone.
+- `examples/example_pipeline.py` needs OPENROUTER_API_KEY to execute
+  (credential-gated; validate-only in invariant test — acceptable).
 
 ## Quality gates (run before every commit)
 
@@ -69,9 +71,9 @@ ruff check . && ruff format --check .                            # whole-repo (e
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Rate-limit wiring + headers + I18 test | **NOW** |
-| 2 | Whole-repo ruff clean (examples/, test_simple.py) | next |
-| 3 | WS auth parity (token claims vs DB user; RunDetail WS URL has no token) | pending |
+| 1 | Rate-limit wiring + headers + I18 test | DONE `08e7f43b` |
+| 2 | Whole-repo ruff clean (examples/, test_simple.py) | DONE `4d52d740` |
+| 3 | WS auth parity (token claims vs DB user; RunDetail WS URL has no token) | **NOW** |
 | 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | pending |
 | 5 | MetricLog writer: nothing in executor writes metric series | pending |
 | 6 | Artifact content-addressing in dashboard ORM | pending |
@@ -88,9 +90,11 @@ ruff check . && ruff format --check .                            # whole-repo (e
   bogus: separate identifiers = separate buckets; excluding it left /auth/me
   unlimited).
 - D3: websocket router not rate-limited this milestone (WS has its own auth
-  gap; separate work item).
+  gap; separate work item — now queue #3).
 - D4: tests must exercise production wiring (real app, real limiter) —
   autouse limiter reset in backend conftest prevents cross-test 429s.
+- D5: examples/*.py structural E402 ignored (sys.path bootstrap before
+  local-package import); everything else whole-repo ruff-clean.
 
 ## Resume procedure
 
