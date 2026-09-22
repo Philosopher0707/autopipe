@@ -14,6 +14,7 @@ This example demonstrates how to use AutoPipe for a complete ML workflow:
 
 import os
 import sys
+
 import numpy as np
 
 # Ensure the repository root is on PYTHONPATH so the local autopipe package imports correctly
@@ -21,31 +22,32 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
 from autopipe import (
-    Pipeline,
     DataLoaderStep,
+    DataPreprocessorStep,
+    DataSplitterStep,
     DataValidatorStep,
     FeatureEngineeringStep,
-    DataPreprocessorStep,
     FeatureSelectionStep,
-    DataSplitterStep,
-    SklearnTrainerStep,
     ModelEvaluatorStep,
+    Pipeline,
+    SklearnTrainerStep,
     get_registry,
 )
-from sklearn.ensemble import RandomForestClassifier
-import pandas as pd
 
 
 def create_ml_pipeline():
     """Create a complete ML pipeline."""
-    
+
     # Step 1: Load data
     data_loader = DataLoaderStep(
         source="data/bank_churn.csv",  # Example dataset
-        format="csv"
+        format="csv",
     )
-    
+
     # Step 2: Validate data
     validator = DataValidatorStep(
         required_columns=["customer_id", "age", "salary", "churned"],
@@ -53,7 +55,7 @@ def create_ml_pipeline():
         check_duplicates=True,
         check_outliers=True,
     )
-    
+
     # Step 3: Feature engineering
     feature_engineer = FeatureEngineeringStep(
         name="feature_engineering",
@@ -63,21 +65,21 @@ def create_ml_pipeline():
             "binning": {"n_bins": 5, "columns": ["age"]},
         },
     )
-    
+
     # Step 4: Preprocess
     preprocessor = DataPreprocessorStep(
         numeric_scaling="standard",
         categorical_encoding="onehot",
         imputation_strategy="mean",
     )
-    
+
     # Step 5: Feature selection
     feature_selector = FeatureSelectionStep(
         method="kbest",
         k=10,
         score_func="mutual_info",
     )
-    
+
     # Step 6: Split data
     splitter = DataSplitterStep(
         name="split",
@@ -87,7 +89,7 @@ def create_ml_pipeline():
         stratify=True,
         random_state=42,
     )
-    
+
     # Step 7: Train model
     trainer = SklearnTrainerStep(
         model_class=RandomForestClassifier,
@@ -95,7 +97,7 @@ def create_ml_pipeline():
         use_cross_validation=True,
         cv_folds=5,
     )
-    
+
     # Step 8: Evaluate
     evaluator = ModelEvaluatorStep(
         name="evaluate",
@@ -104,7 +106,7 @@ def create_ml_pipeline():
         calculate_proba=True,
         error_analysis=True,
     )
-    
+
     # Build pipeline
     pipeline = (
         Pipeline("bank_churn_prediction")
@@ -117,7 +119,7 @@ def create_ml_pipeline():
         .add_step(trainer)
         .add_step(evaluator)
     )
-    
+
     return pipeline
 
 
@@ -127,18 +129,18 @@ pipeline = create_ml_pipeline()
 
 def model_registry_example():
     """Example of model registry usage."""
-    
-    from sklearn.ensemble import RandomForestClassifier
+
     from sklearn.datasets import make_classification
-    
+    from sklearn.ensemble import RandomForestClassifier
+
     # Train a model
     X, y = make_classification(n_samples=1000, n_features=20, random_state=42)
     model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X, y)
-    
+
     # Get registry
     registry = get_registry()
-    
+
     # Register model
     metadata = registry.register(
         model=model,
@@ -147,62 +149,66 @@ def model_registry_example():
         parameters={"n_estimators": 100, "max_depth": 10},
         tags={"stage": "production", "team": "ml"},
     )
-    
+
     print(f"Registered model: {metadata.model_id}")
     print(f"Version: {metadata.version}")
-    
+
     # Load model back
     loaded_model = registry.load("churn_prediction_model")
-    
+    print(f"Reloaded model: {type(loaded_model).__name__}")
+
     # Compare versions
     comparison = registry.compare_versions("churn_prediction_model")
     print(comparison)
-    
+
     return metadata
 
 
 def complete_workflow_example():
     """Complete end-to-end ML workflow."""
-    
+
     import logging
+
     logging.basicConfig(level=logging.INFO)
-    
+
     # Create pipeline
-    pipeline = create_ml_pipeline()
-    
+    _pipeline = create_ml_pipeline()  # construction is the demo
+
     # Run pipeline
     # Note: This requires actual data files
     # result = pipeline.execute()
-    
+
     # Or run step by step
     context = {}
-    
+
     # Simulate data
     np.random.seed(42)
-    data = pd.DataFrame({
-        "customer_id": range(1000),
-        "age": np.random.randint(18, 80, 1000),
-        "salary": np.random.normal(50000, 15000, 1000),
-        "churned": np.random.randint(0, 2, 1000),
-    })
-    
+    data = pd.DataFrame(
+        {
+            "customer_id": range(1000),
+            "age": np.random.randint(18, 80, 1000),
+            "salary": np.random.normal(50000, 15000, 1000),
+            "churned": np.random.randint(0, 2, 1000),
+        }
+    )
+
     # Process through pipeline steps
     validator = DataValidatorStep(
         required_columns=["age", "salary", "churned"],
         max_null_ratio=0.5,
     )
     data_validated = validator.execute(data, context)
-    
+
     print(f"Validated data shape: {data_validated.shape}")
     print(f"Validation results: {context.get('validation_results')}")
-    
+
     # Feature engineering
     feature_engineer = FeatureEngineeringStep(
         interaction_columns=["age", "salary"],
     )
-    data_engineered = feature_engineer.execute(data_validated, context)
+    feature_engineer.execute(data_validated, context)
     print(f"Engineered features: {context.get('feature_engineering')}")
-    
+
     return context
 
 

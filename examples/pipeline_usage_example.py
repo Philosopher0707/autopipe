@@ -18,7 +18,7 @@ import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 
-from autopipe import Pipeline, DataValidatorStep, DataSplitterStep, SklearnTrainerStep
+from autopipe import DataSplitterStep, DataValidatorStep, Pipeline, SklearnTrainerStep
 
 
 def create_pipeline() -> Pipeline:
