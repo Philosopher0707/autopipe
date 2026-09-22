@@ -1,9 +1,6 @@
 name: advanced_ml_pipeline
 description: Complete ML pipeline with feature engineering + LLM insights
 
-env:
-  LOG_LEVEL: INFO
-
 steps:
   # Step 1: Load raw data
   - name: load_raw_data

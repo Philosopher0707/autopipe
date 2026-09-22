@@ -83,6 +83,22 @@ class TestPipelineConfig:
         with pytest.raises(ValueError, match="non-existent step"):
             PipelineConfig(steps=steps)
 
+    def test_unknown_keys_are_rejected(self):
+        """Typo'd keys must fail loudly, not be silently dropped."""
+        with pytest.raises(ValueError, match="extra_forbidden"):
+            PipelineConfig(name="x", env={"LOG_LEVEL": "INFO"})
+
+    def test_env_and_settings_are_not_pipeline_fields(self):
+        """`env:`/`settings:` were never honored by the loader — reject them."""
+        with pytest.raises(ValueError):
+            PipelineConfig(name="x", env={})
+        with pytest.raises(ValueError):
+            PipelineConfig(name="x", settings={})
+
+    def test_description_is_accepted(self):
+        config = PipelineConfig(name="x", description="a human-readable summary")
+        assert config.description == "a human-readable summary"
+
 
 class TestAutoPipeGlobalConfig:
     """Tests for AutoPipeGlobalConfig model."""

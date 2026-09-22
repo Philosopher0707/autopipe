@@ -1035,9 +1035,9 @@ class AutoPipeREPL:
 
             # Try to load as actual pipeline
             if Pipeline:
-                from autopipe.core.loader import load_pipeline
+                from autopipe.core.runner import load_pipeline_from_yaml
 
-                pipeline = load_pipeline(str(path))
+                pipeline = load_pipeline_from_yaml(str(path))
                 name = name or path.stem
                 self.pipelines[name] = pipeline
                 ctx.print(f"[green]✓[/green] Loaded pipeline: [cyan]{name}[/cyan] from {path.name}")

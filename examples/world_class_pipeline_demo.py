@@ -28,7 +28,6 @@ import torch.nn as nn
 
 # Import AutoPipe components
 from autopipe import (
-    Pipeline,
     DataLoaderStep,
     FeatureEngineeringStep,
 )
@@ -108,10 +107,7 @@ def example_1_cv_and_training():
     df, feature_names = create_sample_data(n_samples=1000)
     X = df[feature_names].values
     y = df['target'].values
-    
-    # Create pipeline for cross-validation
-    pipeline = Pipeline(name="Cross-Validation Example")
-    
+
     # Cross-validation step
     cv_step = CrossValidationStep(
         name="rf_cv",

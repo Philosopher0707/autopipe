@@ -59,6 +59,15 @@ class TestAdmitRunConfig:
         with pytest.raises(RunAdmissionError):
             admit_run_config({"name": "evil", "steps": [{"name": "x", "type": "os.system"}]})
 
+    def test_every_seed_config_is_admissible(self):
+        """Demo seeds must be runnable configs, not inert metadata."""
+        from app.seed import PIPELINE_SEEDS
+
+        assert PIPELINE_SEEDS, "seed list must not be empty"
+        for seed in PIPELINE_SEEDS:
+            admitted = admit_run_config(seed["config"])
+            assert admitted["name"] == seed["name"]
+
     def test_rejects_a_cyclic_dependency_graph(self):
         cyclic = {
             "name": "cyclic",

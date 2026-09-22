@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StepConfig(BaseModel):
@@ -41,9 +41,10 @@ class StepConfig(BaseModel):
 class PipelineConfig(BaseModel):
     """Configuration for a pipeline."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(default="default_pipeline", description="Pipeline name")
-    env: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
-    settings: Dict[str, Any] = Field(default_factory=dict, description="Pipeline settings")
+    description: Optional[str] = Field(default=None, description="Human-readable description")
     steps: List[StepConfig] = Field(default_factory=list, description="Pipeline steps")
 
     @model_validator(mode="after")

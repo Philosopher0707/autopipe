@@ -35,7 +35,84 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from autopipe.schemas.models import PipelineConfig, StepConfig
+
 logger = logging.getLogger(__name__)
+
+
+def _seed_pipeline_config(name: str, description: str) -> dict:
+    """Build a minimal executable pipeline config that passes run admission."""
+    return PipelineConfig(
+        name=name,
+        description=description,
+        steps=[
+            StepConfig(name="load_data", type="sample_data_loader", params={"dataset": "iris"}),
+            StepConfig(
+                name="summarize",
+                type="print",
+                depends_on=["load_data"],
+                inputs={"data": "load_data"},
+            ),
+        ],
+    ).model_dump()
+
+
+# Module-level so admission tests can exercise every seed config through
+# `admit_run_config` without seeding the database first.
+PIPELINE_SEEDS: list[dict] = [
+    {
+        "name": name,
+        "description": description,
+        "config": _seed_pipeline_config(name, description),
+        "tags": tags,
+        "created_by_index": created_by_index,
+        "project_index": project_index,
+    }
+    for name, description, tags, created_by_index, project_index in [
+        (
+            "customer_churn_training",
+            "End-to-end pipeline for customer churn prediction model training",
+            ["production", "ml", "churn"],
+            1,
+            0,
+        ),
+        (
+            "fraud_detection_pipeline",
+            "Real-time fraud detection with feature engineering",
+            ["production", "fraud", "realtime"],
+            2,
+            1,
+        ),
+        (
+            "recommendation_engine",
+            "Collaborative filtering recommendation system",
+            ["staging", "recommendations"],
+            1,
+            2,
+        ),
+        (
+            "data_preprocessing",
+            "Data cleaning and feature engineering pipeline",
+            ["utility", "data"],
+            0,
+            0,
+        ),
+        (
+            "model_evaluation",
+            "A/B testing and model evaluation pipeline",
+            ["evaluation", "testing"],
+            2,
+            1,
+        ),
+        (
+            "hyperparam_tuning",
+            "Optuna-based hyperparameter optimization",
+            ["optimization", "optuna"],
+            1,
+            3,
+        ),
+    ]
+]
 
 
 async def seed_projects(db: AsyncSession) -> list[Project]:
@@ -162,74 +239,7 @@ async def seed_pipelines(
     db: AsyncSession, users: list[User], projects: list[Project]
 ) -> list[Pipeline]:
     """Create sample pipelines linked to projects."""
-    pipelines_data = [
-        {
-            "name": "customer_churn_training",
-            "description": "End-to-end pipeline for customer churn prediction model training",
-            "config": {
-                "model_type": "gradient_boosting",
-                "features": ["tenure", "monthly_charges", "contract_type"],
-                "target": "churn",
-            },
-            "tags": ["production", "ml", "churn"],
-            "created_by": users[1].id,
-            "project_index": 0,
-        },
-        {
-            "name": "fraud_detection_pipeline",
-            "description": "Real-time fraud detection with feature engineering",
-            "config": {
-                "model_type": "random_forest",
-                "threshold": 0.7,
-            },
-            "tags": ["production", "fraud", "realtime"],
-            "created_by": users[2].id,
-            "project_index": 1,
-        },
-        {
-            "name": "recommendation_engine",
-            "description": "Collaborative filtering recommendation system",
-            "config": {
-                "algorithm": "als",
-                "factors": 50,
-            },
-            "tags": ["staging", "recommendations"],
-            "created_by": users[1].id,
-            "project_index": 2,
-        },
-        {
-            "name": "data_preprocessing",
-            "description": "Data cleaning and feature engineering pipeline",
-            "config": {
-                "steps": ["clean", "normalize", "encode", "split"],
-            },
-            "tags": ["utility", "data"],
-            "created_by": users[0].id,
-            "project_index": 0,
-        },
-        {
-            "name": "model_evaluation",
-            "description": "A/B testing and model evaluation pipeline",
-            "config": {
-                "metrics": ["accuracy", "f1", "precision", "recall", "auc"],
-            },
-            "tags": ["evaluation", "testing"],
-            "created_by": users[2].id,
-            "project_index": 1,
-        },
-        {
-            "name": "hyperparam_tuning",
-            "description": "Optuna-based hyperparameter optimization",
-            "config": {
-                "n_trials": 100,
-                "direction": "maximize",
-                "metric": "val_accuracy",
-            },
-            "tags": ["optimization", "optuna"],
-            "created_by": users[1].id,
-            "project_index": 3,
-        },
-    ]
+    pipelines_data = PIPELINE_SEEDS
 
     pipelines = []
     created = 0
@@ -250,7 +260,7 @@ async def seed_pipelines(
                 description=data["description"],
                 config=data["config"],
                 tags=data["tags"],
-                created_by=data["created_by"],
+                created_by=users[data["created_by_index"]].id,
                 is_active=True,
                 project_id=project.id if project else None,
             )

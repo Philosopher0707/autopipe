@@ -41,6 +41,7 @@ def load_pipeline_from_module(filepath: str) -> Pipeline:
     if not isinstance(pipeline, Pipeline):
         raise TypeError("'pipeline' must be an instance of Pipeline")
 
+    list(pipeline.execution_order)  # raises ValueError on a cycle (I8)
     return pipeline
 
 

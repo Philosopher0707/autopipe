@@ -1,9 +1,6 @@
 name: ollama_cloud_demo
 description: Pipeline using Ollama Cloud models
 
-env:
-  LOG_LEVEL: INFO
-
 steps:
   # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).
   - name: load_data

@@ -12,6 +12,27 @@ adheres to [Semantic Versioning](https://semver.org/).
   (`autopipe/dashboard/backend/migrations`). Existing create_all databases
   adopt it via `alembic stamp head`; fresh deployments use `alembic upgrade
   head`. Initial revision verified schema-identical to `Base.metadata`.
+- `autopipe run --output results.json` writes step results as JSON; the
+  never-implemented `--cache`, `--parallel` and `--step` flags were removed
+  (they were accepted and silently ignored).
+- `autopipe validate` accepts Python pipeline files (`.py`), loading them
+  through the same `load_pipeline_from_module` path `run` uses. Module bodies
+  execute on load, so only validate files you trust.
+
+### Changed
+
+- `PipelineConfig` now forbids unknown keys (`extra="forbid"`). The `env` and
+  `settings` fields were removed — nothing ever read them — and `description`
+  is now a real field. Shipped examples and the `autopipe create` template no
+  longer emit `env:` blocks.
+- Plan resolution and input-binding signature checks moved into
+  `load_pipeline_from_config` itself, so every entry point (YAML, `.py`, CLI
+  validate/run, dashboard run admission) rejects cycles, dangling dependencies
+  and mistyped binding keys at **load** time. `load_executable_pipeline`
+  remains as a compatibility alias.
+- Dashboard demo seeds (`app.seed.PIPELINE_SEEDS`) are now admissible
+  executable pipeline configs instead of inert metadata, guarded by an
+  admission test.
 
 ## [0.2.0] — 2026-08-25
 

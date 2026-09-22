@@ -1,7 +1,8 @@
 """Invariant I8: VALID means execution-ready.
 
-Every YAML config the repository ships — `examples/` and the template emitted by
-`autopipe create` — must load through the same path `autopipe run` uses.
+Every config the repository ships — `examples/*.yaml`, `examples/*.py` that
+expose a module-level `pipeline`, and the template emitted by `autopipe create`
+— must load through the same path `autopipe run` uses.
 
 Before this test existed, three of the four shipped examples were reported VALID
 by `autopipe validate` yet failed to load, because validation only checked that
@@ -9,6 +10,7 @@ step classes were *importable*, not that they were *constructible with the
 parameters given*.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,10 @@ from autopipe.core.loader import load_pipeline_from_config
 from autopipe.schemas.models import PipelineConfig
 
 EXAMPLES = sorted((Path(__file__).resolve().parents[2] / "examples").glob("*.yaml"))
+PY_EXAMPLES = sorted((Path(__file__).resolve().parents[2] / "examples").glob("*.py"))
+# world_class_pipeline_demo.py is a step-by-step driver script, not a
+# pipeline module: it never builds a Pipeline object end-to-end.
+LOADABLE_PY = [p for p in PY_EXAMPLES if p.name != "world_class_pipeline_demo.py"]
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
@@ -34,6 +40,18 @@ def test_shipped_example_loads_and_validates(path: Path):
 def test_every_shipped_example_is_discovered():
     """Guard against the glob silently matching nothing (and skipping the suite)."""
     assert len(EXAMPLES) >= 4, f"expected the shipped examples, found {EXAMPLES}"
+    assert len(LOADABLE_PY) >= 3, f"expected loadable .py examples, found {LOADABLE_PY}"
+
+
+@pytest.mark.parametrize("path", LOADABLE_PY, ids=lambda p: p.name)
+def test_shipped_python_example_exposes_a_loadable_pipeline(path: Path):
+    """Every shipped pipeline module must expose `pipeline` and load with its
+    cycle check — the same path `autopipe run <file>.py` uses."""
+    from autopipe.core.runner import load_pipeline_from_module
+
+    pipeline = load_pipeline_from_module(str(path))
+    assert pipeline.name
+    assert pipeline.steps, f"{path.name} ships no steps"
 
 
 def test_schema_validation_alone_is_not_execution_readiness():
@@ -95,11 +113,11 @@ def test_validate_rejects_a_cyclic_dependency_graph(tmp_path):
     assert result.exit_code != 0, result.output
 
 
-def test_load_executable_pipeline_catches_what_the_schema_does_not():
-    """`load_executable_pipeline` is the execution-readiness definition.
+def test_both_loaders_reject_a_cyclic_graph_at_load_time():
+    """Plan resolution lives in the loader itself, not in a wrapper callers skip.
 
-    The plain loader accepts a cyclic graph because the cycle is invisible until
-    the plan is ordered; the executable loader must reject it.
+    The cycle is invisible to the Pydantic schema and to step construction;
+    only ordering catches it. Both entry points must therefore reject it.
     """
     from autopipe.core.loader import load_executable_pipeline, load_pipeline_from_config
 
@@ -110,9 +128,8 @@ def test_load_executable_pipeline_catches_what_the_schema_does_not():
             {"name": "b", "type": "print", "depends_on": ["a"]},
         ],
     }
-    # The plain loader builds the pipeline...
-    assert load_pipeline_from_config(cyclic).name == "cyclic"
-    # ...but it is not executable, and the executable loader says so.
+    with pytest.raises(ValueError, match="cycle"):
+        load_pipeline_from_config(cyclic)
     with pytest.raises(ValueError, match="cycle"):
         load_executable_pipeline(cyclic)
 
@@ -152,3 +169,69 @@ def test_validate_rejects_a_config_that_cannot_be_constructed(tmp_path):
     )
     result = CliRunner().invoke(cli, ["validate", str(bad)])
     assert result.exit_code != 0, result.output
+
+
+def test_validate_accepts_a_python_pipeline():
+    """`autopipe validate` handles .py via the same loader `run` uses."""
+    from click.testing import CliRunner
+
+    from autopipe.cli import cli
+
+    py_file = Path(__file__).resolve().parents[2] / "examples" / "example_pipeline.py"
+    result = CliRunner().invoke(cli, ["validate", str(py_file)])
+    assert result.exit_code == 0, result.output
+
+
+def test_dashboard_pipeline_runs_end_to_end():
+    """The shipped print-only example must actually execute, not merely load."""
+    path = Path(__file__).resolve().parents[2] / "examples" / "test_dashboard_pipeline.yaml"
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    pipeline = load_pipeline_from_config(config)
+    results = pipeline.run()
+    assert set(results) == {"load_data", "process", "save"}
+
+
+def test_usage_example_pipeline_runs_end_to_end():
+    """The usage example's module-level pipeline must run with its own data."""
+    from autopipe.core.runner import load_pipeline_from_module
+
+    path = Path(__file__).resolve().parents[2] / "examples" / "pipeline_usage_example.py"
+    pipeline = load_pipeline_from_module(str(path))
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("usage_example_mod", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    results = pipeline.run(initial_inputs={"data": mod.make_example_data()})
+    # initial_inputs are pre-seeded into outputs, alongside the step results.
+    assert set(results) == {"data", "validate", "split", "train"}
+    assert results["train"] is not None
+
+
+def test_run_output_flag_writes_json(tmp_path):
+    """`autopipe run --output` dumps results as JSON (was a declared no-op)."""
+    from click.testing import CliRunner
+
+    from autopipe.cli import cli
+
+    src = Path(__file__).resolve().parents[2] / "examples" / "test_dashboard_pipeline.yaml"
+    out = tmp_path / "results.json"
+    result = CliRunner().invoke(cli, ["run", str(src), "--output", str(out)])
+    assert result.exit_code == 0, result.output
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert set(data) == {"load_data", "process", "save"}
+
+
+def test_run_rejects_removed_flags():
+    """Flags that never did anything are gone — click must reject them."""
+    from click.testing import CliRunner
+
+    from autopipe.cli import cli
+
+    src = Path(__file__).resolve().parents[2] / "examples" / "test_dashboard_pipeline.yaml"
+    runner = CliRunner()
+    for args in (["--step", "load_data"], ["--parallel"], ["--cache"], ["--no-cache"]):
+        result = runner.invoke(cli, ["run", str(src), *args])
+        assert result.exit_code != 0, f"{args} must be rejected: {result.output}"

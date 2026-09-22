@@ -31,9 +31,6 @@ from autopipe import (
     DataSplitterStep,
     SklearnTrainerStep,
     ModelEvaluatorStep,
-    HyperparameterTuner,
-    SearchStrategy,
-    continuous, discrete, categorical,
     get_registry,
 )
 from sklearn.ensemble import RandomForestClassifier
@@ -59,9 +56,12 @@ def create_ml_pipeline():
     
     # Step 3: Feature engineering
     feature_engineer = FeatureEngineeringStep(
-        datetime_columns=["join_date"],
-        interaction_columns=["age", "salary"],
-        binning_columns={"age": 5},
+        name="feature_engineering",
+        transformations={
+            "datetime": {"columns": ["join_date"]},
+            "interaction": {"operation": "multiply", "pairs": [["age", "salary"]]},
+            "binning": {"n_bins": 5, "columns": ["age"]},
+        },
     )
     
     # Step 4: Preprocess
@@ -80,6 +80,7 @@ def create_ml_pipeline():
     
     # Step 6: Split data
     splitter = DataSplitterStep(
+        name="split",
         train_size=0.7,
         val_size=0.15,
         test_size=0.15,
@@ -97,6 +98,7 @@ def create_ml_pipeline():
     
     # Step 8: Evaluate
     evaluator = ModelEvaluatorStep(
+        name="evaluate",
         task_type="classification",
         metrics=["accuracy", "precision", "recall", "f1", "roc_auc"],
         calculate_proba=True,
@@ -119,43 +121,8 @@ def create_ml_pipeline():
     return pipeline
 
 
-def hyperparameter_tuning_example():
-    """Example of hyperparameter tuning."""
-    
-    from sklearn.datasets import make_classification
-    from sklearn.model_selection import cross_val_score
-    
-    # Generate synthetic data
-    X, y = make_classification(n_samples=1000, n_features=20, n_classes=2, random_state=42)
-    
-    # Define search space
-    param_space = {
-        "n_estimators": discrete(50, 500),
-        "max_depth": discrete(3, 20),
-        "min_samples_split": discrete(2, 20),
-        "max_features": categorical(["sqrt", "log2", None]),
-    }
-    
-    # Define objective function
-    def objective(params):
-        model = RandomForestClassifier(**params, random_state=42)
-        scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
-        return {"accuracy": scores.mean()}
-    
-    # Run tuning
-    tuner = HyperparameterTuner(
-        strategy=SearchStrategy.BAYESIAN,
-        n_trials=50,
-        direction="maximize",
-        random_state=42,
-    )
-    
-    best_trial = tuner.fit(param_space, objective)
-    
-    print(f"Best params: {best_trial.params}")
-    print(f"Best score: {best_trial.metrics}")
-    
-    return best_trial
+# Module-level pipeline so `load_pipeline_from_module` can discover it.
+pipeline = create_ml_pipeline()
 
 
 def model_registry_example():
@@ -243,21 +210,11 @@ if __name__ == "__main__":
     print("=" * 60)
     print("AutoPipe Comprehensive ML/DL Pipeline Example")
     print("=" * 60)
-    
-    # Example 1: Hyperparameter Tuning
-    print("\n1. Hyperparameter Tuning Example")
-    print("-" * 40)
-    # best_params = hyperparameter_tuning_example()
-    
-    # Example 2: Model Registry
-    print("\n2. Model Registry Example")
-    print("-" * 40)
-    # metadata = model_registry_example()
-    
-    # Example 3: Complete Workflow
-    print("\n3. Complete Workflow Example")
+
+    # Example: Complete Workflow
+    print("\nComplete Workflow Example")
     print("-" * 40)
     context = complete_workflow_example()
-    
+
     print("\nPipeline execution complete!")
     print(f"Context contains: {list(context.keys())}")

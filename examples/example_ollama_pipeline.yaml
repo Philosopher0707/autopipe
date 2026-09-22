@@ -1,10 +1,6 @@
 name: ollama_demo
 description: Pipeline using a local Ollama LLM
 
-env:
-  LOG_LEVEL: INFO
-  OLLAMA_BASE_URL: http://127.0.0.1:11434/v1
-
 steps:
   # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).
   # For your own CSV/parquet/SQL source, use `data_loader` with `source:` instead.

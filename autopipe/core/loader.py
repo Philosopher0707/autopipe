@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib
+import inspect
 import logging
 from typing import Any, Dict
 
@@ -140,12 +141,36 @@ def load_step_from_config(step_config: Dict[str, Any]) -> Step:
     return step
 
 
+def _validate_input_bindings(pipeline: Pipeline) -> None:
+    """Reject bindings whose key is not a run() parameter (load-time, I8).
+
+    A step whose ``run()`` declares ``**kwargs`` accepts any binding key;
+    otherwise every key in ``input_bindings`` must match a declared parameter,
+    so a typo like ``modle`` fails at load instead of at run time.
+    """
+    for step in pipeline.steps.values():
+        bindings = getattr(step, "input_bindings", None) or {}
+        if not bindings:
+            continue
+        sig = inspect.signature(step.run)
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            continue
+        for key in bindings:
+            if key not in sig.parameters:
+                raise ValueError(
+                    f"Step '{step.name}' has no run() parameter '{key}'; "
+                    f"available: {sorted(sig.parameters)}"
+                )
+
+
 def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
     """Create a Pipeline from a config dictionary.
 
     The config is validated through ``PipelineConfig`` (unique step names,
-    no self-dependencies, dependencies exist) before any step class is
-    imported or instantiated.
+    no self-dependencies, dependencies exist, no unknown keys) before any step
+    class is imported or instantiated. Binding parameters are checked against
+    each step's ``run()`` signature and the execution plan is resolved, so a
+    loadable pipeline is an executable one (invariant I8).
     """
     validated = PipelineConfig.model_validate(config)
     pipeline = Pipeline(validated.name)
@@ -162,28 +187,17 @@ def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
         )
         pipeline.add_step(step)
 
+    _validate_input_bindings(pipeline)
+    order = list(pipeline.execution_order)  # raises ValueError on a cycle
+    logger.debug("Pipeline %s is executable: %d step(s)", pipeline.name, len(order))
     return pipeline
 
 
 def load_executable_pipeline(config: Dict[str, Any]) -> Pipeline:
-    """Load a config and prove it can actually be executed.
+    """Backward-compatible alias for ``load_pipeline_from_config``.
 
-    ``load_pipeline_from_config`` validates the schema, resolves step types
-    through the allowlist and constructs the steps — but a dependency **cycle**
-    only surfaces when the execution plan is resolved. Validation is required to
-    mean "this will run" (invariant I8), so plan resolution is part of loading a
-    pipeline *for execution* rather than a separate step a caller can forget.
-    That is why both ``autopipe validate`` and the dashboard's run admission call
-    this function instead of the plain loader.
-
-    Returns:
-        The loaded pipeline, with its execution order already resolved.
-
-    Raises:
-        ValueError: if the config is invalid, unbuildable, or its dependency
-            graph cannot be ordered (a cycle).
+    Plan resolution and binding checks now live in the loader itself, so this
+    thin wrapper remains only for existing callers (CLI validate, run
+    admission).
     """
-    pipeline = load_pipeline_from_config(config)
-    order = list(pipeline.execution_order)  # raises ValueError on a cycle
-    logger.debug("Pipeline %s is executable: %d step(s)", pipeline.name, len(order))
-    return pipeline
+    return load_pipeline_from_config(config)

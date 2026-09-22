@@ -45,18 +45,12 @@ def cli(ctx: click.Context, verbose: bool, config: Optional[str]):
 
 @cli.command()
 @click.argument("pipeline_file", type=click.Path(exists=True))
-@click.option("--output", "-o", type=click.Path(), help="Output directory for results")
-@click.option("--cache/--no-cache", default=True, help="Enable/disable caching")
-@click.option("--parallel", "-p", is_flag=True, help="Run steps in parallel where possible")
-@click.option("--step", "-s", multiple=True, help="Run only specific steps")
+@click.option("--output", "-o", type=click.Path(), help="Write run results to a JSON file")
 @click.pass_context
 def run(
     ctx: click.Context,
     pipeline_file: str,
     output: Optional[str],
-    cache: bool,
-    parallel: bool,
-    step: tuple,
 ):
     """Run a pipeline from a YAML or Python file."""
     from autopipe.core.runner import load_pipeline_from_module, load_pipeline_from_yaml
@@ -72,14 +66,18 @@ def run(
         console.print(f"[bold green]Pipeline loaded:[/bold green] {pipeline.name}")
         console.print(f"[dim]Steps: {len(pipeline.steps)}[/dim]")
 
-        if step:
-            console.print(f"[yellow]Running only steps: {', '.join(step)}[/yellow]")
-
         console.print("\n[bold]Running pipeline...[/bold]\n")
 
         results = pipeline.run()
 
         console.print("\n[bold green]✓ Pipeline completed successfully![/bold green]")
+
+        if output:
+            import json
+
+            with open(output, "w") as f:
+                json.dump(results, f, indent=2, default=str)
+            console.print(f"[dim]Results written to {output}[/dim]")
 
         # Display results table
         table = Table(title="Step Outputs")
@@ -87,9 +85,9 @@ def run(
         table.add_column("Status", style="green")
         table.add_column("Output", style="white")
 
-        for name, output in results.items():
-            status = "✓" if output is not None else "○"
-            output_str = str(output)[:50] if output else "None"
+        for name, value in results.items():
+            status = "✓" if value is not None else "○"
+            output_str = str(value)[:50] if value else "None"
             table.add_row(name, status, output_str)
 
         console.print(table)
@@ -111,32 +109,42 @@ def run(
 @cli.command()
 @click.argument("pipeline_file", type=click.Path(exists=True))
 def validate(pipeline_file: str):
-    """Validate a pipeline configuration file.
+    """Validate a pipeline configuration file (YAML or Python).
 
     VALID means execution-ready: the file must pass schema validation, every
     step type must resolve under the trusted-roots allowlist, every step must be
-    constructible with the parameters given, and the dependency graph must be
-    acyclic. This is the same loading path `autopipe run` uses, so anything that
-    validates here will load there.
+    constructible with the parameters given, input bindings must match each
+    step's run() signature, and the dependency graph must be acyclic. This is
+    the same loading path `autopipe run` uses, so anything that validates here
+    will load there.
+
+    Note: a `.py` file is *executed* during loading (its module body runs), so
+    only validate Python files you trust — the same trust you extend to
+    `autopipe run <file>.py`.
     """
     print_banner()
 
     try:
-        import yaml
-
         console.print(f"[bold blue]Validating:[/bold blue] {pipeline_file}")
-
-        with open(pipeline_file, "r") as f:
-            config_dict = yaml.safe_load(f)
 
         # One validation/loading path (invariant I8): build the pipeline exactly
         # as `run` would, including resolving the execution plan so that a
         # dependency cycle is caught here rather than at run time. The previous
         # implementation only checked that step classes were importable, so it
         # reported VALID for configs that could not run.
-        from autopipe.core.loader import load_executable_pipeline
+        if pipeline_file.endswith(".py"):
+            from autopipe.core.runner import load_pipeline_from_module
 
-        pipeline = load_executable_pipeline(config_dict)
+            pipeline = load_pipeline_from_module(pipeline_file)
+        else:
+            import yaml
+
+            from autopipe.core.loader import load_executable_pipeline
+
+            with open(pipeline_file, "r") as f:
+                config_dict = yaml.safe_load(f)
+
+            pipeline = load_executable_pipeline(config_dict)
 
         for step_name, step in pipeline.steps.items():
             cls = type(step)
@@ -249,9 +257,6 @@ def create(name: str):
 
     template = f"""name: {name}
 description: A sample AutoPipe pipeline
-
-env:
-  LOG_LEVEL: INFO
 
 steps:
   # `sample_data_loader` loads a bundled scikit-learn dataset (iris|diabetes).

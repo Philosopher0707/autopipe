@@ -23,6 +23,20 @@ from autopipe import Pipeline, DataValidatorStep, DataSplitterStep, SklearnTrain
 
 def create_pipeline() -> Pipeline:
     """Build a simple AutoPipe pipeline."""
+    split = DataSplitterStep(
+        name="split",
+        depends_on=["validate"],
+        train_size=0.7,
+        val_size=0.2,
+        test_size=0.1,
+        stratify=True,
+        stratify_column="target",
+        random_state=42,
+    )
+    # The validator's output must land in run(data=...): positional depends_on
+    # would pass {validate: df}, which DataSplitterStep.run does not accept.
+    split.input_bindings = {"data": "validate"}
+
     return (
         Pipeline("simple_classification")
         .add_step(
@@ -34,18 +48,7 @@ def create_pipeline() -> Pipeline:
                 check_outliers=False,
             )
         )
-        .add_step(
-            DataSplitterStep(
-                name="split",
-                depends_on=["validate"],
-                train_size=0.7,
-                val_size=0.2,
-                test_size=0.1,
-                stratify=True,
-                stratify_column="target",
-                random_state=42,
-            )
-        )
+        .add_step(split)
         .add_step(
             SklearnTrainerStep(
                 name="train",
@@ -74,6 +77,11 @@ def make_example_data() -> pd.DataFrame:
     df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
     df["target"] = y
     return df
+
+
+# Module-level pipeline so `load_pipeline_from_module` (and `autopipe
+# validate`/`run`) can discover it, matching the loader's contract.
+pipeline = create_pipeline()
 
 
 def main() -> None:

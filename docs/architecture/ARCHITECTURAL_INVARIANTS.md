@@ -169,39 +169,48 @@ request persists nothing.
 - **Definition:** `autopipe validate` never reports VALID for a pipeline that
   cannot be instantiated and executed.
 - **Owner:** `autopipe/cli.py` (`validate`) + `autopipe/core/loader.py`.
-- **Enforcement:** `validate` builds the pipeline through
-  `load_executable_pipeline` — the core's definition of execution readiness —
-  which resolves step types through the allowlist, constructs the steps, and
-  **resolves the execution plan**. That last part matters: a dependency cycle is
-  schema-valid and buildable, so only plan resolution catches it. The previous
-  implementation checked *importability* alone, which is why it reported VALID
-  for three shipped examples that could not be constructed.
+- **Enforcement:** `load_pipeline_from_config` itself is the definition of
+  execution readiness: schema validation (`extra="forbid"`), alias/allowlist
+  resolution, construction, input-binding keys checked against each step's
+  `run()` signature, and **execution-plan resolution** (cycles and dangling
+  dependencies). `load_executable_pipeline` is a compatibility alias.
+  `validate` uses this path for YAML and `load_pipeline_from_module` (which
+  also plan-resolves) for `.py`, so anything VALID will load under `run`.
 - **Test:** `tests/unit/test_shipped_examples_execute.py`
   (`test_validate_rejects_a_config_that_cannot_be_constructed`,
   `test_validate_rejects_a_cyclic_dependency_graph`,
-  `test_load_executable_pipeline_catches_what_the_schema_does_not`,
-  `test_schema_validation_alone_is_not_execution_readiness`).
+  `test_both_loaders_reject_a_cyclic_graph_at_load_time`,
+  `test_schema_validation_alone_is_not_execution_readiness`,
+  `test_validate_accepts_a_python_pipeline`).
 - **Failure mode:** a user is told their config is fine and it then fails to run.
 - **Status:** VERIFIED.
 
 ### I9 — Every accepted step type is constructible, and every shipped config is.
 - **Definition:** Every step class reachable from YAML can be instantiated with
-  the parameters the loader accepts, and every config the repository ships loads.
+  the parameters the loader accepts, and every config the repository ships —
+  `examples/*.yaml`, loadable `examples/*.py` (module-level `pipeline`), and
+  the `autopipe create` template — loads.
 - **Owner:** `autopipe/core/loader.py` (alias map + allowlist).
-- **Enforcement:** `test_shipped_examples_execute.py` loads every file in
-  `examples/` and the template emitted by `autopipe create`;
-  `test_step_alias_coverage.py` requires every public `Step` subclass to be
-  addressable from YAML.
+- **Enforcement:** `test_shipped_examples_execute.py` loads every YAML example,
+  every loadable Python example via `load_pipeline_from_module`, and the
+  template emitted by `autopipe create`; `test_step_alias_coverage.py`
+  requires every public `Step` subclass to be addressable from YAML.
+  (`world_class_pipeline_demo.py` is a step-by-step driver script and is
+  excluded by name.)
 - **Note:** the `sample_data_loader` alias was added for the bundled
   scikit-learn sample loader, which **removed** the last `ALIAS_EXEMPT` entry
   other than the quarantined `PiCodingStep`.
 - **Status:** VERIFIED.
 
 ### I10 — Every accepted binding resolves.
-- **Status:** IMPLEMENTED — dangling bindings fail loudly (load-time via
-  `PipelineConfig`, run-time via `InputBindingError`;
-  `test_unresolvable_binding_fails_the_run_with_a_typed_error`), and the shipped
-  examples now exercise named bindings.
+- **Status:** IMPLEMENTED — binding keys are checked at load time against the
+  step's `run()` signature (unless it declares `**kwargs`); dangling upstream
+  references fail at load via plan resolution; run-time failures remain typed
+  (`InputBindingError`;
+  `test_unresolvable_binding_fails_the_run_with_a_typed_error`). Covered by
+  `test_binding_key_must_match_run_signature` and
+  `test_binding_to_missing_step_fails_loudly`; shipped examples exercise
+  named bindings.
 
 ---
 

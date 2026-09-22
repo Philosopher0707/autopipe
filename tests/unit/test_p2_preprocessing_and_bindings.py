@@ -100,10 +100,40 @@ class TestNamedInputBindings:
                 }
             ],
         }
-        pipeline = load_pipeline_from_config(config)
-        # Topological validation rejects the dangling reference at run time.
+        # Bound upstreams become dependencies, so the dangling reference is
+        # rejected at load time — plan resolution runs inside the loader.
         with pytest.raises(ValueError, match="no_such_step"):
-            pipeline.run()
+            load_pipeline_from_config(config)
+
+    def test_binding_key_must_match_run_signature(self, train_df):
+        """A typo in a bound parameter fails at load, not mid-run."""
+        from autopipe.schemas.models import PipelineConfig
+
+        base = {
+            "name": "eval-bindings",
+            "steps": [
+                {"name": "src", "type": "print"},
+                {
+                    "name": "eval",
+                    "type": "model_evaluation",
+                    "depends_on": ["src"],
+                },
+            ],
+        }
+        # ModelEvaluatorStep.run declares explicit params (no **kwargs).
+        bad = {
+            **base,
+            "steps": [base["steps"][0], {**base["steps"][1], "inputs": {"modle": "src"}}],
+        }
+        PipelineConfig.model_validate(bad)  # schema alone cannot see this
+        with pytest.raises(ValueError, match="modle"):
+            load_pipeline_from_config(bad)
+
+        good = {
+            **base,
+            "steps": [base["steps"][0], {**base["steps"][1], "inputs": {"model": "src"}}],
+        }
+        assert load_pipeline_from_config(good).steps["eval"].input_bindings == {"model": "src"}
 
     def test_loader_marks_bound_steps_as_dependencies(self, train_df):
 
