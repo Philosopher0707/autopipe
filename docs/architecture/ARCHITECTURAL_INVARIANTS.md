@@ -57,17 +57,22 @@ Baseline revision for this version: `57db8694032c402ee97e479fe0a84c4f7165cb3e`.
 
 ### I5 — Run/step state has one authoritative mutation path.
 - **Definition:** Every persisted lifecycle write goes through
-  `autopipe.core.run_state.ensure_transition`. The dashboard's `RunStateStore`
-  is the single writer of run/step rows; the API's PATCH handler validates
-  through the same gate.
+  `autopipe.core.run_state.ensure_transition` and is applied via
+  compare-and-swap (`UPDATE ... WHERE status = expected`), so a concurrent
+  writer cannot clobber a validated transition. The dashboard's
+  `RunStateStore` is the single writer of run/step rows; the API's PATCH
+  handler validates through the same gate and CASes the write.
 - **Owner:** `autopipe/core/run_state.py` (gate) +
   `app/executor/sink.py::RunStateStore` (writer).
 - **Enforcement:** `ensure_transition` raises `StateTransitionError` for an
-  illegal move; the API converts it to HTTP 409.
+  illegal move; the API converts it to HTTP 409. A CAS miss re-reads and
+  either confirms idempotent success or raises a conflict.
 - **Test:** `tests/unit/core/test_run_state.py` (43 cases);
-  `backend/tests/test_runs.py::test_cannot_resurrect_a_terminal_run`.
+  `backend/tests/test_runs.py::test_cannot_resurrect_a_terminal_run`;
+  `backend/tests/test_cas_and_alembic.py` (CAS stale/success, sweep gate,
+  alembic drift, alembic e2e).
 - **Failure mode:** a finished run silently resurrected, or a corrupt state
-  accepted as "no prior state".
+  accepted as "no prior state", or two writers racing over a status column.
 - **Status:** VERIFIED.
 
 ### I6 — Terminal run states cannot silently regress.

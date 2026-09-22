@@ -48,8 +48,11 @@ concept, and steps that never ran are `SKIPPED`. Asserted by
 
 ## Rules
 
-1. **Single gate.** All writes go through `ensure_transition` (invariant I5).
-   An unknown state raises; an illegal move raises `StateTransitionError`.
+1. **Single gate.** All writes go through `ensure_transition` (invariant I5),
+   and persisted writes are compare-and-swap (`UPDATE ... WHERE status =
+   expected`) so a concurrent writer cannot clobber a validated transition.
+   An unknown state raises; an illegal move raises `StateTransitionError`;
+   a CAS miss re-reads and confirms idempotent success or raises a conflict.
 2. **Idempotent re-assertion is legal.** Re-writing the same state is allowed —
    the dashboard re-broadcasts RUNNING while writers race, and a recovery sweep
    may re-write an already-correct state.

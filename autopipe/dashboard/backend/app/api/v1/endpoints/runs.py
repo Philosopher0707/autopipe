@@ -26,6 +26,7 @@ from app.schemas import (
 from app.utils.datetime_utils import safe_duration_seconds
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -202,6 +203,7 @@ async def update_run(
         )
 
     old_status = run.status.value if hasattr(run.status, "value") else str(run.status)
+    expected_status = run.status
 
     # Update fields
     if update.status:
@@ -216,16 +218,26 @@ async def update_run(
                 detail=str(exc),
             ) from exc
 
-        run.status = RunStatus(target.value)
+        values: dict[str, Any] = {"status": RunStatus(target.value)}
+        now = datetime.now(timezone.utc)
         if target is RunState.RUNNING and not run.started_at:
-            run.started_at = datetime.now(timezone.utc)
+            values["started_at"] = now
         if target.is_terminal:
-            run.completed_at = datetime.now(timezone.utc)
+            values["completed_at"] = now
             if run.started_at:
-                run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
-        # Signal the executor thread to stop if cancelling
-        if target is RunState.CANCELLED:
-            signal_cancel(run_id)
+                values["duration_seconds"] = safe_duration_seconds(run.started_at, now)
+
+        # Compare-and-swap: only apply if the row still has the status we
+        # validated against, so a concurrent writer cannot clobber it.
+        cas = await db.execute(
+            sql_update(Run).where(Run.id == run_id, Run.status == expected_status).values(**values)
+        )
+        if cas.rowcount != 1:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Run {run_id} status changed concurrently",
+            )
 
     if update.config is not None:
         run.config = update.config
@@ -236,10 +248,8 @@ async def update_run(
     if update.error_message:
         run.error_message = update.error_message
 
-    await db.commit()
-    await db.refresh(run)
-
-    # Log activity
+    # Single transaction for the status CAS + field updates + activity log.
+    # `target` is only set when `update.status` was present and legal.
     if update.status and update.status != old_status:
         activity_action = {
             RunStatus.PENDING.value: "run_pending",
@@ -260,7 +270,14 @@ async def update_run(
             },
         )
         db.add(activity)
-        await db.commit()
+
+    await db.commit()
+    await db.refresh(run)
+
+    # Signal the executor only after the CANCELLED row is durable, so a crash
+    # between signal and commit cannot leave an in-memory cancel with no DB row.
+    if update.status and update.status == RunState.CANCELLED.value:
+        signal_cancel(run_id)
 
     # Get pipeline name
     pipe_result = await db.execute(select(Pipeline).where(Pipeline.id == run.pipeline_id))

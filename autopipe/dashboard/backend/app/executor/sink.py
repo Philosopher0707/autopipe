@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from app.db.models import Run, RunStatus, Step, StepStatus
 from app.utils.datetime_utils import safe_duration_seconds
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
 from autopipe.core.execution import EventKind, ExecutionEvent
@@ -176,28 +176,90 @@ def _step_state_value(step: Step) -> Optional[str]:
     return status.value if hasattr(status, "value") else str(status)
 
 
-def _apply_run_state(run: Run, state: RunState) -> None:
-    """Write a validated run state plus the timestamps implied by it."""
-    run.status = RunStatus(state.value)
+def _run_status_values(
+    run: Run,
+    state: RunState,
+    *,
+    error: Optional[str] = None,
+    metrics: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Column values for a run status transition, including implied timestamps."""
+    values: Dict[str, Any] = {"status": RunStatus(state.value)}
     now = datetime.now(timezone.utc)
     if state is RunState.RUNNING and run.started_at is None:
-        run.started_at = now
+        values["started_at"] = now
     if state.is_terminal:
-        run.completed_at = now
+        values["completed_at"] = now
         if run.started_at is not None:
-            run.duration_seconds = safe_duration_seconds(run.started_at, run.completed_at)
+            values["duration_seconds"] = safe_duration_seconds(run.started_at, now)
+    if error:
+        values["error_message"] = error
+    if metrics:
+        values["metrics"] = dict(metrics)
+    return values
 
 
-def _apply_step_state(step: Step, state: StepState) -> None:
-    """Write a validated step state plus the timestamps implied by it."""
-    step.status = StepStatus(state.value)
+def _cas_run_status(
+    db: Any,
+    run_id: str,
+    expected: Any,
+    state: RunState,
+    *,
+    error: Optional[str] = None,
+    metrics: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Atomically transition a run only if its status is still ``expected``.
+
+    Returns True when the row was updated. Returns False when the row is
+    missing or another writer already moved it (caller decides whether that
+    is idempotent success or a conflict).
+    """
+    run = db.get(Run, run_id)
+    if run is None:
+        return False
+    values = _run_status_values(run, state, error=error, metrics=metrics)
+    result = db.execute(
+        update(Run).where(Run.id == run_id, Run.status == expected).values(**values)
+    )
+    return result.rowcount >= 1
+
+
+def _cas_step_status(
+    db: Any,
+    step_id: str,
+    expected: Any,
+    state: StepState,
+    *,
+    error: Optional[str] = None,
+    metrics: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Atomically transition a step only if its status is still ``expected``."""
+    step = db.get(Step, step_id)
+    if step is None:
+        return False
+    values: Dict[str, Any] = {"status": StepStatus(state.value)}
     now = datetime.now(timezone.utc)
     if state is StepState.RUNNING and step.started_at is None:
-        step.started_at = now
+        values["started_at"] = now
     if state.is_terminal:
-        step.completed_at = now
+        values["completed_at"] = now
         if step.started_at is not None:
-            step.duration_seconds = safe_duration_seconds(step.started_at, step.completed_at)
+            values["duration_seconds"] = safe_duration_seconds(step.started_at, now)
+    if error:
+        values["error_message"] = error
+    if metrics:
+        values["metrics"] = dict(metrics)
+    result = db.execute(
+        update(Step).where(Step.id == step_id, Step.status == expected).values(**values)
+    )
+    return result.rowcount >= 1
+
+
+def _conflict_error(context: str, expected: object, actual: object) -> StateTransitionError:
+    return StateTransitionError(
+        f"Concurrent status change ({context}): expected {expected}, found {actual}",
+        details={"expected": str(expected), "actual": str(actual), "context": context},
+    )
 
 
 class RunStateStore:
@@ -218,7 +280,7 @@ class RunStateStore:
         self._session_factory = session_factory
 
     def mark_run_running(self, run_id: str, loop: Any = None) -> bool:
-        """Transition a run to RUNNING.
+        """Transition a run to RUNNING via compare-and-swap.
 
         Returns:
             True when the run was found and moved; False when the row is missing.
@@ -228,10 +290,15 @@ class RunStateStore:
             if run is None:
                 logger.error("Run %s not found; cannot start execution", run_id)
                 return False
+            expected = run.status
             state = ensure_transition(
                 _run_state_value(run), RunState.RUNNING, context=f"run={run_id}"
             )
-            _apply_run_state(run, state)
+            if not _cas_run_status(db, run_id, expected, state):
+                db.rollback()
+                fresh = db.get(Run, run_id)
+                actual = fresh.status if fresh else None
+                raise _conflict_error(f"run={run_id}", expected, actual)
             db.commit()
         _broadcast_run_status(run_id, RunState.RUNNING.value, None, loop)
         return True
@@ -245,24 +312,31 @@ class RunStateStore:
         metrics: Optional[Mapping[str, Any]] = None,
         loop: Any = None,
     ) -> bool:
-        """Finalize a run into a terminal state.
+        """Finalize a run into a terminal state via compare-and-swap.
 
         Returns:
-            True when the terminal state was persisted; False when the row was
-            missing. Callers must treat False as a loud failure — it means a run
-            exists in the caller's head but not in the database.
+            True when the terminal state was persisted (or the row is already
+            in that same terminal state — an idempotent re-assert); False when
+            the row is missing. A conflicting concurrent write raises
+            :class:`StateTransitionError`.
         """
         with self._session_factory() as db:
             run = db.get(Run, run_id)
             if run is None:
                 logger.error("Run %s not found; cannot finalize as %s", run_id, state.value)
                 return False
+            expected = run.status
             resolved = ensure_transition(_run_state_value(run), state, context=f"run={run_id}")
-            _apply_run_state(run, resolved)
-            if error:
-                run.error_message = error
-            if metrics:
-                run.metrics = dict(metrics)
+            if not _cas_run_status(db, run_id, expected, resolved, error=error, metrics=metrics):
+                db.rollback()
+                fresh = db.get(Run, run_id)
+                if fresh is None:
+                    return False
+                actual = _run_state_value(fresh)
+                # Another writer already landed the same terminal state.
+                if actual == resolved.value:
+                    return True
+                raise _conflict_error(f"run={run_id}", expected, actual)
             db.commit()
 
         payload: Dict[str, Any] = {}
@@ -310,7 +384,7 @@ class RunStateStore:
         error: Optional[str] = None,
         loop: Any = None,
     ) -> None:
-        """Transition one step, and mirror single-value metrics as broadcasts."""
+        """Transition one step via compare-and-swap, and mirror metrics."""
         with self._session_factory() as db:
             row = db.scalars(
                 select(Step).where(Step.run_id == run_id, Step.name == step_name)
@@ -323,18 +397,19 @@ class RunStateStore:
                     state.value,
                 )
                 return
+            expected = row.status
+            step_id = row.id
             resolved = ensure_transition(
                 _step_state_value(row),
                 state,
                 subject="step",
                 context=f"run={run_id} step={step_name}",
             )
-            _apply_step_state(row, resolved)
-            if error:
-                row.error_message = error
-            if metrics:
-                row.metrics = dict(metrics)
-            step_id = row.id
+            if not _cas_step_status(db, step_id, expected, resolved, error=error, metrics=metrics):
+                db.rollback()
+                fresh = db.get(Step, step_id)
+                actual = fresh.status if fresh else None
+                raise _conflict_error(f"run={run_id} step={step_name}", expected, actual)
             db.commit()
 
         _broadcast_step_log(run_id, step_id, "info", f"Step {step_name}: {state.value}", loop)
@@ -352,9 +427,8 @@ class RunStateStore:
         dispatched would otherwise stay PENDING forever (violating I12).
         Called once at application startup, before any new run can be dispatched.
 
-        This is the sanctioned *recovery* path: ``PENDING -> FAILED`` and
-        ``RUNNING -> FAILED`` are ordinary legal transitions, so no override is
-        needed.
+        Goes through ``ensure_transition`` like every other writer, then CASes
+        the write so a row that changed between SELECT and UPDATE is left alone.
         """
         swept = 0
         with self._session_factory() as db:
@@ -362,13 +436,28 @@ class RunStateStore:
                 select(Run).where(Run.status.in_([RunStatus.RUNNING, RunStatus.PENDING]))
             ).all():
                 was = run.status
-                _apply_run_state(run, RunState.FAILED)
-                run.error_message = "Interrupted by server restart"
+                state = ensure_transition(
+                    _run_state_value(run), RunState.FAILED, context=f"sweep run={run.id}"
+                )
+                if not _cas_run_status(
+                    db, run.id, was, state, error="Interrupted by server restart"
+                ):
+                    logger.debug("Sweep skipped run %s (concurrent write)", run.id)
+                    continue
                 swept += 1
                 logger.debug("Swept %s run %s at startup", was, run.id)
             for step in db.scalars(select(Step).where(Step.status == StepStatus.RUNNING)).all():
-                _apply_step_state(step, StepState.FAILED)
-                step.error_message = "Interrupted by server restart"
+                was_step = step.status
+                state = ensure_transition(
+                    _step_state_value(step),
+                    StepState.FAILED,
+                    subject="step",
+                    context=f"sweep step={step.id}",
+                )
+                if not _cas_step_status(
+                    db, step.id, was_step, state, error="Interrupted by server restart"
+                ):
+                    continue
             db.commit()
         if swept:
             logger.warning("Swept %d orphaned PENDING/RUNNING run(s) at startup", swept)

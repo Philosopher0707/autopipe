@@ -27,6 +27,8 @@ still produce a correct outcome, and is never silently dropped.
 | Graceful shutdown | `runner.shutdown_executor` | cancel active runs, join live threads, sweep leftovers | terminal | stop handler runs before DB close |
 | Cancellation requested | `CancellationToken` | remaining steps `SKIPPED` with reason | `CANCELLED` | step states + reason |
 | Illegal state transition attempted | `ensure_transition` | raises `StateTransitionError`; API → **409** | unchanged | 409 with the transition and context |
+| Concurrent status write (TOCTOU) | CAS `UPDATE ... WHERE status = expected` | rowcount 0 → re-read → idempotent success or conflict | unchanged / 409 | conflict message |
+| `signal_cancel` before CANCELLED commit | PATCH handler | cancel is signalled **after** `db.commit()` | unchanged | executor sees a durable CANCELLED row first |
 
 ## The rule behind the table
 
@@ -64,3 +66,5 @@ Concretely:
    is not transactional: some trials may start while others fail. Tier 6.
 5. **SQLite contention** under concurrent writers relies on `busy_timeout`
    (5 s) on both engines. Behavior under sustained contention is not measured.
+   Status writes now use CAS, so a lost race is a clean conflict rather than
+   a silent clobber — but throughput under contention is still unmeasured.
