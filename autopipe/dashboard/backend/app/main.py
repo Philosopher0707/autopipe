@@ -9,6 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from app.api.v1.router import api_router
+from app.core.body_limit import RequestSizeLimitMiddleware
 from app.core.config import settings
 from app.core.events import create_start_app_handler, create_stop_app_handler
 from app.core.security_headers import SecurityHeadersMiddleware
@@ -20,10 +21,39 @@ from fastapi.staticfiles import StaticFiles
 logger = logging.getLogger(__name__)
 
 
+def enforce_secret_key_policy() -> None:
+    """Refuse an ephemeral JWT secret outside development (invariant I18).
+
+    ``SECRET_KEY`` falls back to a value generated at import time. That value is
+    per-process, so every restart and every additional worker silently
+    invalidates all issued tokens. Previously nothing said so: the service
+    looked healthy while logging everyone out. Development is still allowed to
+    run this way, loudly; anything else must configure a key.
+    """
+    if not settings.SECRET_KEY_IS_EPHEMERAL:
+        return
+
+    if settings.ENVIRONMENT.strip().lower() in {"development", "test", "local"}:
+        logger.warning(
+            "SECRET_KEY is not set: a per-process key was generated. Issued tokens "
+            "will not survive a restart and will not validate across workers. Set "
+            "SECRET_KEY before deploying (ENVIRONMENT=%s).",
+            settings.ENVIRONMENT,
+        )
+        return
+
+    raise RuntimeError(
+        f"SECRET_KEY must be set when ENVIRONMENT={settings.ENVIRONMENT!r}: the "
+        "generated per-process key would invalidate every token on each restart "
+        "and across workers. Refusing to start."
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
+    enforce_secret_key_policy()
     await create_start_app_handler(app)()
 
     # Runs left RUNNING by a previous process can never finish on their own.
@@ -47,21 +77,18 @@ def create_application() -> FastAPI:
         docs_url=f"{settings.API_V1_STR}/docs",
         redoc_url=f"{settings.API_V1_STR}/redoc",
         lifespan=lifespan,
-        # Request body size limit - prevents memory exhaustion attacks
-        # 10MB for regular API calls, file uploads handled separately
-        max_request_body=10 * 1024 * 1024,
+        # NOTE: there is deliberately no `max_request_body` argument here.
+        # FastAPI has no such parameter, so passing it silently stored the value
+        # in `FastAPI.extra` and enforced nothing while the comment claimed it
+        # prevented memory exhaustion. The real limit is the
+        # RequestSizeLimitMiddleware added below (invariant I18).
     )
 
-    # Security headers middleware (must be first)
-    app.add_middleware(SecurityHeadersMiddleware)
-
-    # Trusted host middleware
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=["*"],  # Configure via env vars for production
-    )
-
-    # CORS middleware
+    # Middleware order matters: `add_middleware` makes each newly added
+    # middleware the OUTERMOST one, so these calls read innermost-to-outermost.
+    # Security headers are added last on purpose — they must also appear on
+    # responses produced by the other middleware (host rejection, 413s). The
+    # previous order made them innermost, so those responses carried no headers.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -71,6 +98,20 @@ def create_application() -> FastAPI:
         expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining"],
         max_age=600,
     )
+
+    # Host header validation. The previous default was ["*"], which accepted any
+    # Host and made this middleware a no-op; ALLOWED_HOSTS now defaults to the
+    # hosts a local-first deployment is actually reached on.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+
+    # Real request-body limit, in place of the constructor argument above.
+    app.add_middleware(
+        RequestSizeLimitMiddleware,
+        max_bytes=settings.MAX_REQUEST_BODY_SIZE,
+    )
+
+    # Outermost, so every response — including the ones above — carries headers.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Include API router
     app.include_router(api_router, prefix=settings.API_V1_STR)

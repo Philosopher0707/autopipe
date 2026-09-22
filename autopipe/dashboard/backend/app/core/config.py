@@ -22,12 +22,40 @@ class Settings(BaseSettings):
     PROJECT_DESCRIPTION: str = "Production-grade ML Pipeline Dashboard"
     VERSION: str = "1.0.0"
 
+    # Deployment environment. "development" and "test" relax production-only
+    # requirements (see SECRET_KEY below) so local workflows and the test suite
+    # are unaffected; any other value turns those requirements on.
+    ENVIRONMENT: str = "development"
+
     # API settings
     API_V1_STR: str = "/api/v1"
-    # JWT secret. MUST be provided via SECRET_KEY env var in production
-    # (a random per-process key makes all tokens invalid on restart).
+    # JWT secret. MUST be provided via SECRET_KEY env var in production:
+    # a generated key differs per process, so tokens stop validating across
+    # restarts and across multiple workers.
     SECRET_KEY: str = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
+    #: True when the secret above was generated for this process rather than
+    #: configured. Recorded explicitly so the app can refuse to start in a
+    #: non-development environment instead of silently invalidating tokens.
+    SECRET_KEY_IS_EPHEMERAL: bool = not os.getenv("SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+
+    # Host header validation. Defaults to the local hosts a local-first
+    # dashboard is actually served on; `["*"]` disables the check entirely.
+    # `test` is the default Host httpx ASGITransport sends; without it every
+    # backend test client request is rejected by TrustedHostMiddleware.
+    ALLOWED_HOSTS: List[str] = Field(
+        default=["localhost", "127.0.0.1", "[::1]", "testserver", "test"]
+    )
+
+    # Request size limit for API calls (bytes). Enforced by middleware, not by
+    # a FastAPI constructor argument.
+    MAX_REQUEST_BODY_SIZE: int = 10 * 1024 * 1024  # 10 MB
+
+    # Whether to trust X-Forwarded-For / X-Real-IP when identifying a client.
+    # Those headers are client-controlled unless a reverse proxy sets them, so
+    # enabling this without a proxy in front lets anyone forge their identity
+    # and bypass rate limiting.
+    TRUST_PROXY_HEADERS: bool = False
 
     # CORS - dev defaults (override in production via env vars)
     BACKEND_CORS_ORIGINS: List[str] = Field(

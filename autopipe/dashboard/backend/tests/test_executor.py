@@ -232,7 +232,7 @@ def test_run_pipeline_in_thread_cancellation(tmp_path: Path, monkeypatch):
 
 
 def test_sweep_orphaned_runs_marks_stale_running_failed(tmp_path: Path):
-    """Runs/Steps left RUNNING by a dead process become FAILED at startup."""
+    """Runs/Steps left RUNNING or PENDING by a dead process become FAILED at startup."""
 
     SessionLocal = _make_sync_session(tmp_path / "sweep.db")
     _, run_id = _seed_pipeline_and_run(SessionLocal)
@@ -266,6 +266,31 @@ def test_sweep_orphaned_runs_marks_stale_running_failed(tmp_path: Path):
         assert db.get(Run, run_id).status == RunStatus.FAILED
         step_row = db.scalars(select(Step).where(Step.run_id == run_id)).first()
         assert step_row is not None and step_row.status == StepStatus.FAILED
+
+
+def test_sweep_orphaned_runs_marks_stale_pending_failed(tmp_path: Path):
+    """PENDING runs whose BackgroundTasks died with the process are failed (I12)."""
+
+    SessionLocal = _make_sync_session(tmp_path / "sweep_pending.db")
+    _, run_id = _seed_pipeline_and_run(SessionLocal)
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        run.status = RunStatus.PENDING
+        db.commit()
+
+    import app.executor.runner as runner_mod
+
+    original = runner_mod._get_sync_session_factory
+    runner_mod._get_sync_session_factory = lambda: SessionLocal
+    try:
+        swept = runner_mod.sweep_orphaned_runs()
+    finally:
+        runner_mod._get_sync_session_factory = original
+
+    assert swept == 1
+    with SessionLocal() as db:
+        assert db.get(Run, run_id).status == RunStatus.FAILED
 
 
 def test_log_handler_filters_other_runs():

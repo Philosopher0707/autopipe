@@ -32,15 +32,22 @@ class SimpleRateLimiter:
         self._last_cleanup = time.time()
 
     def _get_client_key(self, request: Request) -> str:
-        """Extract client identifier from request."""
-        # Check forwarded headers
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
+        """Extract the client identifier used to key rate limits.
 
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip
+        ``X-Forwarded-For`` / ``X-Real-IP`` are honoured **only** when
+        ``TRUST_PROXY_HEADERS`` is enabled, i.e. when the deployment actually
+        sits behind a proxy that overwrites them. Trusting them unconditionally
+        let any client present a fresh forged address per request and never hit
+        a limit; the peer address is the only value the client cannot choose.
+        """
+        if settings.TRUST_PROXY_HEADERS:
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            if forwarded_for:
+                return forwarded_for.split(",")[0].strip()
+
+            real_ip = request.headers.get("X-Real-IP")
+            if real_ip:
+                return real_ip
 
         return request.client.host if request.client else "unknown"
 

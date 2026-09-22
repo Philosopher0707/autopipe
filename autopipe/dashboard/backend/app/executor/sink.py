@@ -343,27 +343,34 @@ class RunStateStore:
                     _broadcast_step_metric(run_id, step_id, metric_name, float(value), loop)
 
     def sweep_orphaned(self) -> int:
-        """Mark runs/steps left RUNNING by a dead process as FAILED.
+        """Mark runs left RUNNING or PENDING by a dead process as FAILED.
 
         A crash or restart leaves rows claiming active execution forever; the UI
-        then shows phantom running pipelines. Called once at application startup,
-        before any new run can be dispatched.
+        then shows phantom running pipelines. PENDING is included because
+        ``BackgroundTasks`` do not survive a restart: a run committed but never
+        dispatched would otherwise stay PENDING forever (violating I12).
+        Called once at application startup, before any new run can be dispatched.
 
-        This is the sanctioned *recovery* path: ``RUNNING -> FAILED`` is an
-        ordinary legal transition, so no override is needed.
+        This is the sanctioned *recovery* path: ``PENDING -> FAILED`` and
+        ``RUNNING -> FAILED`` are ordinary legal transitions, so no override is
+        needed.
         """
         swept = 0
         with self._session_factory() as db:
-            for run in db.scalars(select(Run).where(Run.status == RunStatus.RUNNING)).all():
+            for run in db.scalars(
+                select(Run).where(Run.status.in_([RunStatus.RUNNING, RunStatus.PENDING]))
+            ).all():
+                was = run.status
                 _apply_run_state(run, RunState.FAILED)
                 run.error_message = "Interrupted by server restart"
                 swept += 1
+                logger.debug("Swept %s run %s at startup", was, run.id)
             for step in db.scalars(select(Step).where(Step.status == StepStatus.RUNNING)).all():
                 _apply_step_state(step, StepState.FAILED)
                 step.error_message = "Interrupted by server restart"
             db.commit()
         if swept:
-            logger.warning("Swept %d orphaned RUNNING run(s) at startup", swept)
+            logger.warning("Swept %d orphaned PENDING/RUNNING run(s) at startup", swept)
         return swept
 
 
