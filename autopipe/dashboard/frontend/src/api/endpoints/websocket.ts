@@ -26,7 +26,7 @@ export interface WSMessage {
 
 type MessageHandler = (message: WSMessage) => void
 
-class WebSocketClient {
+export class WebSocketClient {
   private ws: WebSocket | null = null
   private handlers: Map<string, Set<MessageHandler>> = new Map()
   private reconnectAttempts = 0
@@ -35,8 +35,11 @@ class WebSocketClient {
   private url: string = ''
 
   connect(baseUrl?: string) {
-    const wsUrl = baseUrl || this.getWebSocketUrl()
-    this.url = wsUrl
+    // Store the bare URL so reconnects re-read the token from the store
+    // instead of replaying a possibly-expired one.
+    const bareUrl = baseUrl || this.getWebSocketUrl()
+    this.url = bareUrl
+    const wsUrl = this.withToken(bareUrl)
 
     try {
       this.ws = new WebSocket(wsUrl)
@@ -72,12 +75,25 @@ class WebSocketClient {
   private getWebSocketUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`
-    // The backend rejects unauthenticated WS handshakes (close 1008), and
-    // browsers cannot set an Authorization header on WebSocket, so the
-    // access token travels as a query parameter.
-    const token = useAuthStore.getState().token
-    const authQuery = token ? `?token=${encodeURIComponent(token)}` : ''
-    return `${host}/api/v1/ws/dashboard${authQuery}`
+    return `${host}/api/v1/ws/dashboard`
+  }
+
+  /**
+   * The backend rejects unauthenticated WS handshakes (close 1008), and
+   * browsers cannot set an Authorization header on WebSocket, so the access
+   * token travels as a query parameter. Attaching it here — in connect() —
+   * means every caller (including pages that pass an explicit run-scoped
+   * URL) is authenticated; RunDetail used to build its URL without a token
+   * and was silently disconnected by the server.
+   */
+  private withToken(url: string): string {
+    return WebSocketClient.tokenUrl(url, useAuthStore.getState().token)
+  }
+
+  /** The token-attachment rule for a WS URL (exported for tests). */
+  static tokenUrl(url: string, token: string | null): string {
+    if (url.includes('token=') || !token) return url
+    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
   }
 
   private attemptReconnect() {

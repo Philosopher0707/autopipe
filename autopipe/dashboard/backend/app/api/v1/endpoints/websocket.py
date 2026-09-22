@@ -5,18 +5,25 @@ from datetime import datetime, timezone
 from typing import Dict, Set
 
 from app.core.auth import decode_token
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.db.models import User
+from app.db.session import get_db
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
-async def authenticate_websocket(websocket: WebSocket) -> bool:
+async def authenticate_websocket(websocket: WebSocket, db: AsyncSession) -> bool:
     """Validate the JWT passed as ?token= on the WS query string.
 
     Browsers cannot set an Authorization header on WebSocket connections,
     so the dashboard passes its access token as a query parameter.
-    Unauthenticated handshakes are rejected with 1008 (policy violation)
-    before accept().
+
+    Parity with REST ``get_current_user`` (I17): a signed token is not
+    enough — the subject must still be an existing, active DB user. Token
+    claims alone would let a deleted or deactivated user keep streaming
+    run data until the token expired.
     """
     token = websocket.query_params.get("token")
     if not token:
@@ -24,7 +31,12 @@ async def authenticate_websocket(websocket: WebSocket) -> bool:
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         return False
-    return payload.get("sub") is not None
+    user_id = payload.get("sub")
+    if not user_id:
+        return False
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    return user is not None and user.is_active
 
 
 # Connection manager for WebSocket connections
@@ -101,9 +113,9 @@ manager = ConnectionManager()
 
 
 @router.websocket("/runs/{run_id}")
-async def run_websocket(websocket: WebSocket, run_id: str):
+async def run_websocket(websocket: WebSocket, run_id: str, db: AsyncSession = Depends(get_db)):
     """WebSocket endpoint for real-time run updates."""
-    if not await authenticate_websocket(websocket):
+    if not await authenticate_websocket(websocket, db):
         await websocket.close(code=1008)
         return
 
@@ -143,9 +155,9 @@ async def run_websocket(websocket: WebSocket, run_id: str):
 
 
 @router.websocket("/dashboard")
-async def dashboard_websocket(websocket: WebSocket):
+async def dashboard_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
     """WebSocket endpoint for dashboard real-time updates."""
-    if not await authenticate_websocket(websocket):
+    if not await authenticate_websocket(websocket, db):
         await websocket.close(code=1008)
         return
 

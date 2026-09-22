@@ -129,31 +129,22 @@ async def test_login_upgrades_legacy_hash(client: AsyncClient, db_session):
     )
 
 
-def test_websocket_auth_rejects_missing_token():
-    """WS handshake guard: no token -> reject; bad type -> reject; good -> pass."""
+async def test_websocket_auth_rejects_missing_token(db_session):
+    """WS handshake guard: no token -> reject; malformed token -> reject."""
     from app.api.v1.endpoints.websocket import authenticate_websocket
 
     class _StubWS:
-        def __init__(self, query_string: str):
-            self.query_params = dict(pair.split("=", 1) for pair in query_string.split("&") if pair)
-
-    import anyio
-
-    async def _run(query: str):
-        return anyio.from_thread  # placeholder to keep anyio import meaningful
-
-    async def _check(query: str) -> bool:
-        return await authenticate_websocket(_StubWS(query))  # type: ignore[arg-type]
+        def __init__(self, query: dict):
+            self.query_params = query
 
     # No token at all
-    assert anyio.run(_check, "") is False
+    assert await authenticate_websocket(_StubWS({}), db_session) is False
     # Malformed token
-    assert anyio.run(_check, "token=nonsense") is False
+    assert await authenticate_websocket(_StubWS({"token": "nonsense"}), db_session) is False
 
 
-def test_websocket_auth_accepts_valid_token(seed_user):
-    """A correctly signed access token authenticates the WS handshake guard."""
-    from anyio import run
+async def test_websocket_auth_accepts_valid_token(seed_user, db_session):
+    """A signed access token for an active DB user authenticates the WS guard."""
     from app.api.v1.endpoints.websocket import authenticate_websocket
     from app.core.auth import create_access_token
 
@@ -162,7 +153,40 @@ def test_websocket_auth_accepts_valid_token(seed_user):
     class _StubWS:
         query_params = {"token": token}
 
-    async def _check() -> bool:
-        return await authenticate_websocket(_StubWS())  # type: ignore[arg-type]
+    assert await authenticate_websocket(_StubWS(), db_session) is True  # type: ignore[arg-type]
 
-    assert run(_check) is True
+
+async def test_websocket_auth_rejects_deleted_user(seed_user, db_session):
+    """Parity with REST (I17): a token whose subject no longer exists is rejected.
+
+    Before this check, claims-only validation let a deleted user's unexpired
+    token keep streaming run data over WS while REST already returned 401.
+    """
+    from app.api.v1.endpoints.websocket import authenticate_websocket
+    from app.core.auth import create_access_token
+
+    token = create_access_token(data={"sub": seed_user.id})
+
+    class _StubWS:
+        query_params = {"token": token}
+
+    await db_session.delete(seed_user)
+    await db_session.commit()
+
+    assert await authenticate_websocket(_StubWS(), db_session) is False  # type: ignore[arg-type]
+
+
+async def test_websocket_auth_rejects_inactive_user(seed_user, db_session):
+    """A deactivated user's still-valid token must not open a WS stream."""
+    from app.api.v1.endpoints.websocket import authenticate_websocket
+    from app.core.auth import create_access_token
+
+    token = create_access_token(data={"sub": seed_user.id})
+
+    class _StubWS:
+        query_params = {"token": token}
+
+    seed_user.is_active = False
+    await db_session.commit()
+
+    assert await authenticate_websocket(_StubWS(), db_session) is False  # type: ignore[arg-type]
