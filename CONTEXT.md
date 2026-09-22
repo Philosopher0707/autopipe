@@ -73,8 +73,8 @@ ruff check . && ruff format --check .                            # whole-repo (e
 |---|------|--------|
 | 1 | Rate-limit wiring + headers + I18 test | DONE `08e7f43b` |
 | 2 | Whole-repo ruff clean (examples/, test_simple.py) | DONE `4d52d740` |
-| 3 | WS auth parity (token claims vs DB user; RunDetail WS URL has no token) | **NOW** |
-| 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | pending |
+| 3 | WS auth parity + RunDetail token (I17) | DONE (backend DB-user check; frontend token-in-connect) |
+| 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | **NOW** |
 | 5 | MetricLog writer: nothing in executor writes metric series | pending |
 | 6 | Artifact content-addressing in dashboard ORM | pending |
 | 7 | Drift producer bridge (core DriftReport → durable row) | pending |
@@ -95,6 +95,9 @@ ruff check . && ruff format --check .                            # whole-repo (e
   autouse limiter reset in backend conftest prevents cross-test 429s.
 - D5: examples/*.py structural E402 ignored (sys.path bootstrap before
   local-package import); everything else whole-repo ruff-clean.
+- D6: WS auth = JWT decode + DB active-user lookup (REST parity); token
+  attached centrally in WebSocketClient.connect, bare URL stored for
+  reconnect freshness.
 
 ## Resume procedure
 

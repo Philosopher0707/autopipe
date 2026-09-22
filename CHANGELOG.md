@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Rate-limit headers on every HTTP response (`X-RateLimit-Limit`,
+  `X-RateLimit-Remaining`; 429 also sends `Retry-After`), exposed via CORS.
+  The default limiter now covers **all** routes (previously only `/auth`
+  despite a comment claiming otherwise), runs before auth, and resets per
+  test via an autouse fixture.
+- WebSocket auth parity with REST (I17): `authenticate_websocket` now checks
+  the token subject against the DB (existing + active user), rejecting
+  deleted/deactivated users the way REST already did. The frontend attaches
+  the access token centrally in `wsClient.connect()`, fixing RunDetail's
+  run-scoped WS URL, which connected without a token and was closed 1008.
+
 - Run provenance: `Pipeline.config_hash` and `Run.config_hash` now store a
   sha256 of the canonical JSON config (key order independent). The pipeline
   hash is maintained by a `validates("config")` hook; the run hash is written

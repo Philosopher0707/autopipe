@@ -239,8 +239,14 @@ request persists nothing.
 - **Status:** VERIFIED (unchanged by this milestone).
 
 ### I17 — Authentication and authorization are explicit.
-- **Status:** VERIFIED (unchanged): router-level JWT, role gates on destructive
-  routes, WS token handshake.
+- **Status:** VERIFIED. Router-level JWT + role gates on destructive routes.
+  WS handshake has parity with REST `get_current_user`: signed `?token=` is
+  not enough — the subject must be an existing, active DB user
+  (`app/api/v1/endpoints/websocket.py::authenticate_websocket`); deleted and
+  deactivated users are rejected (tests in
+  `backend/tests/test_auth_enforcement.py`). The frontend attaches the token
+  centrally in `wsClient.connect()` (`WebSocketClient.withToken`), so
+  run-scoped URLs like RunDetail's are authenticated too.
 
 ### I18 — Security controls claimed by configuration actually execute.
 - **Status:** VERIFIED. The `max_request_body` FastAPI no-op was replaced by
