@@ -6,7 +6,7 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `4d52d740`.
+- Mission baseline revision: `57db8694`. HEAD: `c240f604`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
@@ -50,7 +50,7 @@
 ruff check autopipe tests && ruff format --check autopipe tests  # repo CI gate
 mypy autopipe/core                                               # strict engine gate
 pytest tests -q                                                  # 296 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 141 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 153 pass expected
 ruff check . && ruff format --check .                            # whole-repo (examples had violations)
 ```
 
@@ -74,7 +74,7 @@ ruff check . && ruff format --check .                            # whole-repo (e
 | 1 | Rate-limit wiring + headers + I18 test | DONE `08e7f43b` |
 | 2 | Whole-repo ruff clean (examples/, test_simple.py) | DONE `4d52d740` |
 | 3 | WS auth parity + RunDetail token (I17) | DONE `6bdb5c08` |
-| 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | DONE (Run.provenance JSON + migration `3e7a9c4d1f62`; I14/I15 VERIFIED) |
+| 4 | Provenance: env/code/seed snapshot on Run (PROVENANCE_MODEL gap) | DONE `c240f604` (Run.provenance JSON + migration `3e7a9c4d1f62`; I14/I15 VERIFIED) |
 | 5 | MetricLog writer: nothing in executor writes metric series | **NOW** |
 | 6 | Artifact content-addressing in dashboard ORM | pending |
 | 7 | Drift producer bridge (core DriftReport → durable row) | pending |
