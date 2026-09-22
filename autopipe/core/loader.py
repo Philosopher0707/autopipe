@@ -163,3 +163,27 @@ def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
         pipeline.add_step(step)
 
     return pipeline
+
+
+def load_executable_pipeline(config: Dict[str, Any]) -> Pipeline:
+    """Load a config and prove it can actually be executed.
+
+    ``load_pipeline_from_config`` validates the schema, resolves step types
+    through the allowlist and constructs the steps — but a dependency **cycle**
+    only surfaces when the execution plan is resolved. Validation is required to
+    mean "this will run" (invariant I8), so plan resolution is part of loading a
+    pipeline *for execution* rather than a separate step a caller can forget.
+    That is why both ``autopipe validate`` and the dashboard's run admission call
+    this function instead of the plain loader.
+
+    Returns:
+        The loaded pipeline, with its execution order already resolved.
+
+    Raises:
+        ValueError: if the config is invalid, unbuildable, or its dependency
+            graph cannot be ordered (a cycle).
+    """
+    pipeline = load_pipeline_from_config(config)
+    order = list(pipeline.execution_order)  # raises ValueError on a cycle
+    logger.debug("Pipeline %s is executable: %d step(s)", pipeline.name, len(order))
+    return pipeline

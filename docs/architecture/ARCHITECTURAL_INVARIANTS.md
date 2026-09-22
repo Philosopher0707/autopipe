@@ -93,6 +93,25 @@ Baseline revision for this version: `57db8694032c402ee97e479fe0a84c4f7165cb3e`.
   integration tests use one shared database for both halves. Remaining Tier 1
   work: make the engine choice a single injectable decision.
 
+### I19 — No Run is created for a configuration that cannot run, and a rejected
+request persists nothing.
+- **Definition:** A Run is created only for a configuration admitted through the
+  single admission gate, and if admission passes the Run **is** dispatched.
+  Conversely, an error response must not leave persisted side effects.
+- **Owner:** `app/executor/admission.py::admit_run_config`.
+- **Enforcement:** `POST /pipelines/{id}/runs` and
+  `POST /experiments/{id}/trials` both admit *before* inserting anything.
+  The old code created the Run unconditionally and dispatched it only when the
+  config happened to contain a `"steps"` key (two inconsistent notions of
+  "runnable"), and the trials endpoint committed its runs before rejecting
+  `simulate=true`, leaving orphaned PENDING runs behind.
+- **Test:** `backend/tests/test_run_admission.py` — an unbuildable override is a
+  400 *and* persists no Run; a pipeline with no config is a 400; the 501
+  simulate rejection persists no Runs; admitted trials create exactly `n_trials`.
+- **Failure mode:** a Run that nothing will ever execute, permanently PENDING —
+  which also violates I12.
+- **Status:** VERIFIED.
+
 ---
 
 ## Reliability
@@ -140,13 +159,16 @@ Baseline revision for this version: `57db8694032c402ee97e479fe0a84c4f7165cb3e`.
   cannot be instantiated and executed.
 - **Owner:** `autopipe/cli.py` (`validate`) + `autopipe/core/loader.py`.
 - **Enforcement:** `validate` builds the pipeline through
-  `load_pipeline_from_config` — exactly the path `autopipe run` uses — so it
-  exercises schema validation, alias resolution, the step-type allowlist,
-  constructor arity, binding attachment and the dependency graph. The previous
-  implementation only checked *importability* of step classes, which is why it
-  reported VALID for three shipped examples that could not be constructed.
+  `load_executable_pipeline` — the core's definition of execution readiness —
+  which resolves step types through the allowlist, constructs the steps, and
+  **resolves the execution plan**. That last part matters: a dependency cycle is
+  schema-valid and buildable, so only plan resolution catches it. The previous
+  implementation checked *importability* alone, which is why it reported VALID
+  for three shipped examples that could not be constructed.
 - **Test:** `tests/unit/test_shipped_examples_execute.py`
   (`test_validate_rejects_a_config_that_cannot_be_constructed`,
+  `test_validate_rejects_a_cyclic_dependency_graph`,
+  `test_load_executable_pipeline_catches_what_the_schema_does_not`,
   `test_schema_validation_alone_is_not_execution_readiness`).
 - **Failure mode:** a user is told their config is fine and it then fails to run.
 - **Status:** VERIFIED.

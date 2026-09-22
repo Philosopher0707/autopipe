@@ -7,6 +7,7 @@ from typing import List, Optional
 from app.core.auth import require_role
 from app.db.models import ChartArtifact, Experiment, Pipeline, Run, RunStatus
 from app.db.session import get_db
+from app.executor.admission import RunAdmissionError, admit_run_config
 from app.schemas import (
     ExperimentArtifact,
     ExperimentArtifactsResponse,
@@ -402,6 +403,29 @@ async def launch_trials(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
 
+    # Preconditions and admission run BEFORE anything is persisted. The
+    # simulated-trial rejection used to happen *after* the runs were committed,
+    # so a 501 left orphaned PENDING runs behind; and the pipeline config was
+    # never checked at all, so an unusable pipeline produced runs that could
+    # never reach a terminal state (invariants I11/I12/I19).
+    if body.simulate:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Simulated trials are no longer supported: they generated fake "
+                "runs with random metrics. Launch real runs instead "
+                "(simulate=false, default)."
+            ),
+        )
+
+    try:
+        executable_config = admit_run_config(pipeline.config)
+    except RunAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot run this pipeline: {exc.reason}",
+        ) from exc
+
     # Extract search space from experiment config
     config = experiment.config or {}
     search_space = config.get("search_space", config)
@@ -435,30 +459,19 @@ async def launch_trials(
     for run in created_runs:
         await db.refresh(run)
 
-    # Simulated lifecycle was a fabrication mode (random metrics persisted as
-    # real runs) and has been removed. Explicit requests get an honest 501.
-    if body.simulate:
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Simulated trials are no longer supported: they generated fake "
-                "runs with random metrics. Launch real runs instead "
-                "(simulate=false, default)."
-            ),
-        )
+    # Simulated trials are rejected above, before any Run is created.
+    # Admission already passed, so every trial is dispatched. There is
+    # deliberately no second "is it runnable?" test here: having two such tests
+    # is how the previous version produced runs that nothing ever executed.
+    from app.executor.runner import execute_run
 
-    # Execute runs via the pipeline executor
-    if pipeline.config and "steps" in pipeline.config:
-        from app.executor.runner import execute_run
-
-        pipeline_config = pipeline.config
-        for run in created_runs:
-            # Pass the pipeline config as-is and trial params as initial_inputs.
-            # This allows steps to access hyperparameters via their inputs.
-            run_config = run.config or {}
-            skip_keys = {"search_space", "direction", "metric_name", "metric"}
-            trial_params = {k: v for k, v in run_config.items() if k not in skip_keys}
-            background_tasks.add_task(execute_run, run.id, pipeline_config, trial_params)
+    for run in created_runs:
+        # Trial parameters travel as initial_inputs so steps read
+        # hyperparameters from their inputs.
+        run_config = run.config or {}
+        skip_keys = {"search_space", "direction", "metric_name", "metric"}
+        trial_params = {k: v for k, v in run_config.items() if k not in skip_keys}
+        background_tasks.add_task(execute_run, run.id, executable_config, trial_params)
 
     return TrialLaunchResponse(
         experiment_id=experiment_id,

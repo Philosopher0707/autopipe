@@ -130,13 +130,13 @@ def validate(pipeline_file: str):
             config_dict = yaml.safe_load(f)
 
         # One validation/loading path (invariant I8): build the pipeline exactly
-        # as `run` would. This exercises schema validation, alias resolution,
-        # the step-type allowlist, constructor arity and the dependency graph —
-        # the previous implementation only checked that step classes were
-        # importable, so it reported VALID for configs that could not run.
-        from autopipe.core.loader import load_pipeline_from_config
+        # as `run` would, including resolving the execution plan so that a
+        # dependency cycle is caught here rather than at run time. The previous
+        # implementation only checked that step classes were importable, so it
+        # reported VALID for configs that could not run.
+        from autopipe.core.loader import load_executable_pipeline
 
-        pipeline = load_pipeline_from_config(config_dict)
+        pipeline = load_executable_pipeline(config_dict)
 
         for step_name, step in pipeline.steps.items():
             cls = type(step)

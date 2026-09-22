@@ -73,6 +73,66 @@ def test_create_template_output_is_execution_ready(tmp_path, monkeypatch):
     assert pipeline.steps
 
 
+def test_validate_rejects_a_cyclic_dependency_graph(tmp_path):
+    """A cycle is schema-valid and buildable; only plan resolution catches it."""
+    from click.testing import CliRunner
+
+    from autopipe.cli import cli
+
+    cyclic = tmp_path / "cyclic.yaml"
+    cyclic.write_text(
+        "name: cyclic\n"
+        "steps:\n"
+        "  - name: a\n"
+        "    type: print\n"
+        "    depends_on: [b]\n"
+        "  - name: b\n"
+        "    type: print\n"
+        "    depends_on: [a]\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(cli, ["validate", str(cyclic)])
+    assert result.exit_code != 0, result.output
+
+
+def test_load_executable_pipeline_catches_what_the_schema_does_not():
+    """`load_executable_pipeline` is the execution-readiness definition.
+
+    The plain loader accepts a cyclic graph because the cycle is invisible until
+    the plan is ordered; the executable loader must reject it.
+    """
+    from autopipe.core.loader import load_executable_pipeline, load_pipeline_from_config
+
+    cyclic = {
+        "name": "cyclic",
+        "steps": [
+            {"name": "a", "type": "print", "depends_on": ["b"]},
+            {"name": "b", "type": "print", "depends_on": ["a"]},
+        ],
+    }
+    # The plain loader builds the pipeline...
+    assert load_pipeline_from_config(cyclic).name == "cyclic"
+    # ...but it is not executable, and the executable loader says so.
+    with pytest.raises(ValueError, match="cycle"):
+        load_executable_pipeline(cyclic)
+
+
+def test_load_executable_pipeline_resolves_the_plan():
+    """Admission must leave the pipeline ready to run, order included."""
+    from autopipe.core.loader import load_executable_pipeline
+
+    pipeline = load_executable_pipeline(
+        {
+            "name": "ordered",
+            "steps": [
+                {"name": "b", "type": "print", "depends_on": ["a"]},
+                {"name": "a", "type": "print"},
+            ],
+        }
+    )
+    assert pipeline.execution_order == ["a", "b"]
+
+
 def test_validate_rejects_a_config_that_cannot_be_constructed(tmp_path):
     """Regression: `autopipe validate` must not report VALID for an unbuildable config."""
     from click.testing import CliRunner

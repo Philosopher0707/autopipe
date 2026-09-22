@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from app.core.auth import require_role
 from app.db.models import ActivityLog, Pipeline, Run, RunStatus
 from app.db.session import get_db
+from app.executor.admission import RunAdmissionError, admit_run_config
 from app.schemas import PipelineCreate, PipelineList, PipelineResponse, PipelineUpdate, RunResponse
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -264,7 +265,18 @@ async def trigger_run(
     )
     max_run = result.scalar() or 0
 
-    run_config = body.config_override or pipeline.config
+    # Admission happens *before* anything is persisted. A configuration that
+    # cannot be loaded must not become a Run: a Run that is never dispatched can
+    # never reach a terminal state (invariants I11/I12/I19). The cross-field
+    # error shape differs (a field-level `config_override` failure vs a stored
+    # pipeline config), so surface the reason verbatim.
+    try:
+        run_config = admit_run_config(body.config_override or pipeline.config)
+    except RunAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot run this configuration: {exc.reason}",
+        ) from exc
 
     # Create run
     run = Run(
@@ -292,11 +304,12 @@ async def trigger_run(
     db.add(activity)
     await db.commit()
 
-    # Execute pipeline in background if config has steps
-    if run_config and "steps" in run_config:
-        from app.executor.runner import execute_run
+    # Admission already passed, so this config is *always* dispatched. There is
+    # deliberately no second "is it runnable?" test here: having two is exactly
+    # how the previous version produced PENDING runs that nothing executed.
+    from app.executor.runner import execute_run
 
-        background_tasks.add_task(execute_run, run.id, run_config)
+    background_tasks.add_task(execute_run, run.id, run_config)
 
     return _serialize_run(run, pipeline.name)
 
