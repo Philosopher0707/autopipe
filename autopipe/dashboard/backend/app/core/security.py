@@ -10,7 +10,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from app.core.config import settings
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, WebSocket, status
+from starlette.websockets import WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class SimpleRateLimiter:
         self._cleanup_interval = 3600  # 1 hour
         self._last_cleanup = time.time()
 
-    def _get_client_key(self, request: Request) -> str:
+    def _get_client_key(self, request: Request | WebSocket) -> str:
         """Extract the client identifier used to key rate limits.
 
         ``X-Forwarded-For`` / ``X-Real-IP`` are honoured **only** when
@@ -73,7 +74,7 @@ class SimpleRateLimiter:
 
     def check_rate_limit(
         self,
-        request: Request,
+        request: Request | WebSocket,
         times: int,
         seconds: int,
         identifier: str = "",
@@ -169,6 +170,32 @@ def check_default_rate_limit(request: Request) -> tuple[int, int]:
         settings.RATE_LIMIT_DEFAULT_WINDOW,
         identifier="api",
     )
+
+
+async def check_websocket_rate_limit(websocket: WebSocket) -> None:
+    """Default budget for WebSocket handshakes — same peer bucket as HTTP.
+
+    FastAPI (0.109) does not inject ``Request`` into dependencies on
+    WebSocket routes, but ``WebSocket`` exposes the same ``headers`` /
+    ``client`` / ``state`` surface the limiter keys on, so the identical
+    rule applies: handshake hammering spends the per-peer default budget.
+
+    A WS handshake has no 429 status. Raising ``HTTPException`` on a
+    websocket scope hangs the handshake (observed with TestClient), so the
+    overload refuses the upgrade — close 1013 (try again later) before
+    accept, then ``WebSocketDisconnect`` to short-circuit the endpoint.
+    """
+    try:
+        _rate_limiter.check_rate_limit(
+            websocket,
+            settings.RATE_LIMIT_DEFAULT_REQUESTS,
+            settings.RATE_LIMIT_DEFAULT_WINDOW,
+            identifier="api",
+        )
+    except HTTPException as exc:
+        retry_after = (exc.headers or {}).get("Retry-After", "?")
+        await websocket.close(code=1013, reason=f"rate limited; retry after {retry_after}s")
+        raise WebSocketDisconnect(code=1013, reason="rate limited") from None
 
 
 async def setup_rate_limiter() -> None:

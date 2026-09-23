@@ -27,6 +27,11 @@ Authentication: `?token=<access JWT>` query parameter; close code `1008`
 on failure (parity with REST: token must decode AND belong to an active
 DB user — see `authenticate_websocket`).
 
+Handshakes share the default per-peer rate-limit bucket with HTTP
+(`check_websocket_rate_limit`, same `identifier="api"`); over-budget
+handshakes are refused with close code `1013` before accept — a WS
+handshake has no 429 status. Tests: `backend/tests/test_ws_rate_limit.py`.
+
 ## Event types
 
 | `type`            | `data` fields |

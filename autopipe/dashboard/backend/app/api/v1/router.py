@@ -16,7 +16,7 @@ from app.api.v1.endpoints import (
     websocket,
 )
 from app.core.auth import get_current_user
-from app.core.security import check_default_rate_limit
+from app.core.security import check_default_rate_limit, check_websocket_rate_limit
 from fastapi import APIRouter, Depends
 
 api_router = APIRouter()
@@ -24,11 +24,13 @@ api_router = APIRouter()
 # Every data route requires a valid JWT. /auth is the only public surface.
 _auth = [Depends(get_current_user)]
 
-# Default rate limit (100/min per client) on every HTTP route. Rate limit
-# runs BEFORE auth so unauthenticated hammering also counts. Login/register
-# keep their stricter per-endpoint limits on top; they share no bucket with
-# this one (separate limiter identifiers), so there is no double-count to
-# avoid — and excluding /auth would leave /auth/me unlimited.
+# Default rate limit (100/min per client) on every HTTP route — including the
+# WebSocket handshake (same peer bucket: handshake hammering spends the same
+# budget as 401-hammering). Rate limit runs BEFORE auth so unauthenticated
+# hammering also counts. Login/register keep their stricter per-endpoint limits
+# on top; they share no bucket with this one (separate limiter identifiers), so
+# there is no double-count to avoid — and excluding /auth would leave /auth/me
+# unlimited.
 _rl = [Depends(check_default_rate_limit)]
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"], dependencies=_rl)
@@ -66,4 +68,9 @@ api_router.include_router(
 api_router.include_router(
     projects.router, prefix="/projects", tags=["projects"], dependencies=_rl + _auth
 )
-api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+api_router.include_router(
+    websocket.router,
+    prefix="/ws",
+    tags=["websocket"],
+    dependencies=[Depends(check_websocket_rate_limit)],
+)

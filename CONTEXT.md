@@ -104,6 +104,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | 9 | Legacy SHA256 password migration/removal path | DONE (upgrade-on-login both form+JSON tested; `count_legacy_password_hashes` = removal gate: delete `_legacy_hash_password` + non-`$` branch when it returns 0) |
 | 10 | Frontend WS contract fixes (RunDetail token/shape) | DONE `f998ea0c` (envelope unified both sides; WS_CONTRACT.md) |
 | 11 | PiCoding config-driven admission bypass (I16) | DONE `7144a6fb` (QUARANTINED_STEP_MODULES in import_class) |
+| 12 | WS handshake rate limiting (D3 closure) | DONE (`check_websocket_rate_limit`, shared peer bucket, close 1013; `test_ws_rate_limit.py`) |
 
 ## Decisions log
 
@@ -112,8 +113,11 @@ installed package) — use `PYTHONPATH=.` as above.
 - D2: /auth keeps default limit too (comment's "double-count" rationale was
   bogus: separate identifiers = separate buckets; excluding it left /auth/me
   unlimited).
-- D3: websocket router not rate-limited this milestone (WS has its own auth
-  gap; separate work item — now queue #3).
+- D3: websocket router now IS rate-limited (closed): handshakes share the
+  per-peer default bucket; FastAPI 0.109 won't inject Request into WS-route
+  deps, so `check_websocket_rate_limit` keys on the WebSocket (same
+  headers/client/state) and refuses with close 1013 (no 429 on a handshake;
+  raising HTTPException there hangs the handshake — observed).
 - D4: tests must exercise production wiring (real app, real limiter) —
   autouse limiter reset in backend conftest prevents cross-test 429s.
 - D5: examples/*.py structural E402 ignored (sys.path bootstrap before
