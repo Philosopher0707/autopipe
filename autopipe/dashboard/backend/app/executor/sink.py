@@ -22,7 +22,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
-from app.db.models import MetricLog, Run, RunStatus, Step, StepStatus
+from app.db.models import (
+    AlertSeverity,
+    DriftAlert,
+    DriftReport,
+    MetricLog,
+    Run,
+    RunStatus,
+    Step,
+    StepStatus,
+)
 from app.utils.datetime_utils import safe_duration_seconds
 from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
@@ -294,6 +303,37 @@ def _insert_metric_logs(
     return added
 
 
+def _core_report_to_dict(report: Any) -> Optional[Dict[str, Any]]:
+    """Accept both ``DriftReport.to_dict()`` payloads and live dataclass instances."""
+    if isinstance(report, dict):
+        return report
+    to_dict = getattr(report, "to_dict", None)
+    if callable(to_dict):
+        try:
+            value = to_dict()
+            return value if isinstance(value, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def _collect_drift_batches(node: Any, depth: int = 3) -> list:
+    """Find every dict carrying ``drift_reports``, up to ``depth`` dict levels.
+
+    ``StatisticalDriftDetectorStep`` returns the batch at the top of its step
+    output; ``DriftDashboardStep`` nests it under ``feature_drift``. A found
+    batch is not descended into (its values are report entries, not batches).
+    """
+    if not isinstance(node, dict) or depth < 0:
+        return []
+    if node.get("drift_reports"):
+        return [node]
+    found: list = []
+    for value in node.values():
+        found.extend(_collect_drift_batches(value, depth - 1))
+    return found
+
+
 class RunStateStore:
     """The single owner of persisted run/step lifecycle state (invariant I5).
 
@@ -451,6 +491,69 @@ class RunStateStore:
             for metric_name, value in metrics.items():
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     _broadcast_step_metric(run_id, step_id, metric_name, float(value), loop)
+
+    def record_drift(self, run_id: str, outputs: Optional[Mapping[str, Any]]) -> int:
+        """Bridge detector step outputs (core ``DriftReport``) into durable rows.
+
+        One dashboard ``DriftReport`` row per step output that carries
+        ``drift_reports``; per-feature details keep the core ``to_dict()``
+        field names, which ``normalize_feature_drifts`` already understands
+        (ROADMAP G3). ``DriftAlert`` rows are created for features the
+        detector flagged. Returns the number of report rows written; a
+        missing run or no detector outputs writes nothing. Invoked exactly
+        once per run from ``runner._finalize`` (before the terminal write),
+        so no dedup key is needed; a persistence failure propagates to the
+        caller's containment.
+        """
+        batches = _collect_drift_batches(outputs or {})
+        if not batches:
+            return 0
+        written = 0
+        with self._session_factory() as db:
+            if db.get(Run, run_id) is None:
+                logger.error("Run %s not found; cannot record drift reports", run_id)
+                return 0
+            for payload in batches:
+                feature_drifts: Dict[str, Dict[str, Any]] = {}
+                drifted = 0
+                for raw in payload["drift_reports"]:
+                    details = _core_report_to_dict(raw)
+                    if not details or not details.get("feature_name"):
+                        continue
+                    feature_drifts[str(details["feature_name"])] = details
+                    if details.get("drift_detected"):
+                        drifted += 1
+                if not feature_drifts:
+                    continue
+                ratio = payload.get("drift_ratio")
+                if not isinstance(ratio, (int, float)) or isinstance(ratio, bool):
+                    ratio = drifted / len(feature_drifts)
+                row = DriftReport(
+                    run_id=run_id,
+                    drift_score=float(ratio),
+                    drift_detected=drifted > 0,
+                    feature_drifts=feature_drifts,
+                    alert_generated=drifted > 0,
+                )
+                db.add(row)
+                db.flush()  # populate row.id (server-side default) for alert FKs
+                for name, details in feature_drifts.items():
+                    if not details.get("drift_detected"):
+                        continue
+                    db.add(
+                        DriftAlert(
+                            drift_report_id=row.id,
+                            feature_name=name[:255],
+                            severity=AlertSeverity.WARNING,
+                            drift_type="feature",
+                            drift_metric=str(details.get("metric_name") or "unknown")[:50],
+                            drift_score=float(details.get("metric_value") or 0.0),
+                            threshold=float(details.get("threshold") or 0.0),
+                        )
+                    )
+                written += 1
+            db.commit()
+        return written
 
     def sweep_orphaned(self) -> int:
         """Mark runs left RUNNING or PENDING by a dead process as FAILED.

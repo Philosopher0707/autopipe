@@ -3,7 +3,17 @@
 import uuid
 from pathlib import Path
 
-from app.db.models import Base, MetricLog, Pipeline, Run, RunStatus, Step, StepStatus
+from app.db.models import (
+    Base,
+    DriftAlert,
+    DriftReport,
+    MetricLog,
+    Pipeline,
+    Run,
+    RunStatus,
+    Step,
+    StepStatus,
+)
 from app.executor import runner
 from app.executor.sink import RunStateStore
 from sqlalchemy import create_engine, select
@@ -522,3 +532,192 @@ def test_mark_step_conflict_leaves_no_metric_logs(tmp_path: Path):
     with SessionLocal() as db:
         rows = db.scalars(select(MetricLog).where(MetricLog.run_id == run_id)).all()
         assert [r.metric_name for r in rows] == ["first"]
+
+
+def test_record_drift_persists_core_reports(tmp_path: Path):
+    """Core DriftReport dataclasses land as a durable row + flagged-feature alerts."""
+    from datetime import datetime, timezone
+
+    from app.utils.drift_utils import normalize_feature_drifts
+
+    from autopipe.monitoring.drift_detection import DriftReport as CoreDriftReport
+
+    SessionLocal = _make_sync_session(tmp_path / "drift.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    store = RunStateStore(SessionLocal)
+
+    now = datetime.now(timezone.utc)
+    reports = [
+        CoreDriftReport(
+            timestamp=now,
+            feature_name="x",
+            drift_detected=True,
+            metric_name="ks_statistic",
+            metric_value=0.4,
+            threshold=0.05,
+            p_value=0.001,
+        ),
+        CoreDriftReport(
+            timestamp=now,
+            feature_name="y",
+            drift_detected=False,
+            metric_name="ks_statistic",
+            metric_value=0.01,
+            threshold=0.05,
+            p_value=0.8,
+        ),
+    ]
+
+    written = store.record_drift(run_id, {"detect": {"drift_reports": reports, "drift_ratio": 0.5}})
+    assert written == 1
+    assert store.record_drift(run_id, {"plain": {"message": "no reports"}}) == 0
+
+    with SessionLocal() as db:
+        row = db.scalars(select(DriftReport).where(DriftReport.run_id == run_id)).one()
+        assert row.drift_detected is True
+        assert row.drift_score == 0.5
+        assert row.alert_generated is True
+        assert set(row.feature_drifts) == {"x", "y"}
+        # Core field names must round-trip through the read-path normalizer (G3).
+        norm = normalize_feature_drifts(row.feature_drifts)
+        assert norm["x"]["is_drifted"] is True
+        assert norm["y"]["is_drifted"] is False
+        alerts = db.scalars(select(DriftAlert).where(DriftAlert.drift_report_id == row.id)).all()
+        assert [a.feature_name for a in alerts] == ["x"]
+        assert alerts[0].drift_metric == "ks_statistic"
+        assert alerts[0].drift_score == 0.4
+
+
+def test_finalize_bridges_drift_outputs(tmp_path: Path, monkeypatch):
+    """runner._finalize persists drift_reports from ExecutionResult.outputs."""
+    from autopipe.core.execution import ExecutionResult
+    from autopipe.core.run_state import RunState
+
+    SessionLocal = _make_sync_session(tmp_path / "drift-fin.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+    store = RunStateStore(SessionLocal)
+    store.mark_run_running(run_id)
+
+    result = ExecutionResult(
+        run_id=run_id,
+        pipeline_name="test-pipeline",
+        state=RunState.SUCCESS,
+        outputs={
+            "detect": {
+                "drift_reports": [
+                    {
+                        "feature_name": "f1",
+                        "drift_detected": True,
+                        "metric_name": "psi",
+                        "metric_value": 0.3,
+                        "threshold": 0.2,
+                        "p_value": None,
+                    }
+                ],
+                "drift_ratio": 1.0,
+            }
+        },
+    )
+    runner._finalize(run_id, result, store)
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.SUCCESS
+        row = db.scalars(select(DriftReport).where(DriftReport.run_id == run_id)).one()
+        assert row.drift_detected is True
+        assert "f1" in row.feature_drifts
+
+
+def test_record_drift_finds_nested_dashboard_batches(tmp_path: Path):
+    """DriftDashboardStep nests drift_reports under feature_drift — still bridged."""
+    SessionLocal = _make_sync_session(tmp_path / "drift-nested.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    store = RunStateStore(SessionLocal)
+
+    written = store.record_drift(
+        run_id,
+        {
+            "dash": {
+                "feature_drift": {
+                    "drift_reports": [
+                        {
+                            "feature_name": "a",
+                            "drift_detected": False,
+                            "metric_name": "ks",
+                            "metric_value": 0.01,
+                            "threshold": 0.05,
+                            "p_value": 0.9,
+                        }
+                    ],
+                    "drift_ratio": 0.0,
+                    "drift_detected_count": 0,
+                },
+                "summary": {"n_features": 1},
+            }
+        },
+    )
+    assert written == 1
+    with SessionLocal() as db:
+        row = db.scalars(select(DriftReport).where(DriftReport.run_id == run_id)).one()
+        assert row.drift_score == 0.0
+        assert row.drift_detected is False
+        assert "a" in row.feature_drifts
+        assert (
+            db.scalars(select(DriftAlert).where(DriftAlert.drift_report_id == row.id)).all() == []
+        )
+
+
+def test_record_drift_tolerates_malformed_and_empty_payloads(tmp_path: Path):
+    SessionLocal = _make_sync_session(tmp_path / "drift-junk.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    store = RunStateStore(SessionLocal)
+
+    assert store.record_drift(run_id, None) == 0
+    assert store.record_drift(run_id, {}) == 0
+    # Batch whose entries lack feature_name / to_dict: skipped, no rows, no raise.
+    assert (
+        store.record_drift(
+            run_id,
+            {
+                "detect": {
+                    "drift_reports": [object(), {"metric_name": "psi"}, None],
+                    "drift_ratio": 1.0,
+                }
+            },
+        )
+        == 0
+    )
+    with SessionLocal() as db:
+        assert db.scalars(select(DriftReport).where(DriftReport.run_id == run_id)).all() == []
+
+
+def test_finalize_survives_drift_persistence_failure(tmp_path: Path, monkeypatch):
+    """A record_drift blow-up must not block the terminal write (I11)."""
+    from autopipe.core.execution import ExecutionResult
+    from autopipe.core.run_state import RunState
+
+    SessionLocal = _make_sync_session(tmp_path / "drift-fail.db")
+    _pipeline_id, run_id = _seed_pipeline_and_run(SessionLocal)
+    monkeypatch.setattr(runner, "_SyncSessionLocal", SessionLocal)
+    monkeypatch.setattr(runner, "_event_loop", None)
+    store = RunStateStore(SessionLocal)
+    store.mark_run_running(run_id)
+
+    def boom(run_id_arg, outputs):
+        raise RuntimeError("drift store down")
+
+    monkeypatch.setattr(store, "record_drift", boom)
+    result = ExecutionResult(
+        run_id=run_id,
+        pipeline_name="test-pipeline",
+        state=RunState.SUCCESS,
+        outputs={"detect": {"drift_reports": [{"feature_name": "x"}], "drift_ratio": 1.0}},
+    )
+    runner._finalize(run_id, result, store)
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        assert run.status == RunStatus.SUCCESS
+        assert db.scalars(select(DriftReport).where(DriftReport.run_id == run_id)).all() == []

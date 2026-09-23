@@ -249,6 +249,13 @@ def _finalize(run_id: str, result: ExecutionResult | None, store: RunStateStore)
         _force_terminal(run_id, store)
         return
 
+    # Evidence bridge first, terminal write second: a persistence failure here
+    # must never prevent the run from reaching its final state.
+    try:
+        store.record_drift(run_id, result.outputs)
+    except Exception:
+        logger.exception("Failed to persist drift reports for run %s", run_id)
+
     metrics = dict(result.metrics)
     if result.state is RunState.SUCCESS:
         metrics.update(_collect_system_metrics())
