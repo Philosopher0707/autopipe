@@ -195,31 +195,38 @@ async def dashboard_websocket(websocket: WebSocket, db: AsyncSession = Depends(g
         manager.disconnect_all(websocket)
 
 
-async def broadcast_run_status(run_id: str, status: str, data: dict = None):
-    """Broadcast run status update."""
-    message = {
-        "type": "run.status",
-        "run_id": run_id,
-        "status": status,
-        "data": data or {},
+def _envelope(event_type: str, data: dict) -> dict:
+    """Canonical WS message: ``{type, data, timestamp}`` — payload only in data.
+
+    Clients (dashboard frontend) dispatch on ``type`` and read fields from
+    ``data``; routing across channels is server-side. Documented in
+    docs/architecture/WS_CONTRACT.md.
+    """
+    return {
+        "type": event_type,
+        "data": data,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def broadcast_run_status(run_id: str, status: str, data: dict = None):
+    """Broadcast run status update to the run channel and the dashboard."""
+    message = _envelope("run.status", {"run_id": run_id, "status": status, **(data or {})})
     await manager.broadcast_to_channel(f"run:{run_id}", message)
-    # Also broadcast to dashboard
-    message["channel"] = f"run:{run_id}"
     await manager.broadcast_to_channel("dashboard", message)
 
 
 async def broadcast_run_log(run_id: str, step_id: str, level: str, message_text: str):
     """Broadcast new log line."""
-    message = {
-        "type": "run.log",
-        "run_id": run_id,
-        "step_id": step_id,
-        "level": level,
-        "message": message_text,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    message = _envelope(
+        "run.log",
+        {
+            "run_id": run_id,
+            "step_id": step_id,
+            "level": level,
+            "message": message_text,
+        },
+    )
     await manager.broadcast_to_channel(f"run:{run_id}", message)
 
 
@@ -227,49 +234,48 @@ async def broadcast_run_metric(
     run_id: str, step_id: str, metric_name: str, value: float, step_number: int = None
 ):
     """Broadcast metric update."""
-    message = {
-        "type": "run.metric",
-        "run_id": run_id,
-        "step_id": step_id,
-        "metric_name": metric_name,
-        "value": value,
-        "step_number": step_number,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    message = _envelope(
+        "run.metric",
+        {
+            "run_id": run_id,
+            "step_id": step_id,
+            "metric_name": metric_name,
+            "value": value,
+            "step_number": step_number,
+        },
+    )
     await manager.broadcast_to_channel(f"run:{run_id}", message)
 
 
 async def broadcast_drift_alert(alert_id: str, feature_name: str, severity: str, message: str):
     """Broadcast drift alert."""
-    alert_message = {
-        "type": "drift.alert",
-        "alert_id": alert_id,
-        "feature_name": feature_name,
-        "severity": severity,
-        "message": message,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    alert_message = _envelope(
+        "drift.alert",
+        {
+            "alert_id": alert_id,
+            "feature_name": feature_name,
+            "severity": severity,
+            "message": message,
+        },
+    )
     await manager.broadcast_to_channel("dashboard", alert_message)
 
 
 async def broadcast_model_promoted(model_id: str, version: int, from_stage: str, to_stage: str):
     """Broadcast model promotion event."""
-    message = {
-        "type": "model.promoted",
-        "model_id": model_id,
-        "version": version,
-        "from_stage": from_stage,
-        "to_stage": to_stage,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    message = _envelope(
+        "model.promoted",
+        {
+            "model_id": model_id,
+            "version": version,
+            "from_stage": from_stage,
+            "to_stage": to_stage,
+        },
+    )
     await manager.broadcast_to_channel("dashboard", message)
 
 
 async def broadcast_dashboard_update(update_type: str, data: dict):
     """Broadcast general dashboard update."""
-    message = {
-        "type": f"dashboard.{update_type}",
-        "data": data,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    message = _envelope(f"dashboard.{update_type}", data)
     await manager.broadcast_to_channel("dashboard", message)

@@ -2,26 +2,45 @@
 
 import { useAuthStore } from '@/stores/authStore'
 
+/**
+ * Canonical WS contract (docs/architecture/WS_CONTRACT.md): every message is
+ * `{type, data, timestamp}` with all payload fields inside `data`. These are
+ * exactly the event types the backend emits — no aspirational entries.
+ */
 export type WSEventType =
-  | 'run.started'
-  | 'run.step.started'
-  | 'run.step.completed'
-  | 'run.completed'
-  | 'run.failed'
+  | 'run.status'
   | 'run.log'
   | 'run.metric'
-  | 'experiment.trial.started'
-  | 'experiment.trial.completed'
-  | 'experiment.completed'
-  | 'dashboard.metrics'
-  | 'dashboard.activity'
-  | 'dashboard.alert'
-  | 'system.health'
+  | 'drift.alert'
+  | 'model.promoted'
+  | `dashboard.${string}`
 
 export interface WSMessage {
   type: WSEventType
   data: Record<string, unknown>
   timestamp: string
+}
+
+/** Parse an incoming frame; returns null for malformed/foreign payloads. */
+export function parseWSMessage(raw: string): WSMessage | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const msg = parsed as Record<string, unknown>
+  if (typeof msg.type !== 'string' || msg.type === '') return null
+  const data =
+    msg.data && typeof msg.data === 'object' && !Array.isArray(msg.data)
+      ? (msg.data as Record<string, unknown>)
+      : {}
+  return {
+    type: msg.type as WSEventType,
+    data,
+    timestamp: typeof msg.timestamp === 'string' ? msg.timestamp : '',
+  }
 }
 
 type MessageHandler = (message: WSMessage) => void
@@ -50,11 +69,11 @@ export class WebSocketClient {
       }
 
       this.ws.onmessage = (event) => {
-        try {
-          const message: WSMessage = JSON.parse(event.data)
+        const message = parseWSMessage(event.data)
+        if (message) {
           this.dispatch(message)
-        } catch (err) {
-          console.error('[WS] Failed to parse message:', err)
+        } else {
+          console.warn('[WS] Ignoring malformed message')
         }
       }
 
@@ -123,10 +142,6 @@ export class WebSocketClient {
     return () => {
       this.handlers.get(eventType)?.delete(handler)
     }
-  }
-
-  subscribeRun(runId: string, handler: MessageHandler): () => void {
-    return this.subscribe(`run:${runId}`, handler)
   }
 
   subscribeExperiment(experimentId: string, handler: MessageHandler): () => void {

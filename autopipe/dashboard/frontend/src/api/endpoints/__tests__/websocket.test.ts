@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WebSocketClient } from '../websocket'
+import { WebSocketClient, parseWSMessage } from '../websocket'
 
 describe('WebSocketClient.tokenUrl', () => {
   it('appends token to a bare URL', () => {
@@ -31,5 +31,32 @@ describe('WebSocketClient.tokenUrl', () => {
     // token attached, so the server closed the handshake with 1008.
     const runUrl = 'ws://localhost/api/v1/ws/runs/run-123'
     expect(WebSocketClient.tokenUrl(runUrl, 'jwt-token')).toContain('token=jwt-token')
+  })
+})
+
+describe('parseWSMessage (contract guard)', () => {
+  it('accepts the canonical envelope and exposes data for handlers', () => {
+    const msg = parseWSMessage(
+      JSON.stringify({
+        type: 'run.log',
+        data: { run_id: 'r1', step_id: 'a', level: 'ERROR', message: 'boom' },
+        timestamp: '2026-01-01T00:00:00+00:00',
+      })
+    )
+    expect(msg?.type).toBe('run.log')
+    expect(msg?.data.message).toBe('boom')
+  })
+
+  it('defaults missing data to {} so handlers never see undefined', () => {
+    const msg = parseWSMessage(JSON.stringify({ type: 'run.status', timestamp: 't' }))
+    expect(msg?.data).toEqual({})
+  })
+
+  it('rejects malformed frames instead of dispatching them', () => {
+    expect(parseWSMessage('not-json')).toBeNull()
+    expect(parseWSMessage('null')).toBeNull()
+    expect(parseWSMessage('[1,2,3]')).toBeNull()
+    expect(parseWSMessage('{"no_type": true}')).toBeNull()
+    expect(parseWSMessage('{"type": ""}')).toBeNull()
   })
 })
