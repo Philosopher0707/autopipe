@@ -189,6 +189,7 @@ def load_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
     """
     validated = PipelineConfig.model_validate(config)
     pipeline = Pipeline(validated.name)
+    pipeline.seed = validated.seed
 
     for step_model in validated.steps:
         step = load_step_from_config(

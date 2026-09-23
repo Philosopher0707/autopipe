@@ -225,10 +225,13 @@ def _execute(
         logger.error("Failed to load pipeline for run %s: %s", run_id, exc)
         return _load_failure_result(run_id, pipeline_name, exc, sink, cancel_event.is_set())
 
+    raw_seed = (pipeline_config or {}).get("seed")
+    seed = raw_seed if type(raw_seed) is int and raw_seed >= 0 else None
     context = ExecutionContext(
         run_id=run_id,
         pipeline_name=str(getattr(pipeline, "name", pipeline_name)),
         initial_inputs=dict(initial_inputs) if initial_inputs else None,
+        seed=seed,
         # The registry's event *is* the token's event, so a PATCH /runs/{id}
         # cancellation reaches the engine without polling a second flag.
         cancellation=CancellationToken(cancel_event),
@@ -249,8 +252,13 @@ def _finalize(run_id: str, result: ExecutionResult | None, store: RunStateStore)
         _force_terminal(run_id, store)
         return
 
-    # Evidence bridge first, terminal write second: a persistence failure here
+    # Evidence bridges first, terminal write second: a persistence failure here
     # must never prevent the run from reaching its final state.
+    if result.seed_applied is not None:
+        try:
+            store.record_seed_applied(run_id, result.seed_applied)
+        except Exception:
+            logger.exception("Failed to record seed application for run %s", run_id)
     try:
         store.record_drift(run_id, result.outputs)
     except Exception:

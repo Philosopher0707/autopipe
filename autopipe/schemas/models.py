@@ -107,6 +107,20 @@ class PipelineConfig(BaseModel):
     name: str = Field(default="default_pipeline", description="Pipeline name")
     description: Optional[str] = Field(default=None, description="Human-readable description")
     steps: List[StepConfig] = Field(default_factory=list, description="Pipeline steps")
+    #: Run-level seed for AutoPipe-owned stochastic behaviour. A plain
+    #: non-negative int only — the admitted config is persisted verbatim as
+    #: ``Run.config`` and later re-read by the engine, so coercion here would
+    #: make the stored identity ambiguous.
+    seed: Optional[int] = Field(default=None, description="Run-level RNG seed")
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def validate_seed(cls, v: Any) -> Any:
+        if v is None:
+            return v
+        if type(v) is not int or v < 0:
+            raise ValueError("seed must be a non-negative integer")
+        return v
 
     @model_validator(mode="after")
     def validate_step_names_unique(self) -> "PipelineConfig":

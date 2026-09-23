@@ -1,10 +1,11 @@
 # Provenance Model
 
-**Status: MOSTLY IMPLEMENTED. Configuration-hash, engine/origin, environment
-and code-revision snapshots are implemented and tested. Artifact linkage and
-step-level data/seed provenance are not.** Per the repository's
-no-fabricated-data rule, **no provenance is recorded that the system cannot
-actually capture**; every field that is still unimplemented is listed as such.
+**Status: MOSTLY IMPLEMENTED. Configuration-hash, engine/origin, environment,
+code-revision snapshots, and top-level seed declare+apply are implemented and
+tested. Artifact linkage and step-level data/seed provenance are not.** Per the
+repository's no-fabricated-data rule, **no provenance is recorded that the
+system cannot actually capture**; every field that is still unimplemented is
+listed as such.
 
 ## Questions a Run must eventually answer
 
@@ -17,9 +18,11 @@ Which environment / dependencies?    DONE: Run.provenance.environment (python,
                                      platform, package versions)
 Which data?                          not captured
 Which model / parameters?            not captured (partially in config)
-Which random seeds?                  PARTIAL: top-level config `seed`/`seeds`
-                                     copied into Run.provenance.seeds; step-level
-                                     cooperation still absent
+Which random seeds?                  DONE (top-level): config `seed` copied into
+                                     provenance.seeds at creation (DECLARED) and
+                                     provenance.seed_applied at finalization iff
+                                     the engine initialized run-local RNG from it
+                                     (APPLIED); step-level cooperation still absent
 Which artifacts?                     PARTIAL: dashboard chart_artifacts carry
                                      sha256 of canonical data JSON (content
                                      address) + run_id linkage; registry has
@@ -65,6 +68,32 @@ Which execution engine version?      DONE: Run.provenance.engine_version
 - Rows that predate a migration keep the new field NULL, which means
   "not recorded" (invariant I15). No retro-fitting.
 
+## Seed application (`provenance.seed_applied`, invariant I21)
+
+- **DECLARED** — `provenance.seeds` written at Run creation from the config's
+  top-level `seed` (plain non-negative int, enforced by
+  `PipelineConfig.validate_seed`; the admitted config is persisted verbatim).
+- **APPLIED** — `provenance.seed_applied` written by
+  `RunStateStore.record_seed_applied` from `runner._finalize` (contained like
+  `record_drift`, before the terminal write) **iff**
+  `ExecutionResult.seed_applied` is non-None, i.e. the engine initialized a
+  run-local `RunRng` from that seed. Load failures (engine never entered)
+  therefore stay DECLARED-only.
+- **Mechanism** — one `RunRng` (seeded `random.Random` + `numpy.random.Generator`)
+  created per run inside `ExecutionEngine.execute` and bound as
+  `step.run_rng` (attribute bind, like `cancellation_token`; never a
+  `run()` kwarg). No process-global `random.seed`/`np.random.seed` is ever
+  called: worker runs share one process on threads, so global seeding would
+  cross-contaminate concurrent runs. `PartialDependenceStep` subsample uses
+  `run_rng` when bound, else a local `RandomState(42)` (same legacy stream,
+  no global mutation).
+- **Guarantee** — same config (incl. seed) + code + env + inputs → identical
+  `step.run_rng` draws for AutoPipe-owned consumers. **Not guaranteed**
+  (ceilings): LLM/provider/GPU/torch RNG (e.g. `DataLoader(shuffle=True)`
+  uses torch's global generator — not partially seeded, because a partial fix
+  would mislead); step-level `random_state` params (declared, per-step);
+  experiment trial generation at API time; steps that ignore `run_rng`.
+
 ## Artifact integrity (`Artifact.sha256`)
 
 - **Meaning:** SHA-256 of the file's raw bytes that `file_path` pointed at
@@ -108,7 +137,9 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   files fail the insert).
 - **Data provenance** — which dataset a run consumed; needs step cooperation.
 - **Full seed provenance** — seeds declared inside step parameters (not
-  top-level in config) are not visible to the Run-level snapshot.
+  top-level in config) are not visible to the Run-level snapshot; steps must
+  opt into `self.run_rng` (cooperation unverified system-wide beyond the
+  PDP consumer).
 - **Model / parameter provenance** — only as far as the config itself states.
 
 ## Non-goals

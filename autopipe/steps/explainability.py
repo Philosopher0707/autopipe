@@ -455,10 +455,15 @@ class PartialDependenceStep(Step):
         else:
             feature_indices = self.features
 
-        # Subsample if needed
+        # Subsample if needed. Seed-scoped via run_rng when the run declared
+        # one; otherwise a local RandomState(42) reproduces the historical
+        # global seed without mutating process-global numpy state (concurrent
+        # runs would otherwise cross-contaminate).
         if len(X) > self.subsample:
-            np.random.seed(42)
-            indices = np.random.choice(len(X), self.subsample, replace=False)
+            if self.run_rng is not None:
+                indices = self.run_rng.np.choice(len(X), self.subsample, replace=False)
+            else:
+                indices = np.random.RandomState(42).choice(len(X), self.subsample, replace=False)
             X = X[indices]
 
         pdp_results = partial_dependence(

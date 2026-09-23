@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import random
 import threading
 import time
 import traceback
@@ -57,6 +58,8 @@ from typing import (
     Sequence,
     runtime_checkable,
 )
+
+import numpy as np
 
 from autopipe.core.run_state import RunState, StepState
 from autopipe.exceptions import AutoPipeError
@@ -92,6 +95,27 @@ class InputBindingError(ExecutionError):
 
 class PipelineLoadError(ExecutionError):
     """Raised when a pipeline configuration cannot be turned into executable steps."""
+
+
+@dataclass
+class RunRng:
+    """Run-local RNG streams bound onto steps by the engine.
+
+    Replaces process-global seeding: worker runs execute on threads in one
+    process, so ``random.seed()`` / ``np.random.seed()`` at run start would
+    cross-contaminate concurrent runs. Steps read ``self.run_rng`` (declared on
+    :class:`~autopipe.core.step.Step`); when the run declared no seed the
+    engine binds ``None`` and the step falls back to its own default.
+    """
+
+    seed: int
+    py: random.Random
+    np: np.random.Generator
+
+    @classmethod
+    def from_seed(cls, seed: int) -> RunRng:
+        """Create both streams from one integer seed."""
+        return cls(seed=seed, py=random.Random(seed), np=np.random.default_rng(seed))
 
 
 class CancellationToken:
@@ -288,6 +312,10 @@ class ExecutionResult:
     exception: Optional[BaseException] = field(default=None, repr=False)
     sink_errors: List[str] = field(default_factory=list)
     engine_version: str = ENGINE_VERSION
+    #: The seed the engine actually initialized run-local RNG from, or None
+    #: when the run declared none (or never reached the engine). Distinct from
+    #: the config's *declared* seed, which provenance records at Run creation.
+    seed_applied: Optional[int] = None
 
     @property
     def ok(self) -> bool:
@@ -344,6 +372,9 @@ class ExecutionContext:
     run_id: str
     pipeline_name: str
     initial_inputs: Optional[Dict[str, Any]] = None
+    #: Declared run seed; when present and a plain non-negative int, the
+    #: engine creates one :class:`RunRng` and binds it to every step.
+    seed: Optional[int] = None
     cancellation: CancellationToken = field(default_factory=CancellationToken)
     sink: EventSink = field(default_factory=NullEventSink)
     #: Free-form execution metadata (provenance, request origin, ...).
@@ -506,10 +537,20 @@ class ExecutionEngine:
         result.outputs = progress.outputs
 
         try:
+            # Seed application happens before plan resolution: an engine that
+            # ran with a declared seed has applied it even if the plan or a
+            # step later fails. Defensive type check mirrors the schema's
+            # plain-int rule (no bool, no coercion).
+            if type(context.seed) is int and context.seed >= 0:
+                run_rng: Optional[RunRng] = RunRng.from_seed(context.seed)
+                result.seed_applied = context.seed
+            else:
+                run_rng = None
             execution_order = self._resolve_order(pipeline, result, progress, bus, context)
             if execution_order is not None:
                 for step in pipeline.steps.values():
                     self._bind_cancellation(step, context.cancellation)
+                    self._bind_rng(step, run_rng)
                 self._run_steps(pipeline, execution_order, progress, context, result, bus)
         except BaseException as exc:
             progress.captured = exc
@@ -579,6 +620,17 @@ class ExecutionEngine:
             step.cancellation_token = token
         except AttributeError:  # pragma: no cover - slots-based stand-ins
             logger.debug("Step %r does not accept a cancellation token", step)
+
+    def _bind_rng(self, step: Any, run_rng: Optional[RunRng]) -> None:
+        """Expose the run-local RNG to a step for seed-scoped randomness.
+
+        Always writes, including ``None`` for unseeded runs, so a step reused
+        across a seeded and an unseeded run cannot keep a stale stream.
+        """
+        try:
+            step.run_rng = run_rng
+        except AttributeError:  # pragma: no cover - slots-based stand-ins
+            logger.debug("Step %r does not accept a run RNG", step)
 
     def _resolve_order(
         self,
@@ -843,6 +895,7 @@ __all__ = [
     "NullEventSink",
     "PipelineLoadError",
     "RecordingEventSink",
+    "RunRng",
     "StepOutcome",
     "resolve_step_inputs",
 ]

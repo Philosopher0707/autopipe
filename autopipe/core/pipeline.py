@@ -17,6 +17,9 @@ class Pipeline:
         self.name = name
         self.steps: Dict[str, Step] = {}
         self._execution_order: List[Step] = []
+        #: Declared run seed (set by the loader from config); passed to the
+        #: engine as ExecutionContext.seed so run-local RNG is applied.
+        self.seed: Optional[int] = None
 
     def add_step(self, step: Step) -> "Pipeline":
         """Add a step to the pipeline."""
@@ -97,6 +100,7 @@ class Pipeline:
             run_id=uuid4().hex,
             pipeline_name=self.name,
             initial_inputs=initial_inputs,
+            seed=self.seed,
             sink=NullEventSink(),
         )
         result = engine.execute(self, context)

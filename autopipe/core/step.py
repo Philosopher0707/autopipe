@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .execution import CancellationToken
+    from .execution import CancellationToken, RunRng
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,11 @@ class Step(ABC):
         # rather than a run() kwarg: run() kwargs are a duck-typed data bag, so
         # a control object there would corrupt input semantics.
         self.cancellation_token: Optional[CancellationToken] = None
+        # Run-local RNG set by the engine from the run's declared seed (None
+        # when unseeded). Steps that draw randomness should prefer this over
+        # the process-global random/numpy streams so concurrent runs cannot
+        # contaminate each other.
+        self.run_rng: Optional[RunRng] = None
 
     def __repr__(self) -> str:
         return f"Step(name={self.name})"

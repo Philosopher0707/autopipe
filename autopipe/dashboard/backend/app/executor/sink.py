@@ -555,6 +555,25 @@ class RunStateStore:
             db.commit()
         return written
 
+    def record_seed_applied(self, run_id: str, seed: int) -> None:
+        """Record that the engine applied the declared seed to run-local RNG.
+
+        Writes ``provenance["seed_applied"]`` — the runtime fact, distinct from
+        the config's *declared* seed that ``build_provenance`` puts in
+        ``provenance["seeds"]`` at Run creation. Called once per seeded run
+        from ``runner._finalize`` before the terminal write (contained like
+        ``record_drift``); a missing run logs and writes nothing.
+        """
+        with self._session_factory() as db:
+            run = db.get(Run, run_id)
+            if run is None:
+                logger.error("Run %s not found; cannot record seed application", run_id)
+                return
+            prov = dict(run.provenance or {})
+            prov["seed_applied"] = seed
+            run.provenance = prov  # reassignment (not in-place mutation) marks dirty
+            db.commit()
+
     def sweep_orphaned(self) -> int:
         """Mark runs left RUNNING or PENDING by a dead process as FAILED.
 

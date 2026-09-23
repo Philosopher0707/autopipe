@@ -311,3 +311,35 @@ in `docs/architecture/CREDENTIAL_REFERENCE_MODEL.md`.)
   smuggling (key under an innocuous name) not caught; third-party SDK/CLI
   loggers with live keys unverified; operator-step self-emission out of
   trust — see CREDENTIAL_REFERENCE_MODEL §11.
+
+### I21 — A declared run seed is applied through run-local RNG, never global
+state, and provenance distinguishes DECLARED from APPLIED.
+- **Definition:** top-level config `seed` (plain non-negative int only) is
+  admitted by `PipelineConfig`, propagated to `ExecutionContext.seed`, and —
+  when present — the engine creates one `RunRng` per run (seeded
+  `random.Random` + `numpy.random.Generator`) bound as `step.run_rng`.
+  `provenance.seeds` records DECLARED at Run creation;
+  `provenance.seed_applied` records APPLIED at finalization iff the engine
+  actually initialized the RNG (load failures stay DECLARED-only).
+- **Owner:** `autopipe/schemas/models.py::PipelineConfig.validate_seed`;
+  `autopipe/core/execution.py::RunRng` / `ExecutionEngine.execute`;
+  `app/executor/sink.py::RunStateStore.record_seed_applied`.
+- **Enforcement:** attribute bind in the engine's existing bind loop (same
+  pattern as `cancellation_token`); no `random.seed`/`np.random.seed` in the
+  run path (global seeding would cross-contaminate concurrent worker
+  threads); runner extracts seed with `type(x) is int`; `_finalize` records
+  applied inside a contained try/except before the terminal write.
+- **Test:** `tests/unit/core/test_seed_reproducibility.py` (schema, loader,
+  same/different/zero/absent seed, shared-stream identity across steps,
+  seed-applied-on-failure, no global mutation, barrier-interleaved
+  concurrency, PDP subsample legacy equivalence, library path);
+  `backend/tests/test_seed_application.py` (declared+applied e2e,
+  unseeded neither, load-failure declared-not-applied, negative seed 400,
+  seed in config_hash, build_provenance unchanged).
+- **Failure mode if violated:** concurrent runs corrupt each other's
+  "reproducible" results via global RNG, or provenance claims a seed was
+  applied that the engine never used.
+- **Ceilings (documented, not violations):** torch/global generator in
+  `DataLoader(shuffle=True)`; LLM/provider nondeterminism; step-level
+  `random_state` params; steps ignoring `run_rng`.
+- **Status:** VERIFIED.
