@@ -233,8 +233,10 @@ request persists nothing.
   Pre-migration runs keep `provenance = NULL` (explicit "not recorded",
   never retro-fitted). Run-path file-artifact registration exists
   (`RunStateStore.register_artifacts` via `runner._finalize`; step_id NULL,
-  registry↔Run linkage and DL checkpoints still open) — see
-  PROVENANCE_MODEL.md.
+  registry↔Run linkage and DL checkpoints still open) and run-path dataset
+  input identity exists (`RunStateStore.record_dataset_inputs` →
+  `provenance.datasets`; sql connections and non-file sources record
+  "unavailable" explicitly) — see PROVENANCE_MODEL.md.
 
 ---
 

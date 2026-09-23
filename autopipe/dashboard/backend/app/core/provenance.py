@@ -13,8 +13,9 @@ from typing import Any, Dict, Optional
 from autopipe.core.execution import ENGINE_VERSION
 
 # Fixed list: the packages that determine run behaviour. Uninstalled entries
-# record "unavailable", never a guessed version.
-_PACKAGES = ("autopipe", "fastapi", "sqlalchemy", "pydantic")
+# record "unavailable", never a guessed version. scikit-learn is included
+# because builtin sample-dataset content (iris/diabetes) is version-defined.
+_PACKAGES = ("autopipe", "fastapi", "sqlalchemy", "pydantic", "scikit-learn")
 
 # Backend dir — always inside the git work tree, regardless of process cwd.
 _REPO_ANCHOR = Path(__file__).resolve().parents[2]

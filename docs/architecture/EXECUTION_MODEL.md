@@ -90,10 +90,12 @@ stopped — that would mask a real defect. Covered by
 ## Known remaining limitations (not fabricated as solved)
 
 - **Provenance** covers config hash + a `Run.provenance` JSON snapshot
-  (engine_version, origin, environment, code_revision, top-level seeds) —
-  verified in `backend/tests/test_run_provenance.py`. Still missing: data
-  provenance and step-level seed visibility (see `PROVENANCE_MODEL.md`
-  remaining gaps).
+  (engine_version, origin, environment, code_revision, top-level seeds,
+  dataset inputs on the DataLoader path) —
+  verified in `backend/tests/test_run_provenance.py` and
+  `backend/tests/test_dataset_provenance.py`. Still missing: step-level
+  seed visibility and non-DataLoader data provenance (see
+  `PROVENANCE_MODEL.md` remaining gaps).
 - **Multi-process deployment**: the run registry, WebSocket connection manager
   and rate limiter are per-process. Single-process is the supported topology.
 - **`sys.path` bootstrap**: the backend venv does not install the core library,

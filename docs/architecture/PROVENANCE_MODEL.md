@@ -1,9 +1,10 @@
 # Provenance Model
 
 **Status: MOSTLY IMPLEMENTED. Configuration-hash, engine/origin, environment,
-code-revision snapshots, top-level seed declare+apply, and run-path file-artifact
-registration are implemented and tested. Step-level data/seed provenance and
-registry↔Run linkage are not.** Per the repository's no-fabricated-data rule,
+code-revision snapshots, top-level seed declare+apply, run-path file-artifact
+registration, and dataset input identity are implemented and tested.
+Step-level data/seed provenance and registry↔Run linkage are not.** Per the
+repository's no-fabricated-data rule,
 **no provenance is recorded that the system cannot actually capture**; every
 field that is still unimplemented is listed as such.
 
@@ -16,7 +17,14 @@ Which code revision?                 DONE: Run.provenance.code_revision (git HEA
                                      at creation, -dirty suffix, or "unavailable")
 Which environment / dependencies?    DONE: Run.provenance.environment (python,
                                      platform, package versions)
-Which data?                          not captured
+Which data?                          DONE (DataLoader path): run-path loaders
+                                      record an entry per successful read into
+                                      provenance.datasets — local file:
+                                      abspath + read-time sha256; builtin
+                                      sample: name + "unavailable"; sql:
+                                      format only (connection never recorded);
+                                      other sources: source + "unavailable"
+                                      (Phase C ceilings below)
 Which model / parameters?            not captured (partially in config)
 Which random seeds?                  DONE (top-level): config `seed` copied into
                                      provenance.seeds at creation (DECLARED) and
@@ -50,8 +58,8 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   - `engine_version` — `autopipe.core.execution.ENGINE_VERSION`
   - `origin` — `"dashboard"` | `"experiment"` | `"seed"`
   - `environment` — python version, platform, versions of a fixed package
-    list (`autopipe`, `fastapi`, `sqlalchemy`, `pydantic`); uninstalled →
-    `"unavailable"`
+    list (`autopipe`, `fastapi`, `sqlalchemy`, `pydantic`, `scikit-learn`);
+    uninstalled → `"unavailable"`
   - `code_revision` — `git rev-parse HEAD` from the backend dir, `-dirty`
     suffix if the work tree is dirty, `"unavailable"` if git cannot run
   - `seeds` — top-level `seed`/`seeds` keys from the run config, else NULL
@@ -120,11 +128,13 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   this run produce" once a registration path exists. The Python model
   registry hashes its own files (directory-aware, `model_registry`) but is
   not Run-linked yet (remaining gap below).
-- **Canonical producers (exactly two, both in `app/db/models.py`):**
-  `hash_config(dict)` → `ChartArtifact.sha256` / config hashes (canonical
+- **Canonical producers (exactly two):** `hash_config(dict)` (in
+  `app/db/models.py`) → `ChartArtifact.sha256` / config hashes (canonical
   JSON: sorted keys, compact separators, `default=str`); `sha256_file(path)`
-  → `Artifact.sha256` (raw file bytes). Password hashing in `core/auth.py`
-  is a different domain (salting, not content addressing).
+  (canonical definition in `autopipe/core/artifacts.py`, re-exported by
+  `app/db.models`) → `Artifact.sha256` and loader dataset entries (raw file
+  bytes). Password hashing in `core/auth.py` is a different domain (salting,
+  not content addressing).
 
 ## File artifact registration (run path, Phase B)
 
@@ -157,6 +167,39 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   registry, run-linkage is its own gap); `experiments/reporting`,
   CLI/REPL exports (not on the run path); `steps/pi_coding*` (quarantined).
 
+## Dataset input identity (run path, Phase C)
+
+- **Mechanism** — loaders call
+  `autopipe.core.artifacts.record_dataset_input(entry)` after a successful
+  read (thread-local `ContextVar`, same pattern as Phase B);
+  `runner._run_pipeline_in_thread` drains at start and in `finally` and
+  passes the entries to `_finalize`, which calls
+  `RunStateStore.record_dataset_inputs(run_id, entries)` before the terminal
+  write (contained like `record_drift`; a failure never blocks terminal
+  state). Sibling provenance keys (`seed_applied`, `origin`, ...) survive
+  the merge; non-dict entries are skipped; a missing run logs and writes
+  nothing. Recorded at **execution** time (load-time hash), not admission:
+  admission would hash bytes the run may not read and would block the API
+  on hashing.
+- **Entry shapes** (no fabricated values; "unavailable" where identity
+  cannot be computed):
+  - local file (`steps/data.py` DataLoaderStep, `os.path.isfile`): `{kind:
+    "file", source: abspath, format, sha256}` — hash computed immediately
+    after the pandas read, of the bytes just consumed (read-time identity;
+    the tiny window for post-read mutation is a ceiling).
+  - builtin sample (`core/steps.py` DataLoaderStep): `{kind: "builtin",
+    name, sha256: "unavailable"}` — content is scikit-learn-version-defined;
+    `scikit-learn` is in `build_provenance._PACKAGES` so the environment
+    fingerprint pins it.
+  - sql: `{kind: "sql", format: "sql", sha256: "unavailable"}` — the
+    connection string is **never recorded** (secret-shaped, I12).
+  - other (URL, buffer, cloud): `{kind: "file", source, format, sha256:
+    "unavailable"}` — read succeeded but no local bytes to hash.
+- **Not covered (honest ceilings)** — steps that consume data without a
+  DataLoaderStep; `DriftDashboardStep.reference_data_path` (stored, never
+  read through a recorder); failed reads record nothing (record happens
+  only after a successful read).
+
 ## Remaining gaps
 
 - **Registry artifact ↔ Run linkage** — the Python model registry hashes
@@ -165,7 +208,6 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   routed through `record_produced_file` (async callback names).
 - **Step association** — registered file artifacts carry `step_id = NULL`;
   attributing a file to the step that wrote it needs a Step-bound recorder.
-- **Data provenance** — which dataset a run consumed; needs step cooperation.
 - **Full seed provenance** — seeds declared inside step parameters (not
   top-level in config) are not visible to the Run-level snapshot; steps must
   opt into `self.run_rng` (cooperation unverified system-wide beyond the

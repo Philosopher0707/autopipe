@@ -586,6 +586,29 @@ class RunStateStore:
             run.provenance = prov  # reassignment (not in-place mutation) marks dirty
             db.commit()
 
+    def record_dataset_inputs(self, run_id: str, entries: Sequence[Mapping[str, Any]]) -> None:
+        """Persist ``provenance["datasets"]`` — the inputs this run consumed.
+
+        Entries are built by the loaders themselves (file: source + read-time
+        sha256; builtin: name + "unavailable"; sql: format only — connection
+        strings are never recorded, I12). Non-dict entries are skipped.
+        Sibling provenance keys (seed_applied, origin, ...) survive the merge.
+        Called once from ``runner._finalize`` before the terminal write,
+        contained like ``record_drift``; a missing run logs and writes nothing.
+        """
+        clean = [dict(e) for e in entries if isinstance(e, Mapping)]
+        if not clean:
+            return
+        with self._session_factory() as db:
+            run = db.get(Run, run_id)
+            if run is None:
+                logger.error("Run %s not found; cannot record dataset inputs", run_id)
+                return
+            prov = dict(run.provenance or {})
+            prov["datasets"] = clean
+            run.provenance = prov  # reassignment (not in-place mutation) marks dirty
+            db.commit()
+
     def register_artifacts(self, run_id: str, paths: Sequence[str]) -> int:
         """Insert Artifact rows for files produced during a run (one canonical writer).
 

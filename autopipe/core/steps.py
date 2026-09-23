@@ -94,6 +94,11 @@ class DataLoaderStep(Step):
             df["target"] = diabetes.target
         else:
             raise ValueError(f"Unknown dataset {self.dataset}")
+        from autopipe.core.artifacts import record_dataset_input
+
+        # Builtin content is sklearn-version-defined; the environment
+        # fingerprint pins scikit-learn, sha256 stays explicitly "unavailable".
+        record_dataset_input({"kind": "builtin", "name": self.dataset, "sha256": "unavailable"})
         self.log_metrics(rows=df.shape[0], columns=df.shape[1])
         return df
 

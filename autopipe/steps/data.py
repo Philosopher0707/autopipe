@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from autopipe.core.artifacts import record_dataset_input, sha256_file
 from autopipe.core.step import Step
 
 
@@ -92,6 +93,8 @@ class DataLoaderStep(Step):
         else:
             raise ValueError(f"Unsupported format: {self.format}")
 
+        self._record_input(source)
+
         self.log_metrics(
             rows_loaded=len(df),
             columns_loaded=len(df.columns),
@@ -100,6 +103,32 @@ class DataLoaderStep(Step):
 
         logger.info(f"Loaded {len(df)} rows and {len(df.columns)} columns")
         return df
+
+    def _record_input(self, source: Any) -> None:
+        """Record dataset identity after a successful read (Phase C).
+
+        SQL connection strings are never recorded (secret-shaped, I12);
+        local files get a content hash of the bytes just read; anything
+        else (URLs, buffers) records the source with sha256 "unavailable".
+        """
+        import os
+
+        if self.format == "sql":
+            record_dataset_input({"kind": "sql", "format": "sql", "sha256": "unavailable"})
+            return
+        entry: Dict[str, Any] = {
+            "kind": "file",
+            "source": str(source),
+            "format": self.format,
+            "sha256": "unavailable",
+        }
+        try:
+            if source and os.path.isfile(source):
+                entry["source"] = os.path.abspath(str(source))
+                entry["sha256"] = sha256_file(entry["source"])
+        except OSError:
+            pass  # keep "unavailable" — never invent a hash
+        record_dataset_input(entry)
 
     def visualize(self, **kwargs):
         """Generate data loading visualization."""

@@ -96,10 +96,12 @@ exceptions re-raised to preserve the historical API contract.
   Tier 8 work is explicitly deferred until the single-process semantics are
   correct and proven.
 - Provenance (Tier 4) is implemented for config hash + `Run.provenance`
-  (engine_version, origin, environment, code_revision, top-level seeds;
-  `PROVENANCE_MODEL.md`, tests in `backend/tests/test_run_provenance.py`).
-  Data provenance and step-level seed visibility are still not captured —
-  listed as gaps, not fabricated.
+  (engine_version, origin, environment, code_revision, top-level seeds,
+  dataset inputs on the DataLoader path, run-path artifact registration;
+  `PROVENANCE_MODEL.md`, tests in `backend/tests/test_run_provenance.py`
+  and `backend/tests/test_dataset_provenance.py`).
+  Step-level seed visibility and non-DataLoader data provenance are still
+  not captured — listed as gaps, not fabricated.
 - Request-body size is enforced by `RequestSizeLimitMiddleware`
   (`app/core/body_limit.py`, invariant I18); the old `max_request_body`
   FastAPI no-op is gone.

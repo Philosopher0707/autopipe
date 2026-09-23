@@ -1,7 +1,6 @@
 """Database models for the Dashboard."""
 
 import enum
-import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +19,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, validates
 
+from autopipe.core.artifacts import sha256_file  # re-export: canonical definition lives in core
+
 Base = declarative_base()
 
 
@@ -32,24 +33,9 @@ def hash_config(config: Optional[Dict]) -> Optional[str]:
     if config is None:
         return None
     canonical = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
+    import hashlib
+
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def sha256_file(path: str) -> str:
-    """SHA-256 of a file's raw bytes — the canonical content address for file artifacts.
-
-    Deterministic by construction: exact byte sequence, no text decoding, no
-    normalization, lowercase hex. Two paths with identical bytes hash the
-    same; any byte difference (newline, encoding, metadata byte) changes the
-    hash. Raises the underlying OSError (FileNotFoundError, IsADirectoryError,
-    PermissionError) if the file cannot be read — callers fail closed instead
-    of recording a hash they did not compute.
-    """
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 16), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 class RunStatus(str, enum.Enum):
