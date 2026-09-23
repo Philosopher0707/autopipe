@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 
+from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step
 
 logger = logging.getLogger(__name__)
@@ -175,8 +176,10 @@ class SHAPExplainerStep(Step):
                     shap.dependence_plot(fnames[0], self.shap_values, X, show=False)
 
                 plt.tight_layout()
-                plt.savefig(f"{self.name}_shap_{plot_type}.png", dpi=150, bbox_inches="tight")
+                path = f"{self.name}_shap_{plot_type}.png"
+                plt.savefig(path, dpi=150, bbox_inches="tight")
                 plt.close()
+                record_produced_file(path)
             except Exception as e:
                 logger.warning(f"SHAP {plot_type} plot failed: {e}")
 
@@ -283,14 +286,18 @@ class LIMEExplainerStep(Step):
 
             # Save HTML explanation
             html = explanation.as_html()
-            with open(f"{self.name}_lime_explanation.html", "w") as f:
+            html_path = f"{self.name}_lime_explanation.html"
+            with open(html_path, "w") as f:
                 f.write(html)
+            record_produced_file(html_path)
 
             # Generate matplotlib plot
             explanation.as_pyplot_figure()
             plt.tight_layout()
-            plt.savefig(f"{self.name}_lime_plot.png", dpi=150, bbox_inches="tight")
+            path = f"{self.name}_lime_plot.png"
+            plt.savefig(path, dpi=150, bbox_inches="tight")
             plt.close()
+            record_produced_file(path)
         except Exception as e:
             logger.warning(f"LIME visualization failed: {e}")
 
@@ -406,8 +413,10 @@ class PermutationImportanceStep(Step):
         plt.title(f"{self.name} - Permutation Importance")
         plt.tight_layout()
         plt.gca().invert_yaxis()
-        plt.savefig(f"{self.name}_permutation_importance.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_permutation_importance.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class PartialDependenceStep(Step):
@@ -509,8 +518,10 @@ class PartialDependenceStep(Step):
                 ax.set_title(f"PDP for {fname}")
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_pdp.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_pdp.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class FeatureImportanceStep(Step):
@@ -600,8 +611,10 @@ class FeatureImportanceStep(Step):
         plt.title(f"{self.name} - Feature Importance")
         plt.tight_layout()
         plt.gca().invert_yaxis()
-        plt.savefig(f"{self.name}_feature_importance.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_feature_importance.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class AttentionVisualizerStep(Step):
@@ -679,8 +692,10 @@ class AttentionVisualizerStep(Step):
         )
         plt.title(f"{self.name} - Attention Weights")
         plt.tight_layout()
-        plt.savefig(f"{self.name}_attention.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_attention.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class ExplainabilityPipeline(Step):

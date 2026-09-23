@@ -13,6 +13,7 @@ from sklearn.model_selection import (
     train_test_split,
 )
 
+from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step
 
 logger = logging.getLogger(__name__)
@@ -248,8 +249,10 @@ class CrossValidationStep(Step):
         ax2.legend()
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_cv_results.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_cv_results.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class NestedCrossValidationStep(Step):
@@ -511,8 +514,10 @@ class DataSplitterStep(Step):
             )
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_splits.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_splits.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class StratifiedGroupKFoldStep(Step):
@@ -705,5 +710,7 @@ class BootstrapValidatorStep(Step):
         plt.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_bootstrap.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_bootstrap.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)

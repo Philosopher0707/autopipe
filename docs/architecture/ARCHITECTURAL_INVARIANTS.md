@@ -231,8 +231,10 @@ request persists nothing.
   snapshot on all Run creation paths (dashboard, experiment, seed), and for
   file-artifact content hashing at insert (fail-closed, metadata-independent).
   Pre-migration runs keep `provenance = NULL` (explicit "not recorded",
-  never retro-fitted). Artifact↔Run registration path and step-level
-  data/seed provenance remain open — see PROVENANCE_MODEL.md.
+  never retro-fitted). Run-path file-artifact registration exists
+  (`RunStateStore.register_artifacts` via `runner._finalize`; step_id NULL,
+  registry↔Run linkage and DL checkpoints still open) — see
+  PROVENANCE_MODEL.md.
 
 ---
 

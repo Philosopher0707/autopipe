@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step
 
 
@@ -157,6 +158,7 @@ class SklearnTrainerStep(Step):
 
             Path(self.save_path).parent.mkdir(parents=True, exist_ok=True)
             joblib.dump(self.model, self.save_path)
+            record_produced_file(str(self.save_path))
 
         return self.model
 

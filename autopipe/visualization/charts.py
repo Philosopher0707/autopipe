@@ -17,12 +17,16 @@ class ChartGenerator:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
-    def _save_fig(self, filename: str):
-        """Save current matplotlib figure."""
+    def _save_fig(self, filename: str) -> str:
+        """Save current matplotlib figure and register it for artifact capture."""
         path = os.path.join(self.output_dir, filename)
         plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        from autopipe.core.artifacts import record_produced_file
+
+        record_produced_file(path)
         logger.info(f"Saved figure to {path}")
+        return path
 
     def plot_metrics(self, metrics: Dict[str, List[float]], title: str = "Training Metrics"):
         """Plot training metrics over epochs."""

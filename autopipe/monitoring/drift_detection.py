@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step
 
 logger = logging.getLogger(__name__)
@@ -369,8 +370,10 @@ class StatisticalDriftDetectorStep(Step):
         ax.invert_yaxis()
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_drift_detection.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_drift_detection.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class TargetDriftDetectorStep(Step):
@@ -590,8 +593,10 @@ class PredictionDriftMonitorStep(Step):
         plt.grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plt.savefig(f"{self.name}_prediction_trends.png", dpi=150, bbox_inches="tight")
+        path = f"{self.name}_prediction_trends.png"
+        plt.savefig(path, dpi=150, bbox_inches="tight")
         plt.close()
+        record_produced_file(path)
 
 
 class DriftDashboardStep(Step):
@@ -693,5 +698,6 @@ class DriftDashboardStep(Step):
         # Save report
         with open(output_path, "w") as f:
             f.write("\n".join(lines))
+        record_produced_file(output_path)
 
         logger.info(f"Drift report saved to {output_path}")

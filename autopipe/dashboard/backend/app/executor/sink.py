@@ -19,11 +19,13 @@ rejected rather than silently applied (invariant I6).
 import asyncio
 import contextvars
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from app.db.models import (
     AlertSeverity,
+    Artifact,
     DriftAlert,
     DriftReport,
     MetricLog,
@@ -167,6 +169,16 @@ class _StepLogCapture:
     def stop(self) -> None:
         """Detach the handler. Safe to call more than once."""
         self.logger.removeHandler(self.handler)
+
+
+def _infer_artifact_type(path: str) -> str:
+    """Best-effort ``artifact_type`` from the file extension."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".html"}:
+        return "plot"
+    if ext in {".pkl", ".joblib", ".pt", ".pth", ".keras", ".onnx", ".h5"}:
+        return "model"
+    return "data"
 
 
 def _run_state_value(run: Run) -> Optional[str]:
@@ -573,6 +585,53 @@ class RunStateStore:
             prov["seed_applied"] = seed
             run.provenance = prov  # reassignment (not in-place mutation) marks dirty
             db.commit()
+
+    def register_artifacts(self, run_id: str, paths: Sequence[str]) -> int:
+        """Insert Artifact rows for files produced during a run (one canonical writer).
+
+        Uses the ``Artifact.file_path`` validator hook to compute ``sha256``
+        (fail-closed: an OSError skips that file and continues). Idempotent
+        per ``(run_id, file_path)``: a path already registered for this run
+        is skipped. ``step_id`` is left NULL (no step association in Phase B).
+        Returns the number of rows written; a missing run logs and writes
+        nothing. Invoked once from ``runner._finalize`` before the terminal
+        write, contained like ``record_drift``.
+        """
+        if not paths:
+            return 0
+        written = 0
+        with self._session_factory() as db:
+            if db.get(Run, run_id) is None:
+                logger.error("Run %s not found; cannot register artifacts", run_id)
+                return 0
+            existing = {
+                p
+                for (p,) in db.execute(select(Artifact.file_path).where(Artifact.run_id == run_id))
+            }
+            seen: set = set(existing)
+            for raw in paths:
+                path = os.path.abspath(str(raw))
+                if path in seen:
+                    continue
+                if not os.path.isfile(path):
+                    logger.warning("Skipping produced file %s: not a file", raw)
+                    continue
+                try:
+                    row = Artifact(
+                        run_id=run_id,
+                        name=os.path.basename(path)[:255],
+                        artifact_type=_infer_artifact_type(path),
+                        file_path=path,
+                        file_size=os.path.getsize(path),
+                    )
+                    db.add(row)
+                    seen.add(path)
+                    written += 1
+                except OSError as exc:
+                    # sha256_file is fail-closed: skip this file, keep the rest
+                    logger.warning("Skipping produced file %s: %s", raw, exc)
+            db.commit()
+        return written
 
     def sweep_orphaned(self) -> int:
         """Mark runs left RUNNING or PENDING by a dead process as FAILED.

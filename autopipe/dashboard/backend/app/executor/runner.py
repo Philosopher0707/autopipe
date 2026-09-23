@@ -31,7 +31,7 @@ import logging
 import threading
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from app.core.config import settings
 from app.executor.registry import register_run, unregister_run
@@ -44,6 +44,7 @@ from app.executor.sink import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from autopipe.core.artifacts import drain_produced_files
 from autopipe.core.execution import (
     ENGINE_VERSION,
     CancellationToken,
@@ -241,12 +242,19 @@ def _execute(
     return ExecutionEngine().execute(pipeline, context)
 
 
-def _finalize(run_id: str, result: ExecutionResult | None, store: RunStateStore) -> None:
+def _finalize(
+    run_id: str,
+    result: ExecutionResult | None,
+    store: RunStateStore,
+    produced: Optional[Sequence[str]] = None,
+) -> None:
     """Write the terminal state. The single place a dashboard run's life ends.
 
     A ``None`` result means the engine never produced one (an escape inside
     ``_execute``), in which case the run is forced into FAILED. Any persistence
     failure here is logged loudly rather than left to rot the row.
+    ``produced`` is the drained list of files the run wrote (Phase B artifact
+    registration); it is registered only when a valid result exists.
     """
     if result is None:
         _force_terminal(run_id, store)
@@ -259,6 +267,11 @@ def _finalize(run_id: str, result: ExecutionResult | None, store: RunStateStore)
             store.record_seed_applied(run_id, result.seed_applied)
         except Exception:
             logger.exception("Failed to record seed application for run %s", run_id)
+    if produced:
+        try:
+            store.register_artifacts(run_id, produced)
+        except Exception:
+            logger.exception("Failed to register artifacts for run %s", run_id)
     try:
         store.record_drift(run_id, result.outputs)
     except Exception:
@@ -333,8 +346,10 @@ def _run_pipeline_in_thread(
     registered = False
     slot_acquired = False
     result: Optional[ExecutionResult] = None
+    produced: Sequence[str] = ()
 
     try:
+        drain_produced_files()  # clear any leftovers from a prior in-thread test run
         SessionLocal = _get_sync_session_factory()
         store = RunStateStore(SessionLocal)
         cancel_event = register_run(run_id)
@@ -353,6 +368,7 @@ def _run_pipeline_in_thread(
             traceback.format_exc(),
         )
     finally:
+        produced = drain_produced_files()
         # close and finalize are independent: a failing close must not skip
         # the terminal write (it used to share one try, so a close error
         # routed through _force_terminal and could overwrite a valid result).
@@ -363,7 +379,7 @@ def _run_pipeline_in_thread(
                 logger.critical("Run %s sink close failed", run_id, exc_info=True)
         if store is not None:
             try:
-                _finalize(run_id, result, store)
+                _finalize(run_id, result, store, produced=produced)
             except BaseException:
                 logger.critical("Run %s could not be finalized", run_id, exc_info=True)
                 _force_terminal(run_id, store)

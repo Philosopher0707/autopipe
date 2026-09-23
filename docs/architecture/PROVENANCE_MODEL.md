@@ -1,11 +1,11 @@
 # Provenance Model
 
 **Status: MOSTLY IMPLEMENTED. Configuration-hash, engine/origin, environment,
-code-revision snapshots, and top-level seed declare+apply are implemented and
-tested. Artifact linkage and step-level data/seed provenance are not.** Per the
-repository's no-fabricated-data rule, **no provenance is recorded that the
-system cannot actually capture**; every field that is still unimplemented is
-listed as such.
+code-revision snapshots, top-level seed declare+apply, and run-path file-artifact
+registration are implemented and tested. Step-level data/seed provenance and
+registry↔Run linkage are not.** Per the repository's no-fabricated-data rule,
+**no provenance is recorded that the system cannot actually capture**; every
+field that is still unimplemented is listed as such.
 
 ## Questions a Run must eventually answer
 
@@ -23,14 +23,13 @@ Which random seeds?                  DONE (top-level): config `seed` copied into
                                      provenance.seed_applied at finalization iff
                                      the engine initialized run-local RNG from it
                                      (APPLIED); step-level cooperation still absent
-Which artifacts?                     PARTIAL: dashboard chart_artifacts carry
-                                     sha256 of canonical data JSON (content
-                                     address) + run_id linkage; registry has
-                                     file sha256 but not linked to Run; file
-                                     `artifacts` rows now always carry a
-                                     file-byte sha256 at insert (hook, this
-                                     phase) — but no code path registers rows
-                                     yet (NULL only on pre-hook rows)
+Which artifacts?                     DONE (run path): files written by
+                                     ChartGenerator, step visualize/save sites
+                                     are recorded via core.artifacts and
+                                     registered as `artifacts` rows (run_id,
+                                     file-byte sha256, step_id NULL — Phase B);
+                                     registry files still not Run-linked;
+                                     deep-learning checkpoints not registered
 Which execution engine version?      DONE: Run.provenance.engine_version
 ```
 
@@ -127,14 +126,45 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   → `Artifact.sha256` (raw file bytes). Password hashing in `core/auth.py`
   is a different domain (salting, not content addressing).
 
+## File artifact registration (run path, Phase B)
+
+- **Mechanism** — producers call
+  `autopipe.core.artifacts.record_produced_file(path)` (thread-local
+  `ContextVar`) as they write; `runner._run_pipeline_in_thread` drains the
+  worker thread's list and passes it to `_finalize`, which calls
+  `RunStateStore.register_artifacts(run_id, paths)` before the terminal write
+  (contained like `record_drift`; a registration failure never blocks
+  terminal state). Core never imports the dashboard (execution-only boundary).
+- **Row content** — `run_id`, `name` (basename), `artifact_type` inferred from
+  extension (`.png/.jpg/.jpeg/.svg/.pdf/.html` → `plot`;
+  `.pkl/.joblib/.pt/.pth/.keras/.onnx/.h5` → `model`; else `data`),
+  `file_path` absolutized, `file_size`, `sha256` from the existing
+  `validates("file_path")` hook (fail-closed: an OSError skips that file and
+  continues). `step_id` is **NULL** — no step association in Phase B
+  (ceiling).
+- **Idempotency** — per `(run_id, abspath)`; a path already registered for
+  the run is skipped. Non-files (directories, ghosts) are skipped with a
+  warning.
+- **REGISTERED producers** — `ChartGenerator._save_fig` (one choke covers
+  every chart PNG from `VisualizationStep` and every step that uses
+  ChartGenerator: data, deep_learning, core); explainability direct writes
+  (SHAP/LIME HTML+PNG/permutation/PDP/feature-importance/attention);
+  cross_validation visualize PNGs (cv_results/splits/bootstrap);
+  drift_detection visualize PNGs + `generate_markdown_report` markdown;
+  `SklearnTrainerStep` `save_path` joblib dump.
+- **NOT registered (honest ceiling)** — deep-learning Keras checkpoint files
+  (async callback-chosen names); `model_registry` saves (separate library
+  registry, run-linkage is its own gap); `experiments/reporting`,
+  CLI/REPL exports (not on the run path); `steps/pi_coding*` (quarantined).
+
 ## Remaining gaps
 
 - **Registry artifact ↔ Run linkage** — the Python model registry hashes
   files but does not record which Run produced them.
-- **File-artifact writer** — the dashboard `artifacts` table still has no
-  code path that inserts rows; the hash producer now exists and is enforced
-  at the insert boundary (any future writer cannot skip it, and unreadable
-  files fail the insert).
+- **Deep-learning checkpoints** — Keras `save_path`/callback files are not
+  routed through `record_produced_file` (async callback names).
+- **Step association** — registered file artifacts carry `step_id = NULL`;
+  attributing a file to the step that wrote it needs a Step-bound recorder.
 - **Data provenance** — which dataset a run consumed; needs step cooperation.
 - **Full seed provenance** — seeds declared inside step parameters (not
   top-level in config) are not visible to the Run-level snapshot; steps must
