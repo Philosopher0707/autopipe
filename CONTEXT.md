@@ -6,7 +6,7 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `f998ea0c`.
+- Mission baseline revision: `57db8694`. HEAD: `f47fd2eb`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
