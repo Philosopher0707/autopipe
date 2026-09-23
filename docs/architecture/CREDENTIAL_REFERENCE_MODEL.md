@@ -40,7 +40,7 @@ Material exists only in process memory between `T2` and process exit.
 | I12-E | Identical semantics on CLI, library, YAML, dashboard admission — all configs validate through `PipelineConfig.model_validate`. | VERIFIED (single loader; admission wraps loader) |
 | I12-F | No process-global secret mutation (no `openai.api_key = …`). Instance-scoped clients only. | VERIFIED (`test_llm_client.py` sentinel-global assertion) |
 | I12-G | Serialized references are non-secret by construction: schemas offer no field that accepts key material (`LLMProviderConfig.api_key` removed). | IMPLEMENTED |
-| I12-H | Key material never appears in log output; `Credentials.masked_key` is the only formatter permitted near logging. | PARTIAL — no emission site exists (rg audit); masking formatter unexercised in anger |
+| I12-H | Key material never appears in log output; `Credentials.masked_key` is the only formatter permitted near logging. | IMPLEMENTED — real-path witness: env sentinel → client → offline failure; sentinel absent from caplog(DEBUG, all loggers), stdout/stderr, error/traceback, every event field, `repr()` of result/client/exception, durable `error_message`, SQLite bytes. Ceilings: third-party SDK/CLI loggers with live keys unverified; operator-step self-emission out of trust |
 | I12-I | One credential subsystem: `credentials/` + `llm/client.py::_resolve_api_key`. No dashboard-, CLI-, or step-local credential loading. | VERIFIED (call graph audit) |
 
 ## 3. Secret lifetime (T0–T10)
@@ -52,7 +52,7 @@ Material exists only in process memory between `T2` and process exit.
 | T2 | First `CredentialManager.get_credentials` — cached per provider | cache is in-process dict; `clear_credential_cache()` drops it |
 | T3 | Client constructor stores key on instance | instance-scoped; not shared across clients (I12-F) |
 | T4 | Use: Authorization header / SDK call | header never logged; HTTP errors carry URL not headers |
-| T5 | Logging boundary | no emission site; `masked_key` for any future site (I12-H) |
+| T5 | Logging boundary | real-path witness (`test_secret_log_boundary.py`, I12-H); `masked_key` for any future site |
 | T6 | Persistence boundary | deny-list at load (I12-A); provenance fixed fields (I12-C) |
 | T7 | Serialization (API/WS/artifacts) | refs only; schemas closed (I12-G) |
 | T8 | Rotation | set new env + `clear_credential_cache()`; already-constructed clients keep the old key until re-created (`LLMStep` caches `self.client` for the run) — ceiling documented |
@@ -66,7 +66,7 @@ Material exists only in process memory between `T2` and process exit.
 | T-A | Config author embeds `api_key: sk-…` in `params` → persisted in `Run.config`, returned by API, greppable in DB | load/admission | `PipelineConfig` rejects deny-listed param keys (normalized exact/suffix match, non-empty value); error names key+step only | deny-list unit tests |
 | T-B | Nested smuggle `params: {client: {api_key: …}}` | load | recursive walk, depth limit 10 (ceiling: deeper nesting rejected) | nested unit test |
 | T-C | Provenance env dump leaks keys | run creation | fixed field list, never `os.environ` | sentinel provenance test |
-| T-D | Log/WS broadcast echoes a key | logging | no emission site; run-log payloads are step text (I12-H) | rg audit + sentinel DB grep |
+| T-D | Log/WS broadcast echoes a key | logging | failure serialization carries `str(exc)` only — real-path witness proves clean (I12-H); run-log payloads are step text | `test_secret_log_boundary.py` + failure-path DB grep; WS payload = same `error` string as the DB column (proxy-verified) |
 | T-E | SDK global key mutation cross-leaks | client | instance-scoped (closed `881beb4b`-era) | `test_llm_client.py` |
 | T-F | User-row API key (old design) | DB | column removed (`2fa61352`) | `test_users_api_key_column_removed` |
 | T-G | Value under innocuous key (`data: "sk-…"`) | load | **not caught by key-name check** — accepted ceiling; value-shape heuristics rejected (false positives on ids); rely on T-A key naming + review | documented ceiling |
@@ -143,10 +143,25 @@ message names the step and param key so operators move the value to env.
 4. **Admission witness**: secret-param config → `RunAdmissionError`, no Run.
 5. Existing: `test_llm_client.py` (global mutation), `test_credentials`
    (env-only, message hygiene), `test_users_api_key_column_removed`.
+6. **Log/failure-boundary sentinel (I12-H)**
+   (`tests/unit/test_secret_log_boundary.py` +
+   `test_run_provenance.py::test_failed_run_never_persists_runtime_secret`):
+   env sentinel enters the real credential path
+   (`OLLAMA_API_KEY` → `CredentialManager` → `client.api_key`); offline
+   Ollama failure runs the real engine serialization; sentinel absent from
+   caplog(DEBUG, all loggers), stdout/stderr, `result.error`/`traceback`,
+   every field of every `ExecutionEvent`, `repr()` of result/client/exception,
+   durable `Run.error_message`, and the SQLite file bytes. Non-vacuous guards:
+   key entered `client.api_key`, run FAILED, Ollama-offline error message
+   present, endpoint *reference* observed in captured logs.
 
 NOT TESTED / ceilings: T-G value-shape smuggling; multi-tenant per-run
 credentials (single-tenant server env by design); T8 rotation of live
-constructed clients; prompt/response content logging by third-party SDKs.
+constructed clients; prompt/response content logging by third-party SDKs;
+third-party SDK/CLI log output with live keys; operator-authored steps that
+deliberately interpolate env secrets into exceptions (out of trust — operator
+code executes arbitrary Python); live WS capture not harnessed (payload source
+is the same `error` string asserted in the DB — proxy-verified).
 
 ## 10. Self-review (hard questions)
 
@@ -179,9 +194,17 @@ constructed clients; prompt/response content logging by third-party SDKs.
 9. **Ollama `"ollama"` default** — is a constant non-secret "key"
    acceptable? Yes: local server, value is public documentation convention;
    treating it as material would fail closed every local setup for no gain.
-10. **I12-H status PARTIAL — is that honest?** Yes: no emission site exists,
-    but no test *forces* a log-capture assertion on the LLM path; the
-    sentinel DB test covers persistence, not stdout. Listed as remaining gap.
+10. **I12-H status — still PARTIAL?** No — closed by the real-path witness:
+    caplog(DEBUG) + capsys capture during an actual credential-holding
+    execution through failure serialization, plus event/traceback/`repr`
+    channels and a durable failure-path DB grep, all with non-vacuous guards
+    (key entered `client.api_key`; run FAILED through the real Ollama-offline
+    path; endpoint reference observed in logs). Remaining honest ceilings:
+    third-party SDK/CLI loggers with live keys unverified; operator-authored
+    steps that deliberately interpolate env secrets into exceptions are out of
+    trust (operator code runs arbitrary Python, same class as pi_coding); live
+    WS capture not harnessed — payload source is the same `error` string
+    asserted in the DB (proxy-verified).
 11. **Does the rejection itself leak the value?** Found in implementation:
     pydantic wraps validator `ValueError`s into `ValidationError`, whose
     `str()` includes `input_value={...}` — the secret would be echoed in the
@@ -192,8 +215,14 @@ constructed clients; prompt/response content logging by third-party SDKs.
 
 ## 11. Remaining risks (post-implementation)
 
-- I12-H log-capture witness absent (PARTIAL by design of this phase).
 - T-G value-shape smuggling (accepted, §10.1).
-- Third-party SDK may log request metadata to their own logs — outside our
-  boundary; instance-scoping limits blast radius within our process.
+- Third-party SDK/CLI may log request metadata to their own logs with live
+  keys — outside our boundary and unverified; instance-scoping limits blast
+  radius within our process.
+- Operator-authored steps that deliberately interpolate env secrets into
+  exceptions/log lines — out of trust (operator code executes arbitrary
+  Python, same class as pi_coding).
+- Future emission sites outside the witnessed execution path — prevented by
+  review + I20, not by the witness (the witness captures all loggers during a
+  real credential-holding run, not hypothetical future code paths).
 - `AutoPipeGlobalConfig` dead-schema debt (no `api_key` slot anymore).

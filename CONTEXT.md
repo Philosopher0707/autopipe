@@ -6,7 +6,7 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `f47fd2eb`.
+- Mission baseline revision: `57db8694`. HEAD: `12efe880`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
@@ -59,6 +59,16 @@
   removed; CredentialManager docstring corrected to env-only; invariants
   doc I20 added. Sentinel tests: env key never appears in provenance or
   the SQLite file bytes; 400 bodies never echo the rejected value.
+- **I12-H log/failure-boundary witness:** env sentinel enters the real
+  credential path; offline Ollama failure exercises real engine
+  serialization; sentinel absent from caplog(DEBUG, all loggers),
+  stdout/stderr, error/traceback, every event field, `repr()` of
+  result/client/exception, durable `error_message`, and SQLite bytes
+  (success + failure paths). Ceilings: third-party SDK/CLI loggers with
+  live keys; operator-step self-emission (out of trust); live WS capture
+  (proxy-verified — payload = same `error` string as the DB column).
+  Tests: `tests/unit/test_secret_log_boundary.py`,
+  `backend/tests/test_run_provenance.py`.
 - Security milestones: JWT on all data routes, loader step allowlist,
   pinned promptfoo, REPL/pi_coding quarantined, trusted hosts, body limit,
   secret-key startup policy, rate limiter keyed by peer unless
@@ -77,8 +87,8 @@
 
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
-PYTHONPATH=. pytest tests -q                                            # 310 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 176 pass expected
+PYTHONPATH=. pytest tests -q                                            # 311 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 177 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -117,7 +127,8 @@ installed package) — use `PYTHONPATH=.` as above.
 | 11 | PiCoding config-driven admission bypass (I16) | DONE `7144a6fb` (QUARANTINED_STEP_MODULES in import_class) |
 | 12 | WS handshake rate limiting (D3 closure) | DONE (`check_websocket_rate_limit`, shared peer bucket, close 1013; `test_ws_rate_limit.py`) |
 | 13 | Dead user-API-key path removal (users.api_key + get_llm_config) | DONE `2fa61352` (migration `f2a9c1d4e7b8`; 310 repo / 176 backend tests) |
-| 14 | I12 key-reference indirection — design first, then enforce | DONE (`02e1fc22` design + impl: secret-param deny at PipelineConfig, I20, sentinel tests; ceilings: I12-H log witness, T-G value-shape) |
+| 14 | I12 key-reference indirection — design first, then enforce | DONE (`02e1fc22` design + impl: secret-param deny at PipelineConfig, I20, sentinel tests; ceilings: T-G value-shape) |
+| 15 | I12-H runtime secret → log boundary witness | DONE (real-path witness `tests/unit/test_secret_log_boundary.py` + failure-path DB grep; caplog/capsys/events/traceback/repr channels clean; ceilings: third-party SDK loggers, operator-step self-emission) |
 
 ## Decisions log
 

@@ -38,6 +38,59 @@ async def test_secret_env_never_lands_in_run_database(
     assert SENTINEL.encode() not in blobs, "credential material must never reach the DB file"
 
 
+async def test_failed_run_never_persists_runtime_secret(
+    auth_client: AsyncClient, seed_pipeline, db_session, wait_terminal, tmp_path, monkeypatch
+):
+    """I12-H failure path: env key + real LLM failure, durable error channels.
+
+    Complements the success-path DB grep above: on failure the executor
+    persists ``Run.error_message`` and broadcasts the STEP_FINISHED/RUN_FINISHED
+    error payloads — the durable observables of Threat B/E. Non-vacuous: the
+    run must fail through the real Ollama-offline path with an explanatory error.
+    """
+    from autopipe.credentials import clear_credential_cache
+
+    clear_credential_cache()
+    monkeypatch.setenv("OLLAMA_API_KEY", SENTINEL)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:9/v1")
+    config = {
+        "name": "llm-fail",
+        "steps": [
+            {
+                "name": "ask",
+                "type": "llm",
+                "params": {
+                    "provider": "ollama",
+                    "model": "llama3.1",
+                    "prompt_template": "hi",
+                },
+            }
+        ],
+    }
+    try:
+        resp = await auth_client.post(
+            f"/api/v1/pipelines/{seed_pipeline.id}/runs",
+            json={"config_override": config},
+        )
+        assert resp.status_code == 201, resp.text
+        run_id = resp.json()["id"]
+        assert await wait_terminal(run_id) is RunStatus.FAILED, "offline LLM must fail the run"
+        assert SENTINEL not in resp.text
+
+        db_session.expire_all()
+        run = await db_session.get(Run, run_id)
+        assert run is not None
+        error = run.error_message or ""
+        assert error, "failed run must carry an error message"
+        assert "Ollama" in error, "real Ollama-offline failure path must have run"
+        assert SENTINEL not in error, "runtime secret must not reach the durable error message"
+
+        blobs = b"".join(p.read_bytes() for p in sorted(tmp_path.glob("test.db*")))
+        assert SENTINEL.encode() not in blobs, "credential material must never reach the DB file"
+    finally:
+        clear_credential_cache()
+
+
 def test_hash_config_is_deterministic_and_order_independent():
     a = hash_config({"b": 1, "a": {"y": 2, "x": 3}})
     b = hash_config({"a": {"x": 3, "y": 2}, "b": 1})

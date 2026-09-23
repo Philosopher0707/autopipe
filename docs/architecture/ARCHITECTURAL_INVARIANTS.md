@@ -292,13 +292,19 @@ in `docs/architecture/CREDENTIAL_REFERENCE_MODEL.md`.)
 - **Test:** `tests/unit/core/test_loader.py::TestSecretParamBoundary`
   (flat/nested/normalized/benign/depth, value never echoed);
   `backend/tests/test_run_admission.py` (secret param → 400, value absent
-  from body, no Run row); `backend/tests/test_run_provenance.py`
-  (sentinel env never appears in provenance nor the SQLite file bytes);
+  from body, no Run row);   `backend/tests/test_run_provenance.py`
+  (sentinel env never appears in provenance nor the SQLite file bytes —
+  success and failure paths);
+  `tests/unit/test_secret_log_boundary.py` (I12-H real-path witness: env
+  sentinel → client → offline failure → caplog/capsys/events/traceback/
+  repr channels clean, with non-vacuous guards);
   `tests/unit/test_llm_client.py` (no global SDK key mutation);
   `backend/tests/test_cas_and_alembic.py::test_users_api_key_column_removed`.
 - **Failure mode:** inline `api_key` in step params → persisted in
   `Run.config` → returned by the API and greppable in DB dumps; or an error
-  path echoing the secret it just rejected.
-- **Status:** IMPLEMENTED. Open ceilings (documented): I12-H log-capture
-  witness absent; T-G value-shape smuggling (key under an innocuous name)
-  not caught — see CREDENTIAL_REFERENCE_MODEL §11.
+  path echoing the secret it just rejected; or failure serialization /
+  logging carrying the runtime key.
+- **Status:** IMPLEMENTED. Open ceilings (documented): T-G value-shape
+  smuggling (key under an innocuous name) not caught; third-party SDK/CLI
+  loggers with live keys unverified; operator-step self-emission out of
+  trust — see CREDENTIAL_REFERENCE_MODEL §11.
