@@ -30,6 +30,18 @@ LOADABLE = {
     "name": "loadable",
     "steps": [{"name": "step1", "type": "print", "params": {"message": "hi"}}],
 }
+# I12-A: params are persisted verbatim as Run.config — key material must be
+# rejected at the admission choke, before any row exists.
+SECRET_PARAMS = {
+    "name": "leaky",
+    "steps": [
+        {
+            "name": "llm",
+            "type": "llm",
+            "params": {"provider": "openrouter", "api_key": "sk-super-secret-value"},
+        }
+    ],
+}
 
 
 class TestAdmitRunConfig:
@@ -58,6 +70,17 @@ class TestAdmitRunConfig:
         # The allowlist is the security boundary; admission must not weaken it.
         with pytest.raises(RunAdmissionError):
             admit_run_config({"name": "evil", "steps": [{"name": "x", "type": "os.system"}]})
+
+    def test_rejects_secret_material_in_params(self):
+        with pytest.raises(RunAdmissionError, match="api_key"):
+            admit_run_config(SECRET_PARAMS)
+
+    def test_secret_rejection_never_echoes_the_value(self):
+        # pydantic's ValidationError str() echoes input_value; the gate must
+        # not print the secret back in the error that rejected it.
+        with pytest.raises(RunAdmissionError) as ei:
+            admit_run_config(SECRET_PARAMS)
+        assert "sk-super-secret-value" not in str(ei.value)
 
     def test_every_seed_config_is_admissible(self):
         """Demo seeds must be runnable configs, not inert metadata."""
@@ -101,6 +124,20 @@ class TestTriggerRunAdmission:
 
         assert resp.status_code == 400, resp.text
         assert "Cannot run this configuration" in resp.json()["detail"]
+        assert await _run_count(db_session) == before, "a rejected config must not create a Run"
+
+    async def test_secret_material_override_is_rejected_and_persists_no_run(
+        self, auth_client: AsyncClient, seed_pipeline: Pipeline, db_session
+    ):
+        before = await _run_count(db_session)
+
+        resp = await auth_client.post(
+            f"/api/v1/pipelines/{seed_pipeline.id}/runs",
+            json={"config_override": SECRET_PARAMS},
+        )
+
+        assert resp.status_code == 400, resp.text
+        assert "sk-super-secret-value" not in resp.text, "400 body must not echo the secret"
         assert await _run_count(db_session) == before, "a rejected config must not create a Run"
 
     async def test_loadable_override_is_admitted_and_stored_verbatim(

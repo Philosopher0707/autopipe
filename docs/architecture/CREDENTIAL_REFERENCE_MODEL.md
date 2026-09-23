@@ -90,12 +90,20 @@ Reject-list (normalized: lowercase, strip `_`/`-`): exact match on
 `apikey, secret, password, passwd, token, credential, credentials,
 authorization, bearer, accesskey, privatekey, secretkey, clientsecret` OR
 suffix match on `apikey, secret, password, token, privatekey`.
-Applies to `params` values that are non-None and non-empty-string.
+Applies to `params` values that are truthy (`""`, `None`, `0`, `False`
+allowed — clearing a key explicitly is not material).
+
+Rejection raises `SecretMaterialError`, deliberately **not** a `ValueError`:
+pydantic converts validator `ValueError`s into a `ValidationError` whose
+`str()` echoes `input_value` — which would print the rejected secret back
+into the API 400 body and tracebacks (found during implementation, §10.11).
+Non-ValueError exceptions propagate unwrapped with our message only.
 
 ## 6. Failure semantics
 
-- Secret-shaped param at load/admission → `ValueError` → CLI validate fails /
-  admission 400 (`RunAdmissionError`); **no Run row created** (I19).
+- Secret-shaped param at load/admission → `SecretMaterialError` → CLI
+  validate fails / admission 400 (`RunAdmissionError` wrapping the message —
+  key+step name only, never the value); **no Run row created** (I19).
 - Missing env at client construction → `ValueError("OPENAI_API_KEY not set in
   environment")` naming the variable, never a value; raised inside step run →
   engine containment → step FAILED → run terminal FAILED (I11/I12 of the
@@ -174,6 +182,13 @@ constructed clients; prompt/response content logging by third-party SDKs.
 10. **I12-H status PARTIAL — is that honest?** Yes: no emission site exists,
     but no test *forces* a log-capture assertion on the LLM path; the
     sentinel DB test covers persistence, not stdout. Listed as remaining gap.
+11. **Does the rejection itself leak the value?** Found in implementation:
+    pydantic wraps validator `ValueError`s into `ValidationError`, whose
+    `str()` includes `input_value={...}` — the secret would be echoed in the
+    400 body that rejected it. Fixed by raising `SecretMaterialError`
+    (not a `ValueError`), which pydantic propagates unwrapped; witness:
+    `test_value_never_echoed` + admission API test asserting the value is
+    absent from the response body.
 
 ## 11. Remaining risks (post-implementation)
 

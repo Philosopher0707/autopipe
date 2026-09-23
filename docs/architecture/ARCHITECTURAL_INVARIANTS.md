@@ -270,3 +270,35 @@ request persists nothing.
   rejection before reading, counting wrapper for streamed bodies, 413 on
   breach; wired in `create_application`. Test asserts 413
   (`tests/test_security.py`).
+
+### I20 — Secrets resolve through one path, are never logged, and are never
+persisted in durable Run state. (NORTH_STAR I12; sub-invariants I12-A…I12-I
+in `docs/architecture/CREDENTIAL_REFERENCE_MODEL.md`.)
+- **Definition:** key material exists only in process memory (env →
+  `CredentialManager` → client instance at construction); durable state —
+  `Run.config`, provenance, events, metrics, logs, API/WS payloads — carries
+  references only, never material.
+- **Owner:** `autopipe/credentials/manager.py` +
+  `autopipe/llm/client.py::_resolve_api_key` (resolution);
+  `autopipe/schemas/models.py::PipelineConfig.validate_no_secret_params`
+  (persistence boundary).
+- **Enforcement:** every config path (CLI, YAML, library, dashboard
+  admission) validates through `PipelineConfig`; secret-shaped params raise
+  `SecretMaterialError` (not a `ValueError` — pydantic's `ValidationError`
+  echoes `input_value`, which would print the secret into the rejecting
+  response); provenance uses a fixed field list; `users.api_key` and
+  `Config.get_llm_config` were removed (`2fa61352`); the
+  `LLMProviderConfig.api_key` schema slot was removed.
+- **Test:** `tests/unit/core/test_loader.py::TestSecretParamBoundary`
+  (flat/nested/normalized/benign/depth, value never echoed);
+  `backend/tests/test_run_admission.py` (secret param → 400, value absent
+  from body, no Run row); `backend/tests/test_run_provenance.py`
+  (sentinel env never appears in provenance nor the SQLite file bytes);
+  `tests/unit/test_llm_client.py` (no global SDK key mutation);
+  `backend/tests/test_cas_and_alembic.py::test_users_api_key_column_removed`.
+- **Failure mode:** inline `api_key` in step params → persisted in
+  `Run.config` → returned by the API and greppable in DB dumps; or an error
+  path echoing the secret it just rejected.
+- **Status:** IMPLEMENTED. Open ceilings (documented): I12-H log-capture
+  witness absent; T-G value-shape smuggling (key under an innocuous name)
+  not caught — see CREDENTIAL_REFERENCE_MODEL §11.

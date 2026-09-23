@@ -359,7 +359,7 @@ One semantic contract, many executors:
 | I9 | Agent capabilities are enumerated and bounded; no arbitrary-code capability | REPL/pi anti-pattern exists | **violated by opt-in tools** | capability registry; deny-by-default |
 | I10 | Durable telemetry (logs, metric series, drift reports) is written by the executor at completion, not by a separate UI path | MetricLog rows in mark_step CAS txn; drift reports via `RunStateStore.record_drift` in `runner._finalize` (bridged `665ff239`) | **holds** | keep single-writer as new emitters land |
 | I11 | Identical Plan + identical executor class ⇒ identical step sequence | provenance meaning | holds today trivially (single backend) | becomes load-bearing with worker/sandbox executors |
-| I12 | Secrets resolve through one path, are never logged, never persisted in Run records | CredentialManager + `_resolve_api_key` single path; OpenAI global-key mutation removed (`7144a6fb` session: instance-scoped `openai.OpenAI`) | partial (mutation closed; logging/persistence claims need audit) | key-reference indirection in plans |
+| I12 | Secrets resolve through one path, are never logged, never persisted in Run records | CredentialManager + `_resolve_api_key` single path; instance-scoped SDK clients; `PipelineConfig` rejects secret-shaped params (`SecretMaterialError`); `users.api_key` + `get_llm_config` removed; design: `docs/architecture/CREDENTIAL_REFERENCE_MODEL.md` (invariants doc I20) | holds (I12-A…I12-I IMPLEMENTED/VERIFIED; I12-H log witness + T-G value-shape ceilings open) | log-capture witness; optional value-shape heuristics |
 
 ---
 

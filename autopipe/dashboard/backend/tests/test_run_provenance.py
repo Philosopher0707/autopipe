@@ -1,11 +1,41 @@
 """M5/M6: run provenance (config_hash, env/code/seed snapshot) and run_number race."""
 
+import json
 import platform
 
 from app.api.v1.endpoints import run_numbers
 from app.core.provenance import build_provenance, seeds_from_config
 from app.db.models import Run, RunStatus, hash_config
 from httpx import AsyncClient
+
+SENTINEL = "sk-sentinel-env-only-I12"
+
+
+def test_provenance_never_captures_environment_secrets(monkeypatch):
+    """I12-C: provenance is a fixed field list — an ambient key stays out."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", SENTINEL)
+    prov = build_provenance("test", {"steps": [], "seed": 7})
+    assert SENTINEL not in json.dumps(prov)
+    assert prov["environment"]["packages"], "sanity: fingerprint still populated"
+
+
+async def test_secret_env_never_lands_in_run_database(
+    auth_client: AsyncClient, seed_pipeline, wait_terminal, tmp_path, monkeypatch
+):
+    """I12-C end-to-end: env key + full admit→run→finalize flow, DB file grep.
+
+    One grep over the SQLite file (incl. WAL) covers Run.config, provenance,
+    events, metrics, and logs together — the union of durable run state.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", SENTINEL)
+
+    resp = await auth_client.post(f"/api/v1/pipelines/{seed_pipeline.id}/runs")
+    assert resp.status_code == 201, resp.text
+    assert await wait_terminal(resp.json()["id"])
+    assert SENTINEL not in resp.text
+
+    blobs = b"".join(p.read_bytes() for p in sorted(tmp_path.glob("test.db*")))
+    assert SENTINEL.encode() not in blobs, "credential material must never reach the DB file"
 
 
 def test_hash_config_is_deterministic_and_order_independent():

@@ -4,6 +4,67 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+# Credential-reference boundary (I12-A): step params are persisted verbatim in
+# Run.config, so keys that name secret material are rejected at validation
+# time — same choke point for CLI, YAML, library, and dashboard admission.
+# Matching happens on a normalized key (lowercase, `_`/`-` stripped) so
+# `AUTH-Token`, `auth_token` and `auth-token` are the same param.
+_SECRET_PARAM_EXACT = frozenset(
+    {
+        "apikey",
+        "secret",
+        "password",
+        "passwd",
+        "token",
+        "credential",
+        "credentials",
+        "authorization",
+        "bearer",
+        "accesskey",
+        "privatekey",
+        "secretkey",
+        "clientsecret",
+    }
+)
+_SECRET_PARAM_SUFFIX = ("apikey", "secret", "password", "token", "privatekey")
+_SECRET_PARAM_MAX_DEPTH = 10
+
+
+class SecretMaterialError(Exception):
+    """Config params carry key material (I12-A).
+
+    Deliberately not a ``ValueError``: pydantic converts a ``ValueError``
+    raised inside a model validator into a ``ValidationError`` whose ``str()``
+    echoes ``input_value`` — printing the very secret being rejected back
+    into API error responses and tracebacks. Non-ValueError exceptions
+    propagate unwrapped with a message we control (CREDENTIAL_REFERENCE_MODEL
+    §10.11).
+    """
+
+
+def _walk_secret_params(node: Any, path: tuple = (), depth: int = 0):
+    """Yield paths of deny-listed params holding truthy values.
+
+    Depth is capped fail-closed: nesting deeper than the limit is rejected
+    outright rather than skipped (CREDENTIAL_REFERENCE_MODEL §10.6).
+    """
+    if depth > _SECRET_PARAM_MAX_DEPTH:
+        raise SecretMaterialError(
+            f"params nesting deeper than {_SECRET_PARAM_MAX_DEPTH} levels is not allowed"
+        )
+    if isinstance(node, dict):
+        for key, value in node.items():
+            normalized = str(key).lower().replace("_", "").replace("-", "")
+            if normalized in _SECRET_PARAM_EXACT or normalized.endswith(_SECRET_PARAM_SUFFIX):
+                if value:
+                    yield (*path, key)
+            elif isinstance(value, (dict, list)):
+                yield from _walk_secret_params(value, (*path, key), depth + 1)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            if isinstance(value, (dict, list)):
+                yield from _walk_secret_params(value, (*path, index), depth + 1)
+
 
 class StepConfig(BaseModel):
     """Configuration for a pipeline step."""
@@ -66,12 +127,30 @@ class PipelineConfig(BaseModel):
                 raise ValueError(f"Step '{step.name}' depends on non-existent step(s): {missing}")
         return self
 
+    @model_validator(mode="after")
+    def validate_no_secret_params(self) -> "PipelineConfig":
+        """Reject secret material in step params (I12-A).
+
+        The admitted config is persisted verbatim as ``Run.config``, so it may
+        carry credential *references* (provider names, env-var names) but
+        never key material. See
+        ``docs/architecture/CREDENTIAL_REFERENCE_MODEL.md``.
+        """
+        for step in self.steps:
+            for path in _walk_secret_params(step.params):
+                dotted = ".".join(str(p) for p in path)
+                raise SecretMaterialError(
+                    f"Step '{step.name}': params.{dotted} may not carry secret "
+                    "material; set the matching environment variable instead "
+                    "(docs/architecture/CREDENTIAL_REFERENCE_MODEL.md)"
+                )
+        return self
+
 
 class LLMProviderConfig(BaseModel):
     """Configuration for an LLM provider."""
 
     name: Literal["openai", "anthropic", "openrouter", "ollama", "mock"]
-    api_key: Optional[str] = Field(default=None, description="API key for the provider")
     base_url: Optional[str] = Field(default=None, description="Custom base URL")
     timeout: int = Field(default=120, ge=1, le=600, description="Request timeout in seconds")
     max_retries: int = Field(default=3, ge=0, le=10, description="Maximum retry attempts")

@@ -32,10 +32,12 @@ class Credentials:
 class CredentialManager:
     """Manages secure credential loading and storage.
 
-    Credentials are loaded in priority order:
-    1. Environment variables (highest priority)
-    2. Credential files
-    3. Configuration files (lowest priority)
+    Environment variables are the only source, by design — one credential
+    subsystem (CREDENTIAL_REFERENCE_MODEL I12-I): the provider-specific
+    ``<PROVIDER>_API_KEY`` first, then the ``*_TOKEN`` alias names for the
+    three hosted providers. File- and config-store sources are deliberately
+    not implemented; ``clear_cache()`` drops the in-process cache on
+    rotation.
     """
 
     def __init__(self):

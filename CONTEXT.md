@@ -43,11 +43,22 @@
   `DriftReport`+`DriftAlert` in `runner._finalize` before terminal write;
   failure contained (I11). Tests: `backend/tests/test_executor.py`.
 - **WS contract unified — `f998ea0c`:** every broadcast is the envelope
-  `{type,data,timestamp}` (payload only in `data`); frontend
-  `WSEventType` matches emitted events; `parseWSMessage` guards
-  malformed frames. Contract: `docs/architecture/WS_CONTRACT.md`.
-  Tests: `backend/tests/test_websocket_contract.py` (5),
-  frontend `websocket.test.ts` parse guards (3).
+  `{type,data,timestamp}` (payload only in `data`); frontend `WSEventType`
+  matches emitted events; `parseWSMessage` guards malformed frames. Contract:
+  `docs/architecture/WS_CONTRACT.md`.
+  Tests: `backend/tests/test_websocket_contract.py` (5), frontend
+  `websocket.test.ts` parse guards (3).
+- **Dead user API-key path removed — `2fa61352`:** `users.api_key` column
+  dropped (migration `f2a9c1d4e7b8`), `Config.get_llm_config` + the four
+  `Config.*_API_KEY` attrs deleted; absence tests at both layers.
+- **I12 credential reference model — `02e1fc22` + impl:** design doc
+  `docs/architecture/CREDENTIAL_REFERENCE_MODEL.md` (I12-A…I12-I, T0–T10,
+  threat model, self-review) written before code; `PipelineConfig` now
+  rejects secret-shaped step params via `SecretMaterialError` (single
+  choke: CLI/YAML/library/admission); `LLMProviderConfig.api_key` slot
+  removed; CredentialManager docstring corrected to env-only; invariants
+  doc I20 added. Sentinel tests: env key never appears in provenance or
+  the SQLite file bytes; 400 bodies never echo the rejected value.
 - Security milestones: JWT on all data routes, loader step allowlist,
   pinned promptfoo, REPL/pi_coding quarantined, trusted hosts, body limit,
   secret-key startup policy, rate limiter keyed by peer unless
@@ -66,8 +77,8 @@
 
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
-PYTHONPATH=. pytest tests -q                                            # 305 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 166 pass expected
+PYTHONPATH=. pytest tests -q                                            # 310 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 176 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -105,6 +116,8 @@ installed package) — use `PYTHONPATH=.` as above.
 | 10 | Frontend WS contract fixes (RunDetail token/shape) | DONE `f998ea0c` (envelope unified both sides; WS_CONTRACT.md) |
 | 11 | PiCoding config-driven admission bypass (I16) | DONE `7144a6fb` (QUARANTINED_STEP_MODULES in import_class) |
 | 12 | WS handshake rate limiting (D3 closure) | DONE (`check_websocket_rate_limit`, shared peer bucket, close 1013; `test_ws_rate_limit.py`) |
+| 13 | Dead user-API-key path removal (users.api_key + get_llm_config) | DONE `2fa61352` (migration `f2a9c1d4e7b8`; 310 repo / 176 backend tests) |
+| 14 | I12 key-reference indirection — design first, then enforce | DONE (`02e1fc22` design + impl: secret-param deny at PipelineConfig, I20, sentinel tests; ceilings: I12-H log witness, T-G value-shape) |
 
 ## Decisions log
 
