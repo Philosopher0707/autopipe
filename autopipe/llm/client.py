@@ -129,8 +129,9 @@ class OllamaClient(LLMClient):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        kwargs = dict(kwargs)
+        timeout = kwargs.pop("timeout", 120)
         data = {"model": self.model, "messages": messages, "stream": False, **kwargs}
-        timeout = kwargs.get("timeout", 120)
 
         try:
             response = requests.post(
@@ -179,11 +180,15 @@ class OpenAIClient(LLMClient):
         return self.chat(messages, **kwargs)
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Chat completion."""
+        """Chat completion via an instance-scoped client.
+
+        The key is passed to the constructor — never ``openai.api_key``,
+        which is process-global state and a cross-client leak vector (I12).
+        """
         import openai
 
-        openai.api_key = self.api_key
-        response = openai.chat.completions.create(model=self.model, messages=messages, **kwargs)
+        client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+        response = client.chat.completions.create(model=self.model, messages=messages, **kwargs)
         return response.choices[0].message.content
 
 
@@ -235,8 +240,9 @@ class OpenRouterClient(LLMClient):
             "HTTP-Referer": "https://github.com/autopipe",
             "X-Title": "AutoPipe",
         }
+        kwargs = dict(kwargs)
+        timeout = kwargs.pop("timeout", 120)
         data = {"model": self.model, "messages": messages, **kwargs}
-        timeout = kwargs.get("timeout", 120)
         response = requests.post(
             f"{self.base_url}/chat/completions",
             headers=headers,

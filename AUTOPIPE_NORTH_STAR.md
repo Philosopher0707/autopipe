@@ -357,9 +357,9 @@ One semantic contract, many executors:
 | I7 | Cancellation is explicit: requested → confirmed; steps receive a token | today between-steps only, race-prone | **violated** | protocol in Step contract; conformance test |
 | I8 | Same Experiment/Run semantics on every backend | core vs dashboard already differ | **violated** | semantic conformance suite (I1) |
 | I9 | Agent capabilities are enumerated and bounded; no arbitrary-code capability | REPL/pi anti-pattern exists | **violated by opt-in tools** | capability registry; deny-by-default |
-| I10 | Durable telemetry (logs, metric series, drift reports) is written by the executor at completion, not by a separate UI path | today only seed writes drift rows | **absent** | executor emission adapters |
+| I10 | Durable telemetry (logs, metric series, drift reports) is written by the executor at completion, not by a separate UI path | MetricLog rows in mark_step CAS txn; drift reports via `RunStateStore.record_drift` in `runner._finalize` (bridged `665ff239`) | **holds** | keep single-writer as new emitters land |
 | I11 | Identical Plan + identical executor class ⇒ identical step sequence | provenance meaning | holds today trivially (single backend) | becomes load-bearing with worker/sandbox executors |
-| I12 | Secrets resolve through one path, are never logged, never persisted in Run records | CredentialManager exists; OpenAI global-key mutation is a leak vector (SOURCE-DERIVED `llm/client.py:180-186`) | partial | key-reference indirection in plans |
+| I12 | Secrets resolve through one path, are never logged, never persisted in Run records | CredentialManager + `_resolve_api_key` single path; OpenAI global-key mutation removed (`7144a6fb` session: instance-scoped `openai.OpenAI`) | partial (mutation closed; logging/persistence claims need audit) | key-reference indirection in plans |
 
 ---
 
