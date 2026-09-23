@@ -401,7 +401,6 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.VIEWER)
-    api_key: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

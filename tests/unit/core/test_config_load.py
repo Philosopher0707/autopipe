@@ -2,8 +2,6 @@
 
 import os
 
-import pytest
-
 from autopipe.config.load import Config
 
 
@@ -24,26 +22,12 @@ class TestConfigDefaults:
         assert Config.OLLAMA_BASE_URL == "http://127.0.0.1:11434/v1"
 
 
-class TestGetLlmConfig:
-    def test_ollama_config_never_raises(self, monkeypatch):
-        # Config.OLLAMA_API_KEY is captured from the environment at import time,
-        # so it can carry an ambient value from the developer's shell. The intent
-        # of this test is that Ollama never raises and has a base_url; control the
-        # input rather than depending on whatever happens to be exported.
-        monkeypatch.setattr(Config, "OLLAMA_API_KEY", "ollama")
-        config = Config.get_llm_config("ollama")
-        assert config["api_key"] == "ollama"
-        assert "base_url" in config
+def test_llm_secret_accessors_removed():
+    """get_llm_config and the Config key attrs returned plaintext secrets.
 
-    def test_unknown_provider_raises(self):
-        with pytest.raises(ValueError, match="No API key found"):
-            Config.get_llm_config("nonexistent_provider_xyz")
-
-    def test_default_provider_used_when_none(self):
-        # This uses whatever DEFAULT_LLM_PROVIDER is set to
-        # If it's ollama, it succeeds; otherwise it may raise
-        try:
-            config = Config.get_llm_config(None)
-            assert "api_key" in config
-        except ValueError:
-            pass  # Provider without API key in env, expected
+    Kept alive only by their own tests; live resolution goes through
+    CredentialManager / llm.client._resolve_api_key (env at construction).
+    """
+    assert not hasattr(Config, "get_llm_config")
+    for attr in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_API_KEY"):
+        assert attr not in vars(Config), attr

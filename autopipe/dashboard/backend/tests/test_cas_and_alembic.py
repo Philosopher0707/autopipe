@@ -5,7 +5,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from app.core.config import settings
-from app.db.models import Base, Pipeline, Run, RunStatus, Step, StepStatus
+from app.db.models import Base, Pipeline, Run, RunStatus, Step, StepStatus, User
 from app.executor.sink import RunStateStore, _cas_run_status, _cas_step_status, _conflict_error
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
@@ -163,6 +163,17 @@ def test_alembic_fresh_db_matches_create_all(tmp_path: Path, monkeypatch):
         return tables
 
     assert schema(engine_a) == schema(engine_c)
+
+
+def test_users_api_key_column_removed(tmp_path: Path, monkeypatch):
+    """Migration f2a9c1d4e7b8 drops dead users.api_key; ORM field gone too."""
+    db_path = tmp_path / "no_api_key.db"
+    _upgrade_alembic(db_path, monkeypatch)
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    cols = [c["name"] for c in inspect(engine).get_columns("users")]
+    assert "api_key" not in cols
+    assert "api_key" not in User.__table__.columns
 
 
 def test_alembic_stamped_db_is_usable_end_to_end(tmp_path: Path, monkeypatch):
