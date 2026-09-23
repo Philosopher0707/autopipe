@@ -35,6 +35,23 @@ def hash_config(config: Optional[Dict]) -> Optional[str]:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def sha256_file(path: str) -> str:
+    """SHA-256 of a file's raw bytes — the canonical content address for file artifacts.
+
+    Deterministic by construction: exact byte sequence, no text decoding, no
+    normalization, lowercase hex. Two paths with identical bytes hash the
+    same; any byte difference (newline, encoding, metadata byte) changes the
+    hash. Raises the underlying OSError (FileNotFoundError, IsADirectoryError,
+    PermissionError) if the file cannot be read — callers fail closed instead
+    of recording a hash they did not compute.
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class RunStatus(str, enum.Enum):
     """Pipeline run status enumeration."""
 
@@ -377,13 +394,23 @@ class Artifact(Base):
     file_path: Mapped[str] = mapped_column(String, nullable=False)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Content address of the file at registration time (NORTH_STAR: identity
-    # is the hash, not the path). No writer exists yet, so rows keep NULL
-    # ("not recorded", I15) — never a placeholder.
+    # is the hash, not the path) — written by the validates("file_path") hook
+    # below, the single canonical producer. Rows inserted before the hook
+    # existed keep NULL ("not recorded", I15); unreadable files fail the
+    # insert instead of recording a hash that was never computed.
     sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     meta_data: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
+
+    @validates("file_path")
+    def _sync_file_hash(self, key: str, value: str) -> str:
+        # Derived from the bytes the row points at, so the hash is content
+        # identity, not decoration; same discipline as ChartArtifact's data
+        # hook. Re-pointing file_path re-hashes; row metadata never does.
+        self.sha256 = sha256_file(value)
+        return value
 
     # Relationships
     run: Mapped[Optional["Run"]] = relationship("Run", back_populates="artifacts")

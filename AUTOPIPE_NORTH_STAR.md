@@ -79,7 +79,7 @@ Documentation status: CLAUDE.md/AGENTS.md largely match implementation after the
 
 **D. Experiment execution + evidence engine.**
 *Concept:* not just "run pipelines" but *produce durable, provenance-backed evidence about what happened and why a result is believed*.
-*Capabilities today:* metrics dicts, Step.logs (populated by a separate endpoint, not the executor — SOURCE-DERIVED), artifacts table with paths but no content-hash discipline in dashboard ORM, config_hash column (unused for provenance), SHA-256 in the *Python* registry (not dashboard).
+*Capabilities today:* metrics dicts, Step.logs (populated by a separate endpoint, not the executor — SOURCE-DERIVED), artifacts table with content-hash discipline in the dashboard ORM (`sha256_file` + `validates("file_path")`, but no registration writer yet — SOURCE-DERIVED), config_hash column (used for provenance), SHA-256 in the *Python* registry (not Run-linked).
 *Conflicts:* no bridge from core outputs to durable evidence; logs live/durable split; drift verdict re-derivation (fixed in G3 for readers, but the producer bridge still doesn't exist).
 *Would need to change:* Evidence/Provenance as first-class entities (§8, §13); run lifecycle as an enforced state machine.
 *Unnecessary:* multiple divergent verdict interpretations (largely consolidated already).

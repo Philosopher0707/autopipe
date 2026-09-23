@@ -23,9 +23,11 @@ Which random seeds?                  PARTIAL: top-level config `seed`/`seeds`
 Which artifacts?                     PARTIAL: dashboard chart_artifacts carry
                                      sha256 of canonical data JSON (content
                                      address) + run_id linkage; registry has
-                                     file sha256 but not linked to Run; the
-                                     file `artifacts` table has a sha256 column
-                                     but no writer (NULL = not recorded)
+                                     file sha256 but not linked to Run; file
+                                     `artifacts` rows now always carry a
+                                     file-byte sha256 at insert (hook, this
+                                     phase) — but no code path registers rows
+                                     yet (NULL only on pre-hook rows)
 Which execution engine version?      DONE: Run.provenance.engine_version
 ```
 
@@ -56,17 +58,54 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   compare runs deterministically; exhaustion is an explicit 409, not a 500.
 - `ChartArtifact.sha256` — written by a `validates("data")` hook with the
   same canonical `hash_config` used for configs: the chart's identity is its
-  content, not its row id. `Artifact.sha256` column exists for file
-  artifacts; no writer exists yet, so rows keep NULL.
+  content, not its row id. `Artifact.sha256` — written by the single
+  canonical producer `sha256_file` via a `validates("file_path")` hook (see
+  "Artifact integrity" below). Rows that predate a hook keep the field NULL,
+  which means "not recorded" (invariant I15). No retro-fitting.
 - Rows that predate a migration keep the new field NULL, which means
   "not recorded" (invariant I15). No retro-fitting.
+
+## Artifact integrity (`Artifact.sha256`)
+
+- **Meaning:** SHA-256 of the file's raw bytes that `file_path` pointed at
+  when the row was created, or when `file_path` was last reassigned — a
+  content address, not a row address (NORTH_STAR: identity is the hash, not
+  the path).
+- **When generated:** at attribute binding (`validates("file_path")`), i.e.
+  construction or path reassignment, before the INSERT commits. Never
+  retro-fitted, never a placeholder: a missing/unreadable file raises
+  (FileNotFoundError / IsADirectoryError / PermissionError) and no row is
+  persisted (fail-closed).
+- **What exactly is hashed:** the exact byte stream, read in 64 KiB chunks —
+  no text decoding, no newline/Unicode normalization. Lowercase hex, 64
+  chars. Equivalent content on different paths hashes the same; any byte
+  difference (encoding, newline, one flipped byte) changes the hash.
+- **Can it change?** Only by re-binding `file_path` (the hook re-hashes).
+  Row metadata (`name`, `artifact_type`, `meta_data`) never enters the hash.
+  Overwriting the file's bytes *behind* the row leaves the stored hash
+  unchanged — the hash describes registration-time content; divergence is
+  detectable only by recomputing `sha256_file(path)` and comparing (same
+  discipline as `model_registry.verify_artifact`; the dashboard has no
+  verify endpoint yet — ceiling).
+- **Provenance/integrity use:** content identity for dedup/comparison, and
+  with the (nullable) `run_id`/`step_id` FKs it can anchor "which bytes did
+  this run produce" once a registration path exists. The Python model
+  registry hashes its own files (directory-aware, `model_registry`) but is
+  not Run-linked yet (remaining gap below).
+- **Canonical producers (exactly two, both in `app/db/models.py`):**
+  `hash_config(dict)` → `ChartArtifact.sha256` / config hashes (canonical
+  JSON: sorted keys, compact separators, `default=str`); `sha256_file(path)`
+  → `Artifact.sha256` (raw file bytes). Password hashing in `core/auth.py`
+  is a different domain (salting, not content addressing).
 
 ## Remaining gaps
 
 - **Registry artifact ↔ Run linkage** — the Python model registry hashes
   files but does not record which Run produced them.
-- **File-artifact writer** — the dashboard `artifacts` table has no code
-  path that inserts rows; when one exists it must populate `sha256`.
+- **File-artifact writer** — the dashboard `artifacts` table still has no
+  code path that inserts rows; the hash producer now exists and is enforced
+  at the insert boundary (any future writer cannot skip it, and unreadable
+  files fail the insert).
 - **Data provenance** — which dataset a run consumed; needs step cooperation.
 - **Full seed provenance** — seeds declared inside step parameters (not
   top-level in config) are not visible to the Run-level snapshot.

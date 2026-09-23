@@ -222,14 +222,17 @@ request persists nothing.
   is NULL/absent (or the explicit string "unavailable" for code_revision),
   never a placeholder.
 - **Owner:** `autopipe/dashboard/backend/app/db/models.py` (`hash_config`,
-  `validates("config")`, `Run.config_hash`, `Run.provenance`);
+  `sha256_file`, `validates("config")`, `validates("file_path")`,
+  `Run.config_hash`, `Run.provenance`);
   `app/core/provenance.py` (`build_provenance`).
-- **Test:** `tests/test_run_provenance.py` (backend).
+- **Test:** `tests/test_run_provenance.py`, `tests/test_artifact_integrity.py`
+  (backend).
 - **Status:** VERIFIED for config hash + engine/origin/environment/code
-  snapshot on all Run creation paths (dashboard, experiment, seed).
+  snapshot on all Run creation paths (dashboard, experiment, seed), and for
+  file-artifact content hashing at insert (fail-closed, metadata-independent).
   Pre-migration runs keep `provenance = NULL` (explicit "not recorded",
-  never retro-fitted). Artifact linkage and step-level data/seed provenance
-  remain open — see PROVENANCE_MODEL.md.
+  never retro-fitted). Artifact↔Run registration path and step-level
+  data/seed provenance remain open — see PROVENANCE_MODEL.md.
 
 ---
 

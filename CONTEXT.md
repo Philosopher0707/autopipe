@@ -6,7 +6,7 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `12efe880`.
+- Mission baseline revision: `57db8694`. HEAD: `82ad92db`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
@@ -80,15 +80,17 @@
   (credential-gated; validate-only in invariant test — acceptable).
 - Live `drift.alert` WS push has no subscriber (contract documented;
   polling is the read path).
-- File `artifacts` table has `sha256` column but no writer (NULL =
-  not recorded; PROVENANCE_MODEL gap).
+- File-artifact *registration* path (code that inserts `Artifact` rows)
+  still absent; the hash producer now exists and is enforced at insert
+  (`sha256_file` + `validates("file_path")`, fail-closed) — PROVENANCE
+  gap narrowed to the writer itself.
 
 ## Quality gates (run before every commit)
 
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
 PYTHONPATH=. pytest tests -q                                            # 311 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 177 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 193 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -129,6 +131,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | 13 | Dead user-API-key path removal (users.api_key + get_llm_config) | DONE `2fa61352` (migration `f2a9c1d4e7b8`; 310 repo / 176 backend tests) |
 | 14 | I12 key-reference indirection — design first, then enforce | DONE (`02e1fc22` design + impl: secret-param deny at PipelineConfig, I20, sentinel tests; ceilings: T-G value-shape) |
 | 15 | I12-H runtime secret → log boundary witness | DONE (real-path witness `tests/unit/test_secret_log_boundary.py` + failure-path DB grep; caplog/capsys/events/traceback/repr channels clean; ceilings: third-party SDK loggers, operator-step self-emission) |
+| 16 | Artifact SHA256 canonical producer | DONE (`sha256_file` + `validates("file_path")` hook, fail-closed, metadata-independent; 16 tests `test_artifact_integrity.py`; registration writer still absent) |
 
 ## Decisions log
 
