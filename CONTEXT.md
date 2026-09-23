@@ -6,7 +6,7 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `82ad92db`.
+- Mission baseline revision: `57db8694`. HEAD: `29dd8535`.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
@@ -73,6 +73,18 @@
   pinned promptfoo, REPL/pi_coding quarantined, trusted hosts, body limit,
   secret-key startup policy, rate limiter keyed by peer unless
   TRUST_PROXY_HEADERS.
+- **Artifact SHA256 producer (integrity) — `29dd8535`:** `sha256_file`
+  (raw bytes, 64 KiB chunks) + `@validates("file_path")` hook on `Artifact`,
+  fail-closed OSError, metadata-independent, path-reassign rehash; chart
+  JSON hash unchanged (`hash_config`). Tests:
+  `backend/tests/test_artifact_integrity.py` (16).
+- **PHASE NEXT reassessment (this doc):** `AUTOPIPE_CURRENT_ARCHITECTURE.md`
+  — 18 dimensions (8 STRONG / 8 ADEQUATE / 1 WEAK: reproducibility /
+  1 UNKNOWN: beyond-scale), measured baseline (100 steps → 255 ms,
+  commits = 2N+5, concurrency 1/2/4 sub-linear, 4/4 success), reproducibility
+  + experiment-lifecycle audits, ranked next queue (seed application →
+  artifact registration writer → dataset input hashing; everything
+  distributed/retry/Redis-class DEFERRED for lack of evidence).
 
 ### KNOWN GAPS (not yet started)
 
@@ -84,6 +96,10 @@
   still absent; the hash producer now exists and is enforced at insert
   (`sha256_file` + `validates("file_path")`, fail-closed) — PROVENANCE
   gap narrowed to the writer itself.
+- Reproducibility: config seed is *declared* in provenance but the engine
+  never *applies* it (no `set_seed` anywhere in core); dataset identity
+  MISSING; model identity = unpinned name string. Ranked queue #1–3 in
+  `AUTOPIPE_CURRENT_ARCHITECTURE.md` §7.
 
 ## Quality gates (run before every commit)
 
@@ -108,9 +124,11 @@ installed package) — use `PYTHONPATH=.` as above.
 - `app/core/security.py` — SimpleRateLimiter (module-global `_rate_limiter`).
 - `app/api/v1/endpoints/websocket.py` — WS auth + `_envelope` broadcasts
   (contract: `docs/architecture/WS_CONTRACT.md`).
-- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I18,
+- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I20,
   status-labelled), EXECUTION_MODEL, RUN_STATE_MACHINE, FAILURE_MODEL,
   PROVENANCE_MODEL, WS_CONTRACT. Keep these truthful when behavior changes.
+- `AUTOPIPE_CURRENT_ARCHITECTURE.md` — PHASE NEXT reassessment: measured
+  baseline, 18-dimension ratings, audits, ranked next queue.
 
 ## Priority queue (status)
 
@@ -132,6 +150,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | 14 | I12 key-reference indirection — design first, then enforce | DONE (`02e1fc22` design + impl: secret-param deny at PipelineConfig, I20, sentinel tests; ceilings: T-G value-shape) |
 | 15 | I12-H runtime secret → log boundary witness | DONE (real-path witness `tests/unit/test_secret_log_boundary.py` + failure-path DB grep; caplog/capsys/events/traceback/repr channels clean; ceilings: third-party SDK loggers, operator-step self-emission) |
 | 16 | Artifact SHA256 canonical producer | DONE (`sha256_file` + `validates("file_path")` hook, fail-closed, metadata-independent; 16 tests `test_artifact_integrity.py`; registration writer still absent) |
+| 17 | PHASE NEXT: full reassessment + perf measurement | DONE (`AUTOPIPE_CURRENT_ARCHITECTURE.md`: 18 dimensions, measured baseline 311/193/43 gates, repro+lifecycle audits, ranked queue; no next feature implemented) |
 
 ## Decisions log
 
@@ -164,6 +183,11 @@ installed package) — use `PYTHONPATH=.` as above.
   (depth 3), not a flat scan — covers `DriftDashboardStep`'s nested
   `feature_drift` output; single caller in `_finalize` makes duplicate
   writes impossible by construction (no dedup key).
+- D10: PHASE NEXT recommends *no* distributed execution, step retries,
+  Redis/Celery/Kafka/K8s, durable event log, or drift.alert subscriber —
+  audited, zero supporting evidence at measured scale (architecture doc §7
+  ranks 7–11 DEFERRED). Next phase = reproducibility closure (seed apply,
+  artifact registration writer, dataset hashing).
 
 ## Resume procedure
 
