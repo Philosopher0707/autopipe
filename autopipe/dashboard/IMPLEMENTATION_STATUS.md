@@ -189,7 +189,7 @@ autopipe/dashboard/
 
 ## Notes
 - The backend uses SQLite with aiosqlite for async support
-- Password hashing is simplified SHA256 (use bcrypt for production)
+- Password hashing is bcrypt; legacy SHA256 rows verify and upgrade transparently on login
 - WebSocket support is implemented for real-time updates
 - All API endpoints have OpenAPI documentation
 - Frontend uses mock data as fallback for some detail pages

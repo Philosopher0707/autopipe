@@ -101,7 +101,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | 6 | Artifact content-addressing in dashboard ORM | DONE (ChartArtifact.sha256 hook + artifacts.sha256 col; migration `8b5d2e1a7c34`; 156 backend tests) |
 | 7 | Drift producer bridge (core DriftReport → durable row) | DONE `665ff239` (record_drift in _finalize; nested batch + failure-injection tests; 166 backend tests) |
 | 8 | LLM: drop SDK global-key mutation (I12) | DONE (`openai.OpenAI(api_key=…)` instance-scoped; timeout popped from JSON body on Ollama/OpenRouter; tests `tests/unit/test_llm_client.py`) |
-| 9 | Legacy SHA256 password migration/removal path | pending |
+| 9 | Legacy SHA256 password migration/removal path | DONE (upgrade-on-login both form+JSON tested; `count_legacy_password_hashes` = removal gate: delete `_legacy_hash_password` + non-`$` branch when it returns 0) |
 | 10 | Frontend WS contract fixes (RunDetail token/shape) | DONE `f998ea0c` (envelope unified both sides; WS_CONTRACT.md) |
 | 11 | PiCoding config-driven admission bypass (I16) | DONE `7144a6fb` (QUARANTINED_STEP_MODULES in import_class) |
 

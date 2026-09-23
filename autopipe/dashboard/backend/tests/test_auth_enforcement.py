@@ -129,6 +129,73 @@ async def test_login_upgrades_legacy_hash(client: AsyncClient, db_session):
     )
 
 
+async def test_login_json_upgrades_legacy_hash(client: AsyncClient, db_session):
+    """The JSON login path must upgrade legacy hashes too (parity with form login)."""
+    from app.core.auth import _legacy_hash_password
+    from app.db.models import User, UserRole
+
+    user = User(
+        username="legacyjson",
+        email="legacyjson@example.com",
+        hashed_password=_legacy_hash_password("oldstyle-pass"),
+        role=UserRole.DATA_SCIENTIST,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/v1/auth/login/json",
+        json={"username": "legacyjson", "password": "oldstyle-pass"},
+    )
+    assert resp.status_code == 200
+
+    await db_session.refresh(user)
+    assert user.hashed_password.startswith("$2"), (
+        "JSON login path did not upgrade the legacy SHA256 hash"
+    )
+
+
+async def test_count_legacy_password_hashes_is_the_removal_gate(client: AsyncClient, db_session):
+    """Audit helper: counts non-bcrypt rows; drops as they upgrade on login.
+
+    This count is the observable precondition for deleting the SHA256
+    fallback from ``verify_password`` (queue item: legacy password removal
+    path). At zero everywhere, ``_legacy_hash_password`` + the non-``$``
+    branch can go.
+    """
+    from app.core.auth import _legacy_hash_password, count_legacy_password_hashes
+    from app.db.models import User, UserRole
+
+    legacy = User(
+        username="gateuser",
+        email="gate@example.com",
+        hashed_password=_legacy_hash_password("gate-pass-1"),
+        role=UserRole.VIEWER,
+        is_active=True,
+    )
+    bcrypt_user = User(
+        username="gateuser2",
+        email="gate2@example.com",
+        hashed_password="$2b$12$hashhashhashhashhashhashhashhashhashhashhashhashhashha",
+        role=UserRole.VIEWER,
+        is_active=True,
+    )
+    db_session.add_all([legacy, bcrypt_user])
+    await db_session.commit()
+
+    assert await count_legacy_password_hashes(db_session) == 1
+
+    resp = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "gateuser", "password": "gate-pass-1"},
+    )
+    assert resp.status_code == 200
+    await db_session.refresh(legacy)
+    # bcrypt prefix check: fake non-bcrypt row above must not count
+    assert await count_legacy_password_hashes(db_session) == 0
+
+
 async def test_websocket_auth_rejects_missing_token(db_session):
     """WS handshake guard: no token -> reject; malformed token -> reject."""
     from app.api.v1.endpoints.websocket import authenticate_websocket

@@ -43,7 +43,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         except Exception:
             return False
     else:
-        # Legacy SHA256 hash - still support for test fixtures
+        # Legacy SHA256 row (pre-bcrypt). Kept only until
+        # count_legacy_password_hashes() reports 0 everywhere.
         return _legacy_hash_password(plain_password) == hashed_password
 
 
@@ -51,6 +52,22 @@ def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt."""
     # bcrypt has a 72-byte limit; truncate if necessary
     return pwd_context.hash(password[:72])
+
+
+async def count_legacy_password_hashes(db: AsyncSession) -> int:
+    """How many users still hold a non-bcrypt hash — the removal gate.
+
+    Upgrade-on-login rehashes rows lazily, and SHA256→bcrypt is impossible
+    in bulk (the plaintext only exists at login). When this returns 0 for a
+    deployment, the legacy fallback can be deleted: ``_legacy_hash_password``
+    and the non-``$`` branch of ``verify_password``.
+    """
+    from sqlalchemy import func
+
+    result = await db.execute(
+        select(func.count()).select_from(User).where(~User.hashed_password.startswith("$"))
+    )
+    return int(result.scalar_one())
 
 
 # OAuth2 scheme
