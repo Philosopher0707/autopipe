@@ -236,10 +236,23 @@ request persists nothing.
 ## Security
 
 ### I16 — Untrusted configuration cannot escape the allowed execution surface.
-- **Definition:** Step types resolve under `TRUSTED_STEP_ROOTS`.
-- **Owner:** `autopipe/core/loader.py`.
-- **Test:** `tests/unit/core/test_loader.py`.
-- **Status:** VERIFIED (unchanged by this milestone).
+- **Definition:** Step types resolve under `TRUSTED_STEP_ROOTS`, and
+  quarantined host-capability modules (`QUARANTINED_STEP_MODULES`:
+  `autopipe.steps.pi_coding*`) are rejected on every config-driven path —
+  instantiation of those steps is explicit Python import only (operator
+  opt-in), never YAML/API/CLI-config reachable.
+- **Owner:** `autopipe/core/loader.py` (`TRUSTED_STEP_ROOTS` +
+  `QUARANTINED_STEP_MODULES`, both enforced in `import_class`).
+- **Test:** `tests/unit/core/test_loader.py` (allowlist + `TestQuarantinedStepBoundary`:
+  fully-qualified name, direct step load, nested pipeline config, alias-map
+  scan, explicit-import still allowed, general allowlist unchanged);
+  `tests/unit/test_imports.py::test_loader_allowlist_blocks_arbitrary_imports`.
+- **Bypasses closed:** the FQ path `type: autopipe.steps.pi_coding.PiCodingStep`
+  previously passed the trusted-root check (the roots cover the module); the
+  quarantine lived only in the alias-coverage test. CLI validate/run, YAML
+  loading, dashboard admission, and the executor all funnel through
+  `import_class`, so the single gate covers them.
+- **Status:** VERIFIED.
 
 ### I17 — Authentication and authorization are explicit.
 - **Status:** VERIFIED. Router-level JWT + role gates on destructive routes.

@@ -85,6 +85,16 @@ TRUSTED_STEP_ROOTS = (
     "autopipe.evaluation",
 )
 
+# Quarantined host-capability steps (I16): documented as explicit-Python-import
+# only (CHANGELOG 0.2.0, NORTH_STAR — agents are planners/clients, not hosts).
+# The trusted roots above intentionally cover these modules for operator code,
+# so config-driven instantiation is denied here — one gate every config path
+# (CLI run/validate, YAML load, dashboard admission) passes through.
+QUARANTINED_STEP_MODULES = (
+    "autopipe.steps.pi_coding",
+    "autopipe.steps.pi_coding_models",
+)
+
 
 def import_class(class_path: str) -> type:
     """Import a Step class from a dotted path within trusted package roots."""
@@ -96,6 +106,11 @@ def import_class(class_path: str) -> type:
             "the autopipe.* package namespace."
         )
     module_name, class_name = resolved.rsplit(".", 1)
+    if any(module_name == q or module_name.startswith(f"{q}.") for q in QUARANTINED_STEP_MODULES):
+        raise ValueError(
+            f"Step type '{class_path}' is quarantined: config-driven loading is "
+            "forbidden; import it explicitly from Python if you are an operator."
+        )
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as e:

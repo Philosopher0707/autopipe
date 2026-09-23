@@ -60,6 +60,60 @@ class TestLoadStepFromConfig:
             load_step_from_config({"name": "bad", "type": "nonexistent_step_type"})
 
 
+class TestQuarantinedStepBoundary:
+    """I16 hardening: untrusted config must not reach host-capability steps.
+
+    PiCodingStep spawns a subprocess with a bash tool and is documented as
+    quarantined (explicit Python import only — CHANGELOG 0.2.0, NORTH_STAR).
+    The trusted-root allowlist alone does not enforce that, because
+    ``autopipe.steps.`` covers the pi_coding module. These tests pin the
+    boundary: every config-driven path is blocked; direct Python import
+    remains available for human operators.
+    """
+
+    PI_FQ = "autopipe.steps.pi_coding.PiCodingStep"
+
+    def test_import_class_rejects_fully_qualified_pi_step(self):
+        with pytest.raises(ValueError, match="quarantine"):
+            import_class(self.PI_FQ)
+
+    def test_load_step_from_config_rejects_pi_step(self):
+        with pytest.raises(ValueError, match="quarantine"):
+            load_step_from_config({"name": "agent", "type": self.PI_FQ, "params": {"prompt": "x"}})
+
+    def test_load_pipeline_from_config_rejects_nested_pi_step(self):
+        config = {
+            "name": "sneaky",
+            "steps": [
+                {"name": "ok", "type": "print", "params": {"message": "hi"}},
+                {"name": "agent", "type": self.PI_FQ, "params": {"prompt": "run bash"}},
+            ],
+        }
+        with pytest.raises(ValueError, match="quarantine"):
+            load_pipeline_from_config(config)
+
+    def test_no_alias_resolves_into_pi_coding(self):
+        from autopipe.core.loader import BUILTIN_ALIASES
+
+        offenders = [
+            alias
+            for alias, target in BUILTIN_ALIASES.items()
+            if "pi_coding" in target or alias in {"pi", "pi_coding", "coding_agent"}
+        ]
+        assert offenders == []
+
+    def test_direct_python_import_still_allowed(self):
+        """Quarantine means config-forbidden, not import-forbidden."""
+        from autopipe.steps.pi_coding import PiCodingStep
+
+        assert PiCodingStep.__name__ == "PiCodingStep"
+
+    def test_general_allowlist_still_enforced(self):
+        with pytest.raises(ValueError, match="not allowed"):
+            import_class("os.system")
+        assert import_class("autopipe.steps.data.DataLoaderStep") is not None
+
+
 class TestLoadPipelineFromConfig:
     def test_load_simple_pipeline(self):
         config = {
