@@ -11,6 +11,8 @@ Companion documents:
 - `RUN_STATE_MACHINE.md` — lifecycle vocabulary and legal transitions
 - `ARCHITECTURAL_INVARIANTS.md` — the rules and their enforcement
 - `FAILURE_MODEL.md` — how failures propagate and recover
+- `PROVENANCE_MODEL.md` — what each run records about itself
+- `WS_CONTRACT.md` — WebSocket envelope, channels, event table
 
 ---
 
@@ -93,11 +95,11 @@ exceptions re-raised to preserve the historical API contract.
 - No distributed workers, external queues, or multi-process coordination. The
   Tier 8 work is explicitly deferred until the single-process semantics are
   correct and proven.
-- Provenance (Tier 4) is partial: `Pipeline.config_hash` and `Run.config_hash`
-  record the config version each run executed (canonical sha256, tested in
-  `tests/test_run_provenance.py`); `ExecutionResult.engine_version`,
-  environment, data and seed provenance are still not persisted. Nothing is
-  fabricated.
+- Provenance (Tier 4) is implemented for config hash + `Run.provenance`
+  (engine_version, origin, environment, code_revision, top-level seeds;
+  `PROVENANCE_MODEL.md`, tests in `backend/tests/test_run_provenance.py`).
+  Data provenance and step-level seed visibility are still not captured —
+  listed as gaps, not fabricated.
 - Request-body size is enforced by `RequestSizeLimitMiddleware`
   (`app/core/body_limit.py`, invariant I18); the old `max_request_body`
   FastAPI no-op is gone.

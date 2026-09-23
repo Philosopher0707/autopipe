@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This directory contains the `autopipe` Python package: core orchestration in `core/`, reusable steps in `steps/`, and support code in `caching/`, `config/`, `credentials/`, `monitoring/`, `observability/`, `registry/`, `schemas/`, `tracking/`, `tuning/`, and `visualization/`. Repo-level tests live in `../tests/unit/` and `../tests/integration/`;. Example configs and scripts live in `../examples/`. The dashboard lives in `dashboard/backend/` (FastAPI) and `dashboard/frontend/` (React + Vite). Do not hand-edit `dashboard/backend/static/`; rebuild the frontend instead.
+This directory contains the `autopipe` Python package: core orchestration in `core/`, reusable steps in `steps/`, and support code in `config/`, `credentials/`, `data/`, `exceptions/`, `experiments/`, `figures/`, `llm/`, `monitoring/`, `registry/`, `schemas/`, `tuning/`, `utils/`, and `visualization/`. Repo-level tests live in `../tests/unit/` and `../tests/integration/`. Example configs and scripts live in `../examples/`. The dashboard lives in `dashboard/backend/` (FastAPI) and `dashboard/frontend/` (React + Vite). Do not hand-edit `dashboard/backend/static/`; rebuild the frontend instead.
 
 ## Build, Test, and Development Commands
 From the repository root:
