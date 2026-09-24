@@ -20,7 +20,10 @@ class _FakeChatResponse:
 
 
 def test_openai_chat_never_touches_module_global(monkeypatch):
-    import openai
+    import pytest
+
+    # openai is an opt-in extra (autopipe[openai]); skip on a clean install.
+    openai = pytest.importorskip("openai")
 
     from autopipe.llm.client import OpenAIClient
 

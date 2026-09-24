@@ -86,7 +86,11 @@ class TestDataLoaderRecordsFile:
 
     def test_sql_load_never_records_connection(self, monkeypatch):
         import pandas as pd
-        import sqlalchemy
+        import pytest
+
+        # sqlalchemy backs an optional path (DataLoaderStep format="sql") and is
+        # not in [project.dependencies]; skip rather than fail on a clean install.
+        sqlalchemy = pytest.importorskip("sqlalchemy")
 
         from autopipe.steps.data import DataLoaderStep
 
