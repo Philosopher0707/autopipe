@@ -5,36 +5,91 @@ marker — never a placeholder (I15). Historical rows keep provenance = NULL
 ("not recorded").
 """
 
+import hashlib
+import json
 import platform
+import re
 import subprocess
+from importlib.metadata import distributions
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from autopipe.core.execution import ENGINE_VERSION
-
-# Fixed list: the packages that determine run behaviour. Uninstalled entries
-# record "unavailable", never a guessed version. scikit-learn is included
-# because builtin sample-dataset content (iris/diabetes) is version-defined.
-_PACKAGES = ("autopipe", "fastapi", "sqlalchemy", "pydantic", "scikit-learn")
 
 # Backend dir — always inside the git work tree, regardless of process cwd.
 _REPO_ANCHOR = Path(__file__).resolve().parents[2]
 
 
-def _environment_fingerprint() -> Dict[str, Any]:
-    from importlib.metadata import PackageNotFoundError, version
+def _canonical_name(name: str) -> str:
+    """PEP 503 canonical package name: lowercase, runs of ``-_.`` → ``-``."""
+    return re.sub(r"[-_.]+", "-", name).lower()
 
-    packages: Dict[str, str] = {}
-    for name in _PACKAGES:
-        try:
-            packages[name] = version(name)
-        except PackageNotFoundError:
-            packages[name] = "unavailable"
-    return {
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "packages": packages,
-    }
+
+def _canonical_package_records(raw: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """Normalize, dedupe, and stably order ``(name, version)`` pairs.
+
+    Names are PEP 503-canonicalized; missing/blank values become the explicit
+    ``"unavailable"`` marker (never a guessed version, never silently dropped).
+    Pairs are sorted by ``(name, version)`` so the order is deterministic
+    regardless of ``distributions()`` enumeration order. Exact duplicate
+    ``(name, version)`` pairs collapse to one; the same name with two different
+    versions keeps both pairs (the hash covers the full sorted list; the dict
+    form built from this list later-wins, so the lexicographically greater
+    version wins after the sort).
+    """
+    normalized = [
+        (_canonical_name(str(name)) or "unavailable", str(version) or "unavailable")
+        for name, version in raw
+    ]
+    return sorted(set(normalized))
+
+
+def _environment_hash(packages: List[Tuple[str, str]], python_version: str) -> str:
+    """sha256 hex of canonical JSON over python version + sorted package pairs.
+
+    Deterministic: same inputs → same hash; a version bump or python change →
+    different hash; input list ordering is irrelevant (canonicalization is
+    applied inside). Platform is deliberately excluded — its string varies
+    cosmetically while python+packages are the material execution identity.
+    """
+    ordered = sorted(set(packages))
+    payload = {"python": python_version, "packages": [list(p) for p in ordered]}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _environment_fingerprint() -> Dict[str, Any]:
+    """Full installed-distribution snapshot for a Run's provenance.
+
+    Reads ``importlib.metadata.distributions()`` once — names + versions only
+    (no env vars, no editable-install paths). Any failure falls back to an
+    explicit ``"unavailable"`` hash rather than raising (I15).
+    """
+    try:
+        python = platform.python_version()
+        raw: List[Tuple[str, str]] = []
+        for dist in distributions():
+            try:
+                meta = dist.metadata
+                name = str(meta["Name"] or "unavailable")
+                version = str(meta["Version"] or "unavailable")
+            except Exception:
+                name, version = "unavailable", "unavailable"
+            raw.append((name, version))
+        records = _canonical_package_records(raw)
+        return {
+            "python": python,
+            "platform": platform.platform(),
+            "packages": dict(records),
+            "environment_hash": _environment_hash(records, python),
+        }
+    except Exception:
+        return {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "packages": {},
+            "environment_hash": "unavailable",
+        }
 
 
 def _code_revision() -> str:
