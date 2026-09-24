@@ -9,10 +9,15 @@ Attacks the Phase B/C claims where nominal tests don't reach:
    documented PROVENANCE_MODEL ceiling).
 3. Dataset recorder must not leak entries across runs on the same thread when
    the runner's start-of-run hygiene drain is what clears them.
+4. PHASE D: same config + seed + dataset, different code identity —
+   provenance must distinguish the runs by code_revision while config_hash,
+   seeds, and dataset identities stay equal (config and code are separate
+   dimensions).
 """
 
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.db.models import Artifact, Base, Pipeline, Run, RunStatus
@@ -149,3 +154,104 @@ async def test_dataset_and_artifact_survive_a_failed_run(
     datasets = prov.get("datasets")
     if datasets is not None:
         assert datasets[0]["sha256"] == hashlib.sha256(csv_path.read_bytes()).hexdigest()
+
+
+class TestChangedCodeProvenance:
+    """PHASE D: same config + seed + dataset, different code identity.
+
+    Code identity is recorded at run creation (``build_provenance`` at
+    admission). The seam patched here is ``provenance.subprocess`` — the
+    module's own reference — so the real ``_code_revision`` →
+    ``build_provenance`` → ``Run.provenance`` persistence path runs with
+    two controlled git HEADs and no worktree is ever touched.
+    """
+
+    HEAD_A = "a" * 40
+    HEAD_B = "b" * 40
+
+    async def test_provenance_distinguishes_code_identity(
+        self,
+        auth_client: AsyncClient,
+        seed_pipeline,
+        db_session,
+        wait_terminal,
+        tmp_path,
+        monkeypatch,
+    ):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        monkeypatch.chdir(tmp_path)
+        csv_path = tmp_path / "input.csv"
+        csv_path.write_bytes(b"feature,target\n1,0\n2,1\n3,0\n")
+        pipeline_id = seed_pipeline.id
+
+        heads = [self.HEAD_A]
+
+        def fake_git(cmd, *args, **kwargs):
+            if list(cmd[:3]) == ["git", "rev-parse", "HEAD"]:
+                return SimpleNamespace(stdout=heads[0] + "\n")
+            if list(cmd[:2]) == ["git", "status"]:
+                return SimpleNamespace(stdout="")  # clean work tree
+            raise AssertionError(f"unexpected command leaked to git seam: {cmd}")
+
+        monkeypatch.setattr("app.core.provenance.subprocess", SimpleNamespace(run=fake_git))
+
+        async def run_once():
+            resp = await auth_client.post(
+                f"/api/v1/pipelines/{pipeline_id}/runs",
+                json={
+                    "config_override": {
+                        "name": "changed-code",
+                        "seed": 42,
+                        "steps": [
+                            {
+                                "name": "load",
+                                "type": "data_loader",
+                                "params": {"source": str(csv_path), "format": "csv"},
+                            }
+                        ],
+                    }
+                },
+            )
+            assert resp.status_code == 201, resp.text
+            run_id = resp.json()["id"]
+            assert await wait_terminal(run_id) is RunStatus.SUCCESS
+            db_session.expire_all()
+            run = await db_session.get(Run, run_id)
+            assert run is not None
+            return {"config_hash": run.config_hash, "provenance": dict(run.provenance or {})}
+
+        run_a = await run_once()
+        heads[0] = self.HEAD_B  # "changed code" for the second run
+        run_b = await run_once()
+
+        # 1. Configuration identity: equal and non-vacuous.
+        assert run_a["config_hash"] is not None
+        assert run_b["config_hash"] is not None
+        assert run_a["config_hash"] == run_b["config_hash"]
+
+        # 2. Seed: declared and applied identically on both runs.
+        for snap in (run_a, run_b):
+            assert snap["provenance"].get("seeds") == {"seed": 42}
+            assert snap["provenance"].get("seed_applied") == 42
+
+        # 3. Dataset identity: DataLoader path records the same content hash.
+        ds_a, ds_b = run_a["provenance"].get("datasets"), run_b["provenance"].get("datasets")
+        assert ds_a and ds_a == ds_b
+        file_entries = [e for e in ds_a if e["kind"] == "file"]
+        assert len(file_entries) == 1
+        assert file_entries[0]["sha256"] == hashlib.sha256(csv_path.read_bytes()).hexdigest()
+
+        # 4. PRIMARY: code_revision differs — provenance distinguishes code
+        # identity. Non-vacuous: both recorded values are the exact controlled
+        # heads, not None/"unavailable", and unequal.
+        rev_a = run_a["provenance"].get("code_revision")
+        rev_b = run_b["provenance"].get("code_revision")
+        assert rev_a == self.HEAD_A
+        assert rev_b == self.HEAD_B
+        assert rev_a != rev_b
+
+        # 5. Config-hash adversarial assertion: equal config_hash WHILE code
+        # identity differs — the two provenance dimensions are separate.
+        assert run_a["config_hash"] == run_b["config_hash"] and rev_a != rev_b
