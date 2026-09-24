@@ -9,7 +9,7 @@ import hashlib
 import json
 import platform
 import re
-import subprocess
+import subprocess  # nosec B404 — fixed argv only; see _code_revision (shell=False, no user input)
 from importlib.metadata import distributions
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -96,7 +96,7 @@ def _environment_fingerprint() -> Dict[str, Any]:
 def _code_revision() -> str:
     """Git HEAD at run creation, suffixed -dirty if the work tree is dirty."""
     try:
-        head = subprocess.run(
+        head = subprocess.run(  # nosec B603, B607 — fixed argv, shell=False, no untrusted input
             ["git", "rev-parse", "HEAD"],
             cwd=_REPO_ANCHOR,
             capture_output=True,
@@ -104,7 +104,7 @@ def _code_revision() -> str:
             timeout=5,
             check=True,
         ).stdout.strip()
-        dirty = subprocess.run(
+        dirty = subprocess.run(  # nosec B603, B607 — fixed argv, shell=False, no untrusted input
             ["git", "status", "--porcelain"],
             cwd=_REPO_ANCHOR,
             capture_output=True,
