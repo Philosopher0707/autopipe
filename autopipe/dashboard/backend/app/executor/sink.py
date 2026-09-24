@@ -21,7 +21,7 @@ import contextvars
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from app.db.models import (
     AlertSeverity,
@@ -606,6 +606,54 @@ class RunStateStore:
                 return
             prov = dict(run.provenance or {})
             prov["datasets"] = clean
+            run.provenance = prov  # reassignment (not in-place mutation) marks dirty
+            db.commit()
+
+    def record_model_identity(self, run_id: str, entries: Sequence[Mapping[str, Any]]) -> None:
+        """Merge response-supplied model identities into ``provenance["models"]``.
+
+        Each drained entry (provider, requested_model, resolved_model) updates
+        the first admission-written list item with the same provider+requested
+        pair (None == None): a truthy ``resolved_model`` sets RESOLVED, a
+        response with no usable identifier sets UNAVAILABLE — an entry never
+        stays REQUESTED_ONLY once a response arrived. With no matching item
+        the entry is appended. Sibling provenance keys survive the merge.
+        Called once from ``runner._finalize`` before the terminal write,
+        contained like ``record_drift``; a missing run logs and writes nothing.
+        """
+        clean = [dict(e) for e in entries if isinstance(e, Mapping)]
+        if not clean:
+            return
+        with self._session_factory() as db:
+            run = db.get(Run, run_id)
+            if run is None:
+                logger.error("Run %s not found; cannot record model identity", run_id)
+                return
+            prov = dict(run.provenance or {})
+            models: List[Dict[str, Any]] = [
+                dict(m) for m in (prov.get("models") or []) if isinstance(m, Mapping)
+            ]
+            for entry in clean:
+                provider = entry.get("provider")
+                requested = entry.get("requested_model")
+                resolved = entry.get("resolved_model")
+                match = next(
+                    (
+                        m
+                        for m in models
+                        if m.get("provider") == provider and m.get("requested_model") == requested
+                    ),
+                    None,
+                )
+                if match is None:
+                    match = {"provider": provider, "requested_model": requested}
+                    models.append(match)
+                if resolved:
+                    match["resolved_model"] = resolved
+                match["resolution_status"] = (
+                    "RESOLVED" if match.get("resolved_model") else "UNAVAILABLE"
+                )
+            prov["models"] = models
             run.provenance = prov  # reassignment (not in-place mutation) marks dirty
             db.commit()
 

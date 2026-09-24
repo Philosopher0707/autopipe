@@ -44,7 +44,11 @@ from app.executor.sink import (
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from autopipe.core.artifacts import drain_dataset_inputs, drain_produced_files
+from autopipe.core.artifacts import (
+    drain_dataset_inputs,
+    drain_model_identities,
+    drain_produced_files,
+)
 from autopipe.core.execution import (
     ENGINE_VERSION,
     CancellationToken,
@@ -248,6 +252,7 @@ def _finalize(
     store: RunStateStore,
     produced: Optional[Sequence[str]] = None,
     datasets: Optional[Sequence[dict]] = None,
+    models: Optional[Sequence[dict]] = None,
 ) -> None:
     """Write the terminal state. The single place a dashboard run's life ends.
 
@@ -255,8 +260,10 @@ def _finalize(
     ``_execute``), in which case the run is forced into FAILED. Any persistence
     failure here is logged loudly rather than left to rot the row.
     ``produced`` is the drained list of files the run wrote (Phase B artifact
-    registration) and ``datasets`` the drained dataset-input entries (Phase C
-    input identity); both are persisted only when a valid result exists.
+    registration), ``datasets`` the drained dataset-input entries (Phase C
+    input identity) and ``models`` the drained response-supplied model
+    identities (Track A resolved model identity); all are persisted only when
+    a valid result exists.
     """
     if result is None:
         _force_terminal(run_id, store)
@@ -279,6 +286,11 @@ def _finalize(
             store.record_dataset_inputs(run_id, datasets)
         except Exception:
             logger.exception("Failed to record dataset inputs for run %s", run_id)
+    if models:
+        try:
+            store.record_model_identity(run_id, models)
+        except Exception:
+            logger.exception("Failed to record model identity for run %s", run_id)
     try:
         store.record_drift(run_id, result.outputs)
     except Exception:
@@ -355,10 +367,12 @@ def _run_pipeline_in_thread(
     result: Optional[ExecutionResult] = None
     produced: Sequence[str] = ()
     datasets: Sequence[dict] = ()
+    models: Sequence[dict] = ()
 
     try:
         drain_produced_files()  # clear any leftovers from a prior in-thread test run
         drain_dataset_inputs()
+        drain_model_identities()
         SessionLocal = _get_sync_session_factory()
         store = RunStateStore(SessionLocal)
         cancel_event = register_run(run_id)
@@ -379,6 +393,7 @@ def _run_pipeline_in_thread(
     finally:
         produced = drain_produced_files()
         datasets = drain_dataset_inputs()
+        models = drain_model_identities()
         # close and finalize are independent: a failing close must not skip
         # the terminal write (it used to share one try, so a close error
         # routed through _force_terminal and could overwrite a valid result).
@@ -389,7 +404,9 @@ def _run_pipeline_in_thread(
                 logger.critical("Run %s sink close failed", run_id, exc_info=True)
         if store is not None:
             try:
-                _finalize(run_id, result, store, produced=produced, datasets=datasets)
+                _finalize(
+                    run_id, result, store, produced=produced, datasets=datasets, models=models
+                )
             except BaseException:
                 logger.critical("Run %s could not be finalized", run_id, exc_info=True)
                 _force_terminal(run_id, store)

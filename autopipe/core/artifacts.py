@@ -4,8 +4,9 @@ Producers call these from the worker thread running the pipeline:
 
 - ``record_produced_file(path)`` — a file this run wrote (artifact registration)
 - ``record_dataset_input(entry)`` — a dataset this run consumed (input identity)
+- ``record_model_identity(entry)`` — a model identity a response supplied
 
-The dashboard runner drains both lists after execution and persists them —
+The dashboard runner drains all lists after execution and persists them —
 the engine itself never touches this module (execution-only boundary) and
 core never imports the dashboard.
 """
@@ -19,6 +20,9 @@ _produced: contextvars.ContextVar[Optional[List[str]]] = contextvars.ContextVar(
 )
 _datasets: contextvars.ContextVar[Optional[List[Dict[str, Any]]]] = contextvars.ContextVar(
     "dataset_inputs", default=None
+)
+_models: contextvars.ContextVar[Optional[List[Dict[str, Any]]]] = contextvars.ContextVar(
+    "model_identities", default=None
 )
 
 
@@ -69,4 +73,24 @@ def drain_dataset_inputs() -> List[Dict[str, Any]]:
     """Return and clear the current thread's dataset-input list."""
     lst = _datasets.get()
     _datasets.set(None)
+    return [dict(e) for e in lst] if lst else []
+
+
+def record_model_identity(entry: Dict[str, Any]) -> None:
+    """Append a response-supplied model identity to the current thread's list.
+
+    Entries carry only provider name, requested model (config) and resolved
+    model (the response's ``model`` field) — never URLs, keys or payloads.
+    """
+    lst = _models.get()
+    if lst is None:
+        lst = []
+        _models.set(lst)
+    lst.append(dict(entry))
+
+
+def drain_model_identities() -> List[Dict[str, Any]]:
+    """Return and clear the current thread's model-identity list."""
+    lst = _models.get()
+    _models.set(None)
     return [dict(e) for e in lst] if lst else []

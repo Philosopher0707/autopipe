@@ -129,12 +129,55 @@ def seeds_from_config(config: Optional[Dict[str, Any]]) -> Optional[Dict[str, An
     return found or None
 
 
+def models_from_config(config: Optional[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    """Model-bearing steps declared by the config, as REQUESTED_ONLY entries.
+
+    Only LLM steps count (``type == "llm"`` or a ``*LLMStep`` class name):
+    a ``model_evaluation`` step's ``model`` param names a scikit-learn class,
+    not an LLM identity. Deduped on ``(provider, requested_model)`` preserving
+    order; ``None`` when the config declares no model-bearing steps (the key
+    then stays absent from provenance, like ``seeds=None`` never becomes an
+    empty dict). Resolved identity is merged in later from actual responses
+    (``RunStateStore.record_model_identity``).
+    """
+    if not config:
+        return None
+    found: List[Dict[str, Any]] = []
+    seen: set = set()
+    for step in config.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        stype = str(step.get("type") or "")
+        if not (stype == "llm" or stype.endswith("LLMStep")):
+            continue
+        params = step.get("params")
+        params = params if isinstance(params, dict) else {}
+        provider = params.get("provider")
+        model = params.get("model")
+        key = (provider, model)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(
+            {
+                "provider": provider,
+                "requested_model": model,
+                "resolution_status": "REQUESTED_ONLY",
+            }
+        )
+    return found or None
+
+
 def build_provenance(origin: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Snapshot engine + environment + code identity for a Run about to be created."""
-    return {
+    prov: Dict[str, Any] = {
         "engine_version": ENGINE_VERSION,
         "origin": origin,
         "environment": _environment_fingerprint(),
         "code_revision": _code_revision(),
         "seeds": seeds_from_config(config),
     }
+    models = models_from_config(config)
+    if models is not None:
+        prov["models"] = models
+    return prov

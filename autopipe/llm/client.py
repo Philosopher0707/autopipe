@@ -32,6 +32,28 @@ def _resolve_api_key(
     return default
 
 
+def _record_identity(provider: str, requested: Optional[str], resolved: Optional[str]) -> None:
+    """Best-effort capture of a response's model identity.
+
+    Called only after a response was successfully parsed. Swallows any
+    recording failure (logged at debug): provenance must never break a
+    successful ``generate``/``chat``. Local import keeps ``llm`` free of a
+    module-level dependency on ``core``.
+    """
+    try:
+        from autopipe.core.artifacts import record_model_identity
+
+        record_model_identity(
+            {
+                "provider": provider,
+                "requested_model": requested,
+                "resolved_model": resolved,
+            }
+        )
+    except Exception:
+        logger.debug("model identity recording failed", exc_info=True)
+
+
 class LLMClient(ABC):
     """Abstract LLM client."""
 
@@ -142,7 +164,9 @@ class OllamaClient(LLMClient):
             )
             response.raise_for_status()
             result = response.json()
-            return result["choices"][0]["message"]["content"]
+            content = result["choices"][0]["message"]["content"]
+            _record_identity("ollama", self.model, result.get("model"))
+            return content
         except requests.exceptions.ConnectionError as e:
             raise ValueError(
                 f"Cannot connect to Ollama at {self.base_url}. Is Ollama running? Run: ollama serve"
@@ -189,7 +213,9 @@ class OpenAIClient(LLMClient):
 
         client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
         response = client.chat.completions.create(model=self.model, messages=messages, **kwargs)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        _record_identity("openai", self.model, getattr(response, "model", None))
+        return content
 
 
 class AnthropicClient(LLMClient):
@@ -212,7 +238,9 @@ class AnthropicClient(LLMClient):
 
         client = anthropic.Anthropic(api_key=self.api_key)
         response = client.messages.create(model=self.model, messages=messages, **kwargs)
-        return response.content[0].text
+        content = response.content[0].text
+        _record_identity("anthropic", self.model, getattr(response, "model", None))
+        return content
 
 
 class OpenRouterClient(LLMClient):
@@ -250,7 +278,10 @@ class OpenRouterClient(LLMClient):
             timeout=timeout,
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        _record_identity("openrouter", self.model, result.get("model"))
+        return content
 
 
 class LLMFactory:
