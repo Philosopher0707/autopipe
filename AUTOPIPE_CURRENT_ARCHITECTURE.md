@@ -1,6 +1,8 @@
 # AUTOPIPE — CURRENT ARCHITECTURE (PHASE NEXT reassessment)
 
-> Evidence-driven reassessment of AutoPipe as of code commit `29dd8535`.
+> Evidence-driven reassessment of AutoPipe as of code commit `29dd8535`,
+> **reassessed after reproducibility closure (commits `de220244` / `5c45482c`
+> / `dca4eca0`, phases A–C)** — evidence-changed rows updated in place.
 > Labels: OBSERVED (measured/ran here) · SOURCE-DERIVED (read from code/docs)
 > · INFERRED · UNKNOWN (no evidence either way) · DEFERRED (deliberately out
 > of scope). This document is the PHASE NEXT deliverable; it does not
@@ -16,9 +18,9 @@ A single-process ML pipeline runner: FastAPI dashboard (JWT, rate-limited,
 WS + polling read paths) admits validated pipeline configs, a bounded thread
 pool (4 slots) runs them through one canonical execution engine, and a
 single-writer SQLite layer persists run state, metrics, charts, drift,
-provenance, and (now) file-artifact hashes. Reproducibility and comparison
-are first-class at the config/code/environment level; dataset identity and
-step-level seeds are the standing gaps.
+provenance, and file-artifact hashes. Reproducibility and comparison
+are first-class at the config/code/environment/seed/dataset level; model
+version pinning and step-level seed visibility are the standing gaps.
 
 ## 2. Measured performance baseline (OBSERVED)
 
@@ -72,15 +74,15 @@ per step and ≤ ~255 ms per 100-step run at the tested scale.
    first thing to batch if step counts go to thousands or step bodies turn
    sub-millisecond *and* runs multiply. `ponytail:` per-step commit, batch
    mark_step if throughput ever matters.
-3. **Reproducibility gaps (see §6)** — seed is *declared* but never
-   *applied* by the engine; dataset identity MISSING; model identity is a
-   config string, not a pinned version. This is the weakest system-level
-   axis.
-4. **File-artifact registration writer still absent** — the sha256 producer
-   (`29dd8535`) is enforced at every insert, but nothing creates rows for
-   `figures/*.png`, LIME HTML, drift JSON, eval outputs. Integrity is
-   correct-by-construction for rows that exist; coverage of produced files
-   is 0 until a writer lands.
+3. **Reproducibility residual (see §6)** — top-level seed now *applied*
+   via run-local RNG (`de220244`), dataset identity captured on the
+   DataLoader path (`dca4eca0`); model identity is still a config string,
+   not a pinned version, and step-level seed visibility is partial.
+   This is no longer the weakest system-level axis.
+4. **File-artifact registration ceiling narrowed** — the writer landed
+   (`5c45482c`): run-path producers register rows with content hashes.
+   Remaining: DL checkpoint callbacks, `model_registry` Run-linkage,
+   CLI/REPL exports (documented in PROVENANCE_MODEL).
 5. **No durable event log** — WS is fire-and-forget; polling is the
    authoritative read path (documented). Not a defect; a deliberate ceiling.
 6. **Checkpoints are honest stubs** — GET returns `[]`, promote returns 501
@@ -100,21 +102,22 @@ per step and ≤ ~255 ms per 100-step run at the tested scale.
 | 5 | Security & credentials | **STRONG** | I12-A…I12-I + I20 one env path, sentinel tests, secret-param deny, instance-scoped API keys |
 | 6 | Rate limiting | **STRONG** | I18 wired before auth on all HTTP routes, headers + 429/Retry-After, WS handshake 1013 |
 | 7 | WS contract | **STRONG** | Envelope-only `{type,data,timestamp}`, contract doc + parse-guard tests both sides |
-| 8 | Provenance | **ADEQUATE** | Config+hash, code revision, env, top-level seeds captured (I14/I15); data identity MISSING, model version unpinned |
-| 9 | Artifact integrity | **ADEQUATE** | Two canonical producers enforced at insert (chart JSON hash, file bytes hash, fail-closed); registration writer absent |
+| 8 | Provenance | **ADEQUATE** | Config+hash, code revision, env, top-level seeds applied, dataset identity (DataLoader path), run-path artifact registration (I14/I15); model version unpinned, non-DataLoader data sources record "unavailable" |
+| 9 | Artifact integrity | **ADEQUATE** | Two canonical producers enforced at insert (chart JSON hash, file bytes hash, fail-closed); run-path registration writer exists (`5c45482c`); DL checkpoints + registry Run-linkage still open |
 | 10 | Observability | **ADEQUATE** | WS events + run logs capture + MetricLog; no distributed tracing (DEFERRED — single process doesn't need OTel yet) |
 | 11 | Concurrency | **ADEQUATE ≤4** | Measured 1/2/4 runs sub-linear, 4/4 success; semaphore design; UNKNOWN above 4 |
 | 12 | Performance | **ADEQUATE at tested scale** | 255 ms / 100 steps / 205 commits measured; UNKNOWN beyond envelope |
 | 13 | Scalability | **UNKNOWN beyond envelope** | Single process, single-writer SQLite, 4 slots — all measured only inside §2 bounds |
-| 14 | Reproducibility | **WEAK** | Seed declared-not-applied; dataset identity missing; model not version-pinned (§6) |
+| 14 | Reproducibility | **ADEQUATE** | Seed applied via run-local RNG (I21); dataset identity captured (DataLoader path); artifact registration live; remaining: model not version-pinned, step-level seeds partial, transitive deps unpinned (§6) |
 | 15 | Experiment lifecycle | **ADEQUATE** | CRUD + trials (random/grid) + `best_run_id` + 3 compare endpoints; checkpoints stubbed honestly |
 | 16 | Configuration lifecycle | **ADEQUATE** | Validate-at-load, hash, immutable-by-API, no hot reload (single writer by design) |
 | 17 | Operational recovery | **ADEQUATE** | Startup sweep, graceful shutdown sweep + join, slot release on every path (I11) |
 | 18 | Documentation truth | **STRONG** | Every behavior change ships doc updates; gates run per commit; invariant statuses labeled |
 
-**Summary:** 8 STRONG, 8 ADEQUATE, 1 WEAK (reproducibility), 1 UNKNOWN
+**Summary:** 8 STRONG, 9 ADEQUATE, 0 WEAK, 1 UNKNOWN
 (beyond-scale scalability). No dimension rated from vibes — each row cites
-tests, commits, or the bench above.
+tests, commits, or the bench above. (Pre-closure: 8/8/1/1 with
+reproducibility WEAK; dimension 14 re-rated after A–C.)
 
 ## 5. Reproducibility audit (axis-by-axis)
 
@@ -123,10 +126,10 @@ tests, commits, or the bench above.
 | Pipeline config | **CAPTURED** | `Run.config` verbatim copy + `config_hash`; immutable-by-API |
 | Code identity | **CAPTURED** (creation-time) | `provenance.code_revision` = git HEAD + dirty flag, or explicit `"unavailable"`; ceiling: mid-run edits undetected (INFERRED, window = run duration) |
 | Environment | **CAPTURED (partial)** | python/platform/pinned packages; transitive set UNVERIFIED (documented I15 ceiling) |
-| Seed | **DECLARED, NOT APPLIED** | Top-level config seed recorded in provenance; engine never calls `random.seed`/`np.random.seed` — only `explainability.py` hardcodes `np.random.seed(42)`. Application is per-step-author, UNVERIFIED system-wide |
+| Seed | **APPLIED** (top-level) | Top-level config seed → `RunRng` run-local RNG bound per step (`de220244`, I21); `provenance.seed_applied` records the runtime fact. Ceilings: step-level `random_state` params, torch global RNG, LLM/GPU nondeterminism (PROVENANCE_MODEL) |
 | Model identity | **WEAK** | Provider + model *name* in config params only; providers may silently mutate models behind a name; local weights hashable via `model_registry` but that system is Run-unlinked (documented) |
-| Dataset identity | **MISSING** | No input-file hashing in any provenance path (long-standing, honestly documented) |
-| Artifact identity | **PARTIAL** | ChartArtifact JSON hash + Artifact file-bytes hash both enforced at insert; writer coverage of produced files = 0; registry hashes not Run-linked |
+| Dataset identity | **CAPTURED** (DataLoader path) | Loaders record `provenance.datasets` entries at execution (`dca4eca0`): local file abspath + read-time sha256, builtin name, sql format-only (connection never recorded); non-file sources and non-DataLoader steps = documented ceilings |
+| Artifact identity | **CAPTURED** (run path) | ChartArtifact JSON hash + Artifact file-bytes hash enforced at insert; run-path producers register rows via `5c45482c`; registry hashes not Run-linked; DL checkpoints unregistered |
 | Credential reference | **CAPTURED by design** | Provider name in config; secret *value* never recorded (I12 correct: this axis must stay value-free) |
 | Compare | **SUPPORTED** | `POST /runs/compare` (2–10 runs, param+metric diffs), `GET /runs/{a}/compare/{b}`, `GET /experiments/{id}/compare` |
 
@@ -134,13 +137,14 @@ tests, commits, or the bench above.
 
 | Question | Status | Detail |
 |----------|--------|--------|
-| What produced this artifact? | **PARTIAL** | Registered artifacts carry `run_id`/`experiment_id` FKs; produced *files* (figures, LIME, drift, eval JSON) have no rows at all |
-| Which run produced it? | **SUPPORTED** (for rows that exist) | FKs on ChartArtifact/Artifact; ceiling = registration writer absent |
+| What produced this artifact? | **SUPPORTED** (run path) | Registered artifacts carry `run_id`/`experiment_id` FKs; produced run-path files (figures, LIME, drift, trainer saves) now get rows (`5c45482c`); ceilings: DL checkpoints, model_registry, CLI/REPL exports |
+| Which run produced it? | **SUPPORTED** (for rows that exist) | FKs on ChartArtifact/Artifact; run-path writer landed (`5c45482c`); registry↔Run linkage still open |
 | Which pipeline config? | **SUPPORTED** | `Run.config` + `config_hash` + `GET /runs/{id}/config` |
 | Which code? | **SUPPORTED** | `provenance.code_revision` |
 | Which environment? | **SUPPORTED** | `provenance.environment` (partial package list — documented) |
+| Which data? | **SUPPORTED** (DataLoader path) | `provenance.datasets` — file sha256 at read time; sql/non-file = explicit "unavailable" (`dca4eca0`) |
 | Which model? | **PARTIAL** | Name string only; no provider-side version pinning |
-| Can I reproduce it? | **PARTIAL** | config+code+env re-loadable; seeds not enforced; data identity missing; LLM providers nondeterministic by nature |
+| Can I reproduce it? | **SUPPORTED** (local, non-LLM) | config+code+env re-loadable; top-level seed applied via RunRng; dataset bytes hashed at read; artifacts content-addressed. Ceilings: LLM providers nondeterministic by nature; model names unpinned; step-level seeds partial |
 | Can I compare two runs? | **SUPPORTED** | Three compare endpoints (runs pairwise, runs 2–10 with % deltas vs baseline, experiment-by-metric); `Experiment.best_run_id/best_metric` |
 
 Extras found (SOURCE-DERIVED): trials = random/grid search over a declared
@@ -158,9 +162,9 @@ anything.
 
 | Rank | Item | Leverage | Risk↓ | Evidence | Complexity | Verdict |
 |------|------|----------|-------|----------|------------|---------|
-| 1 | **Apply declared seed at run start** (engine/runner calls `random`+`numpy` seeding once from `Run.config`; record applied-at in provenance) | Closes the biggest honest hole: seed currently DECLARED-not-APPLIED | Repro failures become debuggable | §6 audit: no `set_seed` anywhere in core | ~10 lines + test | **DO NEXT** |
-| 2 | **File-artifact registration writer** (small helper used by the 4-5 producers: hash via existing `sha256_file`, insert `Artifact` row) | Makes the `29dd8535` hook actually see rows; closes PROVENANCE gap | Unregistered outputs stop being invisible | CONTEXT KNOWN GAP names exactly this; producers located | one helper + call sites + tests | **DO NEXT** |
-| 3 | **Dataset input hashing in provenance** (hash declared input file paths at admission, fail-soft like I12) | Closes the MISSING axis | Data drift becomes detectable | §6: axis MISSING, paths already in config | medium (path walk + fail-soft) | **DO NEXT** |
+| 1 | **Apply declared seed at run start** (engine/runner calls `random`+`numpy` seeding once from `Run.config`; record applied-at in provenance) | Closes the biggest honest hole: seed currently DECLARED-not-APPLIED | Repro failures become debuggable | §6 audit: no `set_seed` anywhere in core | ~10 lines + test | **DONE `de220244` (I21)** |
+| 2 | **File-artifact registration writer** (small helper used by the 4-5 producers: hash via existing `sha256_file`, insert `Artifact` row) | Makes the `29dd8535` hook actually see rows; closes PROVENANCE gap | Unregistered outputs stop being invisible | CONTEXT KNOWN GAP names exactly this; producers located | one helper + call sites + tests | **DONE `5c45482c`** |
+| 3 | **Dataset input hashing in provenance** (hash declared input file paths at admission, fail-soft like I12) | Closes the MISSING axis | Data drift becomes detectable | §6: axis MISSING, paths already in config | medium (path walk + fail-soft) | **DONE `dca4eca0`** (executed at load, not admission — see PROVENANCE_MODEL Phase C) |
 | 4 | Coverage measurement (`pytest-cov`, record % in gates) | Quantifies test claims | Baseline for future regression checks | Gates currently count tests only | low | Later |
 | 5 | Resolved model-version recording (provider response metadata → provenance) | Model identity goes WEAK→ADEQUATE | Silent provider swaps detectable | §6 WEAK rating | medium (LLM client touch — careful with I12) | Later |
 | 6 | Transitive dependency freeze in provenance | Closes documented I15 ceiling | Repro env exactness | I15 text | low-medium | Later |
@@ -185,5 +189,5 @@ reviewed and explicitly *not* proven as the correct next move.
 - Residual search: exactly two `.sha256 =` writers app-wide, both
   validates hooks (`hash_config` → chart, `sha256_file` → file); password
   salting lives in `core/auth.py` (different domain, documented).
-- Test gates (this baseline): ruff/format/mypy/diff **PASS**; repo
-  **311**; backend **193**; frontend **43**.
+- Test gates (reassessed state, after A–C): ruff/format/mypy/diff **PASS**;
+  repo **348**; backend **214**; frontend **43**.

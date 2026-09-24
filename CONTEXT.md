@@ -6,7 +6,12 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `29dd8535`.
+- Mission baseline revision: `57db8694`. HEAD: `dca4eca0` (Phase C dataset
+  input identity; uncommitted CONTEXT edits pending commit D).
+- Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
+- **Active mission: Reproducibility Closure (Phases A–H).** Fixed commits:
+  A seed / B artifacts / C dataset / D docs; then D(reassessment)–H report.
+  Phases A+B+C DONE. Next: Phase D docs + reassessment, then E–H.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 
 ### DONE (verified by tests)
@@ -92,21 +97,19 @@
   (credential-gated; validate-only in invariant test — acceptable).
 - Live `drift.alert` WS push has no subscriber (contract documented;
   polling is the read path).
-- File-artifact *registration* path (code that inserts `Artifact` rows)
-  still absent; the hash producer now exists and is enforced at insert
-  (`sha256_file` + `validates("file_path")`, fail-closed) — PROVENANCE
-  gap narrowed to the writer itself.
-- Reproducibility: config seed is *declared* in provenance but the engine
-  never *applies* it (no `set_seed` anywhere in core); dataset identity
-  MISSING; model identity = unpinned name string. Ranked queue #1–3 in
-  `AUTOPIPE_CURRENT_ARCHITECTURE.md` §7.
+- Model identity = unpinned name string (Phase C closed dataset identity;
+  model pinning deliberately out of scope for this mission).
+- Registered file artifacts carry `step_id = NULL` (Phase B ceiling);
+  registry↔Run linkage and DL checkpoints not registered (PROVENANCE_MODEL).
+- Dataset entries: sql connection/query and non-file sources record
+  sha256 "unavailable"; only DataLoaderSteps cooperate (PROVENANCE_MODEL).
 
 ## Quality gates (run before every commit)
 
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
-PYTHONPATH=. pytest tests -q                                            # 311 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 193 pass expected
+PYTHONPATH=. pytest tests -q                                            # 348 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 214 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -151,6 +154,10 @@ installed package) — use `PYTHONPATH=.` as above.
 | 15 | I12-H runtime secret → log boundary witness | DONE (real-path witness `tests/unit/test_secret_log_boundary.py` + failure-path DB grep; caplog/capsys/events/traceback/repr channels clean; ceilings: third-party SDK loggers, operator-step self-emission) |
 | 16 | Artifact SHA256 canonical producer | DONE (`sha256_file` + `validates("file_path")` hook, fail-closed, metadata-independent; 16 tests `test_artifact_integrity.py`; registration writer still absent) |
 | 17 | PHASE NEXT: full reassessment + perf measurement | DONE (`AUTOPIPE_CURRENT_ARCHITECTURE.md`: 18 dimensions, measured baseline 311/193/43 gates, repro+lifecycle audits, ranked queue; no next feature implemented) |
+| A | Reproducibility Closure: apply declared run seed | DONE `de220244` (`RunRng` run-local RNG, `seed_applied` provenance, I21; 331/199/43 gates) |
+| B | Reproducibility Closure: artifact registration writer | DONE `5c45482c` (`core.artifacts` ContextVar recorder + `RunStateStore.register_artifacts` in `_finalize`; sha256 via hook, idempotent, fail-soft; coverage list in PROVENANCE_MODEL; 337/207/43 gates) |
+| C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES`; ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
+| D | Reproducibility Closure: docs + reassessment + E–H report | PENDING |
 
 ## Decisions log
 

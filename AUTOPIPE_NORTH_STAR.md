@@ -4,6 +4,7 @@
 **Baseline revision:** `57db8694032c402ee97e479fe0a84c4f7165cb3e`
 **Evidence basis:** direct source inspection at this revision; the forensic Repository Intelligence Report of the same revision (independently spot-verified where cited); executed test suites on this checkout (core 197 passed/2 skipped, backend 102 passed/119 warnings including worker-thread `OperationalError: no such table: runs`, frontend 34 passed); static symbol/dependency graphs (Python: 1,444 symbols, 245 internal import edges, no nontrivial SCC; TypeScript: 1,090 declarations).
 **Status of this document:** architecture definition only. No production code, tests, dependencies, configuration, database, migrations, frontend, or deployment files were modified. No implementation plan is included.
+**Currency notice (post-baseline):** forensic gap claims below describe baseline `57db8694`. Subsequent work closed several of them (one execution semantic, run state machine, provenance snapshots incl. seed application `de220244`, artifact registration `5c45482c`, dataset input identity `dca4eca0`, I12 credential model). Current-state truth lives in `docs/architecture/*.md`, `AUTOPIPE_CURRENT_ARCHITECTURE.md`, and `CONTEXT.md` — those supersede baseline "absent/MISSING" observations where they conflict.
 
 Evidence labels used throughout:
 
