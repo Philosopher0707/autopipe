@@ -2,7 +2,10 @@
 
 > Evidence-driven reassessment of AutoPipe as of code commit `29dd8535`,
 > **reassessed after reproducibility closure (commits `de220244` / `5c45482c`
-> / `dca4eca0`, phases A–C)** — evidence-changed rows updated in place.
+> / `dca4eca0`, phases A–C)** — evidence-changed rows updated in place;
+> **updated after the Model Identity & Environment Exactness mission
+> (commits `9f45a8e5`…`15c86abc`)** — model/environment audit rows and
+> queue ranks updated with new evidence.
 > Labels: OBSERVED (measured/ran here) · SOURCE-DERIVED (read from code/docs)
 > · INFERRED · UNKNOWN (no evidence either way) · DEFERRED (deliberately out
 > of scope). This document is the PHASE NEXT deliverable; it does not
@@ -20,7 +23,8 @@ pool (4 slots) runs them through one canonical execution engine, and a
 single-writer SQLite layer persists run state, metrics, charts, drift,
 provenance, and file-artifact hashes. Reproducibility and comparison
 are first-class at the config/code/environment/seed/dataset level; model
-version pinning and step-level seed visibility are the standing gaps.
+identity is captured at name level (requested + resolved, I22) but not
+content-pinned, and step-level seed visibility is a standing gap.
 
 ## 2. Measured performance baseline (OBSERVED)
 
@@ -76,9 +80,11 @@ per step and ≤ ~255 ms per 100-step run at the tested scale.
    mark_step if throughput ever matters.
 3. **Reproducibility residual (see §6)** — top-level seed now *applied*
    via run-local RNG (`de220244`), dataset identity captured on the
-   DataLoader path (`dca4eca0`); model identity is still a config string,
-   not a pinned version, and step-level seed visibility is partial.
-   This is no longer the weakest system-level axis.
+   DataLoader path (`dca4eca0`), model identity captured at name level —
+   requested + resolved (`4069e2df`, I22) — and the full resolved package
+   set hashed (`9f45a8e5`, I23); LLM content-hash pinning and step-level
+   seed visibility remain partial. This is no longer the weakest
+   system-level axis.
 4. **File-artifact registration ceiling narrowed** — the writer landed
    (`5c45482c`): run-path producers register rows with content hashes.
    Remaining: DL checkpoint callbacks, `model_registry` Run-linkage,
@@ -88,8 +94,10 @@ per step and ≤ ~255 ms per 100-step run at the tested scale.
 6. **Checkpoints are honest stubs** — GET returns `[]`, promote returns 501
    (SOURCE-DERIVED: `runs.py`). No checkpoint store exists. Correctly
    degraded, worth remembering before any "resume a run" feature request.
-7. **Transitive dependency provenance is partial** — pinned package list
-   captured; the resolved transitive set is not (I15 ceiling, documented).
+7. **Environment exactness stops at Level 2** — full resolved package set
+   + python hashed (`9f45a8e5`, I23); no lockfile is produced (the hash
+   records, it does not pin re-resolution), and Level 3 system layers
+   (OS/CUDA/glibc/BLAS) are UNKNOWN beyond the `platform.platform()` string.
 
 ## 4. The 18 dimensions
 
@@ -102,13 +110,13 @@ per step and ≤ ~255 ms per 100-step run at the tested scale.
 | 5 | Security & credentials | **STRONG** | I12-A…I12-I + I20 one env path, sentinel tests, secret-param deny, instance-scoped API keys |
 | 6 | Rate limiting | **STRONG** | I18 wired before auth on all HTTP routes, headers + 429/Retry-After, WS handshake 1013 |
 | 7 | WS contract | **STRONG** | Envelope-only `{type,data,timestamp}`, contract doc + parse-guard tests both sides |
-| 8 | Provenance | **ADEQUATE** | Config+hash, code revision, env, top-level seeds applied, dataset identity (DataLoader path), run-path artifact registration (I14/I15); model version unpinned, non-DataLoader data sources record "unavailable" |
+| 8 | Provenance | **ADEQUATE** | Config+hash, code revision, full resolved env set + `environment_hash` (I23), top-level seeds applied, dataset identity (DataLoader path), run-path artifact registration (I14/I15), model identity requested+resolved (I22); remaining: LLM content-hash absent, registry Run-unlinked, non-DataLoader data sources record "unavailable" |
 | 9 | Artifact integrity | **ADEQUATE** | Two canonical producers enforced at insert (chart JSON hash, file bytes hash, fail-closed); run-path registration writer exists (`5c45482c`); DL checkpoints + registry Run-linkage still open |
 | 10 | Observability | **ADEQUATE** | WS events + run logs capture + MetricLog; no distributed tracing (DEFERRED — single process doesn't need OTel yet) |
 | 11 | Concurrency | **ADEQUATE ≤4** | Measured 1/2/4 runs sub-linear, 4/4 success; semaphore design; UNKNOWN above 4 |
 | 12 | Performance | **ADEQUATE at tested scale** | 255 ms / 100 steps / 205 commits measured; UNKNOWN beyond envelope |
 | 13 | Scalability | **UNKNOWN beyond envelope** | Single process, single-writer SQLite, 4 slots — all measured only inside §2 bounds |
-| 14 | Reproducibility | **ADEQUATE** | Seed applied via run-local RNG (I21); dataset identity captured (DataLoader path); artifact registration live; remaining: model not version-pinned, step-level seeds partial, transitive deps unpinned (§6) |
+| 14 | Reproducibility | **ADEQUATE** | Seed applied via run-local RNG (I21); dataset identity captured (DataLoader path); artifact registration live; model identity requested+resolved at name level (I22); environment resolved-set hash (I23); remaining: LLM Level 3 content hash, step-level seeds partial, no lockfile (§5/§6) |
 | 15 | Experiment lifecycle | **ADEQUATE** | CRUD + trials (random/grid) + `best_run_id` + 3 compare endpoints; checkpoints stubbed honestly |
 | 16 | Configuration lifecycle | **ADEQUATE** | Validate-at-load, hash, immutable-by-API, no hot reload (single writer by design) |
 | 17 | Operational recovery | **ADEQUATE** | Startup sweep, graceful shutdown sweep + join, slot release on every path (I11) |
@@ -125,9 +133,9 @@ reproducibility WEAK; dimension 14 re-rated after A–C.)
 |------|--------|--------|
 | Pipeline config | **CAPTURED** | `Run.config` verbatim copy + `config_hash`; immutable-by-API |
 | Code identity | **CAPTURED** (creation-time) | `provenance.code_revision` = git HEAD + dirty flag, or explicit `"unavailable"`; OBSERVED e2e discrimination (`cc2a5416`): two full-path runs under controlled differing HEADs record their exact respective revisions while `config_hash`/seed/dataset stay equal (config and code are separate dimensions); ceiling: mid-run edits undetected (INFERRED, window = run duration) |
-| Environment | **CAPTURED (partial)** | python/platform/pinned packages; transitive set UNVERIFIED (documented I15 ceiling) |
+| Environment | **CAPTURED** (Level 2) | Full installed-distribution snapshot (python + platform + canonical name→version dict) + `environment_hash` = sha256 over python + sorted package pairs, computed once per run (`9f45a8e5`, I23; `test_environment_identity.py` OBSERVED: deterministic, order-independent, discriminates version/python change, fail-open "unavailable"); config/env separation OBSERVED (`test_identity_adversarial.py::TestConfigModelEnvironmentSeparation`). Ceilings: no lockfile; platform recorded but excluded from hash; Level 3 system layers (OS/CUDA/glibc/BLAS) UNKNOWN — `platform.platform()` string only |
 | Seed | **APPLIED** (top-level) | Top-level config seed → `RunRng` run-local RNG bound per step (`de220244`, I21); `provenance.seed_applied` records the runtime fact. Ceilings: step-level `random_state` params, torch global RNG, LLM/GPU nondeterminism (PROVENANCE_MODEL) |
-| Model identity | **WEAK** | Provider + model *name* in config params only; providers may silently mutate models behind a name; local weights hashable via `model_registry` but that system is Run-unlinked (documented) |
+| Model identity | **CAPTURED** (Level 1+2, name-level) | `provenance.models` records requested identity from config at admission (REQUESTED_ONLY) and resolved identity from provider `response.model` at execution (RESOLVED / explicit UNAVAILABLE) (`4069e2df`+`0f94597e`, I22; `test_model_identity.py` + alias-attack OBSERVED in `test_identity_adversarial.py::TestModelAliasAttack`: equal `config_hash`, resolved revision-a≠b; four provider clients tested); credential-safe (names only). Ceilings: no content-hash Level 3 for LLMs; provider aliasing beyond exposed `response.model` is a provider ceiling; local `model_registry` artifacts hashed but Run-unlinked |
 | Dataset identity | **CAPTURED** (DataLoader path) | Loaders record `provenance.datasets` entries at execution (`dca4eca0`): local file abspath + read-time sha256, builtin name, sql format-only (connection never recorded); non-file sources and non-DataLoader steps = documented ceilings |
 | Artifact identity | **CAPTURED** (run path) | ChartArtifact JSON hash + Artifact file-bytes hash enforced at insert; run-path producers register rows via `5c45482c`; registry hashes not Run-linked; DL checkpoints unregistered |
 | Credential reference | **CAPTURED by design** | Provider name in config; secret *value* never recorded (I12 correct: this axis must stay value-free) |
@@ -141,10 +149,10 @@ reproducibility WEAK; dimension 14 re-rated after A–C.)
 | Which run produced it? | **SUPPORTED** (for rows that exist) | FKs on ChartArtifact/Artifact; run-path writer landed (`5c45482c`); registry↔Run linkage still open |
 | Which pipeline config? | **SUPPORTED** | `Run.config` + `config_hash` + `GET /runs/{id}/config` |
 | Which code? | **SUPPORTED** | `provenance.code_revision` |
-| Which environment? | **SUPPORTED** | `provenance.environment` (partial package list — documented) |
+| Which environment? | **SUPPORTED** (Level 2) | `provenance.environment` — full resolved package set + `environment_hash` (deterministic, order-independent; I23); ceiling: no lockfile, Level 3 system layers UNKNOWN |
 | Which data? | **SUPPORTED** (DataLoader path) | `provenance.datasets` — file sha256 at read time; sql/non-file = explicit "unavailable" (`dca4eca0`) |
-| Which model? | **PARTIAL** | Name string only; no provider-side version pinning |
-| Can I reproduce it? | **SUPPORTED** (local, non-LLM) | config+code+env re-loadable; top-level seed applied via RunRng; dataset bytes hashed at read; artifacts content-addressed; MetricLog series equality OBSERVED for the tested deterministic local workload (`8d9e7cad`: step_index/step_name/metric_name/value exact). Ceilings: LLM providers nondeterministic by nature; model names unpinned; step-level seeds partial |
+| Which model? | **SUPPORTED** (name-level) | `provenance.models` — requested from config, resolved from provider response with explicit REQUESTED_ONLY/RESOLVED/UNAVAILABLE status (`4069e2df`+`0f94597e`; alias attack OBSERVED `15c86abc`); ceilings: no content-hash Level 3, provider aliasing beyond `response.model` |
+| Can I reproduce it? | **SUPPORTED** (local, non-LLM) | config+code+env re-loadable; top-level seed applied via RunRng; dataset bytes hashed at read; artifacts content-addressed; model identity distinguishes aliasing runs at name level; MetricLog series equality OBSERVED for the tested deterministic local workload (`8d9e7cad`: step_index/step_name/metric_name/value exact). Ceilings: LLM providers nondeterministic by nature; no LLM content-hash; step-level seeds partial |
 | Can I compare two runs? | **SUPPORTED** | Three compare endpoints (runs pairwise, runs 2–10 with % deltas vs baseline, experiment-by-metric); `Experiment.best_run_id/best_metric` |
 
 Extras found (SOURCE-DERIVED): trials = random/grid search over a declared
@@ -166,8 +174,8 @@ anything.
 | 2 | **File-artifact registration writer** (small helper used by the 4-5 producers: hash via existing `sha256_file`, insert `Artifact` row) | Makes the `29dd8535` hook actually see rows; closes PROVENANCE gap | Unregistered outputs stop being invisible | CONTEXT KNOWN GAP names exactly this; producers located | one helper + call sites + tests | **DONE `5c45482c`** |
 | 3 | **Dataset input hashing in provenance** (hash declared input file paths at admission, fail-soft like I12) | Closes the MISSING axis | Data drift becomes detectable | §6: axis MISSING, paths already in config | medium (path walk + fail-soft) | **DONE `dca4eca0`** (executed at load, not admission — see PROVENANCE_MODEL Phase C) |
 | 4 | Coverage measurement (`pytest-cov`, record % in gates) | Quantifies test claims | Baseline for future regression checks | Gates currently count tests only | low | Later |
-| 5 | Resolved model-version recording (provider response metadata → provenance) | Model identity goes WEAK→ADEQUATE | Silent provider swaps detectable | §6 WEAK rating | medium (LLM client touch — careful with I12) | Later |
-| 6 | Transitive dependency freeze in provenance | Closes documented I15 ceiling | Repro env exactness | I15 text | low-medium | Later |
+| 5 | Resolved model-version recording (provider response metadata → provenance) | Model identity goes WEAK→ADEQUATE | Silent provider swaps detectable | §6 WEAK rating | medium (LLM client touch — careful with I12) | **DONE `4069e2df`+`0f94597e` (I22; adversarial alias probe `15c86abc`)** |
+| 6 | Transitive dependency freeze in provenance | Closes documented I15 ceiling | Repro env exactness | I15 text | low-medium | **DONE `9f45a8e5`+`12927a57` (I23: full resolved set + `environment_hash`; no lockfile — deliberate non-goal)** |
 | 7 | Step retries / resumability | — | — | **No evidence** (checkpoints honestly stubbed; containment already works) | — | **DEFERRED** |
 | 8 | Distributed execution / Redis / Celery / Kafka / K8s | — | — | **No evidence**: 4-slot semaphore absorbs tested load | — | **DEFERRED** |
 | 9 | Durable event log (events table) | — | — | Polling is authoritative read path (D8) | — | **DEFERRED** |
@@ -189,5 +197,5 @@ reviewed and explicitly *not* proven as the correct next move.
 - Residual search: exactly two `.sha256 =` writers app-wide, both
   validates hooks (`hash_config` → chart, `sha256_file` → file); password
   salting lives in `core/auth.py` (different domain, documented).
-- Test gates (reassessed state, after A–C): ruff/format/mypy/diff **PASS**;
-  repo **348**; backend **214**; frontend **43**.
+- Test gates (current, after identity mission): ruff/format/mypy/diff
+  **PASS**; repo **348**; backend **260**; frontend **43**.

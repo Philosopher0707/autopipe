@@ -350,7 +350,10 @@ after the addendum.
 
 Ranked by evidence × leverage ÷ complexity. **Not implemented by this
 report — items 1–2 were later completed by the closure addendum
-(`8d9e7cad`, `cc2a5416`); the rest remains unstarted.**
+(`8d9e7cad`, `cc2a5416`); items 4–5 were later completed by the Model
+Identity & Environment Exactness mission (`4069e2df`+`0f94597e`,
+`9f45a8e5`+`12927a57`, adversarial `15c86abc`); the rest remains
+unstarted.**
 
 1. **Metric-series equality in the e2e reproduction test** (extend D's
    config with one metric-emitting step; assert identical MetricLog
@@ -367,9 +370,15 @@ report — items 1–2 were later completed by the closure addendum
    rank 4). Low.
 4. **Resolved model-version recording** (provider response metadata →
    provenance; careful with I12) — model axis WEAK→ADEQUATE
-   (reassessment rank 5). Medium.
+   (reassessment rank 5). Medium. **DONE `4069e2df`+`0f94597e`**
+   (`provenance.models` requested+resolved with explicit
+   REQUESTED_ONLY/RESOLVED/UNAVAILABLE; credential-safe; I22 — adversarial
+   alias probe `15c86abc`).
 5. **Transitive dependency freeze in provenance** — closes I15 ceiling
-   (reassessment rank 6). Low-medium.
+   (reassessment rank 6). Low-medium. **DONE `9f45a8e5`+`12927a57`**
+   (full installed-distribution snapshot + deterministic
+   `environment_hash` over python + sorted package pairs; I23; no
+   lockfile — deliberate mission non-goal).
 6. **Step-bound artifact recorder** (`step_id` attribution) + **DL
    checkpoint / registry Run-linkage** — closes Phase B ceilings when
    evidence of use appears. Medium.
@@ -384,5 +393,7 @@ report — items 1–2 were later completed by the closure addendum
 
 *End of report. Mission phases A–H complete; gates green; queue K was
 not started at report landing — closure addendum (`8d9e7cad`,
-`cc2a5416`) has since completed items 1–2; the remainder stays recorded
-for a future mission.*
+`cc2a5416`) has since completed items 1–2, and the Model Identity &
+Environment Exactness mission (`4069e2df`+`0f94597e`, `9f45a8e5`+
+`12927a57`, `15c86abc`) has since completed items 4–5; the remainder
+stays recorded for a future mission.*

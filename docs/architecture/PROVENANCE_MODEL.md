@@ -17,7 +17,11 @@ Which version of that config?        DONE: Run.config_hash + Pipeline.config_has
 Which code revision?                 DONE: Run.provenance.code_revision (git HEAD
                                      at creation, -dirty suffix, or "unavailable")
 Which environment / dependencies?    DONE: Run.provenance.environment (python,
-                                     platform, package versions)
+                                     platform recorded-but-excluded, full
+                                     installed-distribution set, and
+                                     environment_hash = sha256 over python +
+                                     sorted package pairs — Level 2; no
+                                     lockfile, Level 3 system layers absent)
 Which data?                          DONE (DataLoader path): run-path loaders
                                       record an entry per successful read into
                                       provenance.datasets — local file:
@@ -259,6 +263,13 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   Level 3 for LLM models (name string only, no weight/content hash);
   registry↔Run linkage; endpoint/revision fields when a provider never
   exposes them.
+- **Environment provenance ceilings** — the resolved package set +
+  `environment_hash` (invariant I23) is Level 2 only: no lockfile is
+  produced (the snapshot records what ran, it does not pin a future
+  re-resolution), `platform.platform()` is recorded but excluded from the
+  hash, and Level 3 full runtime identity (OS/CUDA/glibc/BLAS layers) is
+  UNKNOWN — python + packages is the material identity we actually
+  capture.
 
 ## Non-goals
 

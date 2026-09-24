@@ -9,6 +9,10 @@
 - Mission baseline revision: `57db8694`. Report landed `e1c8b051`
   (parent `d070725e`); closure addendum tests `8d9e7cad`+`cc2a5416`
   followed; HEAD = this docs-addendum commit.
+- **Model Identity & Environment Exactness mission (baseline `8d7a4821`):
+  evidence commits `9f45a8e5`+`12927a57` (env snapshot + hash),
+  `4069e2df`+`0f94597e` (model identity), `15c86abc` (adversarial probes);
+  this docs commit records them (I22/I23 added).
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 - **Reproducibility Closure (Phases A–H): COMPLETE.** Fixed commits:
   A `de220244` / B `5c45482c` / C `dca4eca0` / D docs+reassessment
@@ -101,8 +105,14 @@
   (credential-gated; validate-only in invariant test — acceptable).
 - Live `drift.alert` WS push has no subscriber (contract documented;
   polling is the read path).
-- Model identity = unpinned name string (Phase C closed dataset identity;
-  model pinning deliberately out of scope for this mission).
+- Model identity: Level 1 requested + Level 2 resolved captured in
+  `provenance.models` (name-level); Level 3 content hash for LLMs absent
+  (ceiling); provider aliasing beyond exposed `response.model` is a
+  provider ceiling; registry artifacts hashed but Run-unlinked.
+- Environment: full resolved package set + `environment_hash` captured
+  (Level 2); no lockfile (records, does not pin re-resolution); Level 3
+  system layers (OS/CUDA/glibc/BLAS) UNKNOWN — only `platform.platform()`
+  string + python; platform deliberately excluded from the hash.
 - Registered file artifacts carry `step_id = NULL` (Phase B ceiling);
   registry↔Run linkage and DL checkpoints not registered (PROVENANCE_MODEL).
 - Dataset entries: sql connection/query and non-file sources record
@@ -113,7 +123,7 @@
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
 PYTHONPATH=. pytest tests -q                                            # 348 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 220 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 260 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -131,9 +141,12 @@ installed package) — use `PYTHONPATH=.` as above.
 - `app/core/security.py` — SimpleRateLimiter (module-global `_rate_limiter`).
 - `app/api/v1/endpoints/websocket.py` — WS auth + `_envelope` broadcasts
   (contract: `docs/architecture/WS_CONTRACT.md`).
-- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I20,
+- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I23,
   status-labelled), EXECUTION_MODEL, RUN_STATE_MACHINE, FAILURE_MODEL,
   PROVENANCE_MODEL, WS_CONTRACT. Keep these truthful when behavior changes.
+  Provenance keys of note: `provenance.models` (requested+resolved model
+  identity, I22), `provenance.environment.environment_hash` (resolved
+  package set identity, I23).
 - `AUTOPIPE_CURRENT_ARCHITECTURE.md` — PHASE NEXT reassessment: measured
   baseline, 18-dimension ratings, audits, ranked next queue.
 - `REPRODUCIBILITY_CLOSURE_REPORT.md` — fixed-format mission report
@@ -165,6 +178,9 @@ installed package) — use `PYTHONPATH=.` as above.
 | C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES`; ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
 | D | Reproducibility Closure: docs + reassessment + E–H report | DONE (`1bd5112c` reassessment; `52c4fd56`+`1b2f21ff` e2e; `7af0f430`+`26794bc5`+`d070725e` adversarial; G bench; H `REPRODUCIBILITY_CLOSURE_REPORT.md`; 348/219/43 gates) |
 | E | Reproducibility Closure addendum: report K1+K2 (metric equality, changed-code probe) | DONE `8d9e7cad`+`cc2a5416` (MetricLog series exact equality e2e for deterministic local workload; controlled-HEAD `code_revision` discrimination, behavior-neutral; report D/E/H/K/J updated; 348/220/43 gates) |
+| F | Model Identity: requested+resolved provenance | DONE `4069e2df`+`0f94597e` (`provenance.models` with REQUESTED_ONLY/RESOLVED/UNAVAILABLE; provider lowercased/default openrouter at admission, case-insensitive merge at finalize, credential-safe names only; I22; `test_model_identity.py`) |
+| G | Environment Exactness: full resolved set + deterministic hash | DONE `9f45a8e5`+`12927a57` (full installed-distribution snapshot + `environment_hash` sha256 over python+sorted package pairs, platform recorded but excluded, fail-open "unavailable"; I23; `test_environment_identity.py`) |
+| H | Identity adversarial probes | DONE `15c86abc` (model alias attack: equal config_hash, resolved revision-a≠b; UNAVAILABLE explicit; env-vs-config separation; credential sentinels absent from provenance JSON + DB bytes + no userinfo URLs; `test_identity_adversarial.py`) |
 
 ## Decisions log
 
@@ -204,7 +220,17 @@ installed package) — use `PYTHONPATH=.` as above.
   artifact registration writer, dataset hashing).
 - D11: Reproducibility Closure complete (A–H). Report section K is the
   next evidence-based queue; per mission instruction it was NOT started —
-  pick from it explicitly on a future mission.
+  pick from it explicitly on a future mission. (K items 1–2 done by
+  closure addendum; K items 4–5 done by the identity mission below.)
+- D12: Model identity is name-level (L1 requested / L2 resolved from
+  provider `response.model`), not content-hash Level 3 — LLM weights are
+  not hashable through the provider API; provider aliasing beyond
+  `response.model` is a documented provider ceiling, not a defect.
+- D13: `environment_hash` covers python + sorted resolved package pairs
+  only — `platform.platform()` is recorded but deliberately excluded from
+  the hash (cosmetic string variance must not change identity); no
+  lockfile is created (mission non-goal: the hash records the resolved
+  set, it does not pin re-resolution); Level 3 system layers stay UNKNOWN.
 
 ## Resume procedure
 

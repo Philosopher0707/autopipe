@@ -348,3 +348,77 @@ state, and provenance distinguishes DECLARED from APPLIED.
   `DataLoader(shuffle=True)`; LLM/provider nondeterminism; step-level
   `random_state` params; steps ignoring `run_rng`.
 - **Status:** VERIFIED.
+
+### I22 — Model identity provenance distinguishes requested from resolved,
+records an explicit resolution status, and never persists credential material.
+- **Definition:** `provenance.models` entries carry
+  `{provider, requested_model, resolved_model?, resolution_status}` where
+  `resolution_status` is one of `REQUESTED_ONLY` (config at admission),
+  `RESOLVED` (a provider response supplied `model`), or `UNAVAILABLE`
+  (response arrived with no usable identifier) — an attempted resolution is
+  never an ambiguous NULL/absent; entries carry provider and model *names*
+  only (no base URLs, keys, or userinfo URLs).
+- **Owner:** `app/core/provenance.py::models_from_config` (admission);
+  `autopipe/llm/client.py::_record_identity` (response capture);
+  `RunStateStore.record_model_identities` (case-insensitive provider merge,
+  invoked from `runner._finalize`).
+- **Enforcement:** admission writes REQUESTED_ONLY once per Run (llm /
+  `*LLMStep` steps only, provider lowercased, default `"openrouter"` to
+  match `LLMStep.__init__`); clients record a resolved name only after a
+  response parses successfully (failures record nothing — offline runs stay
+  REQUESTED_ONLY); a response without a usable id merges to UNAVAILABLE; the
+  field allowlist excludes anything credential-shaped (I20).
+- **Test:** `backend/tests/test_model_identity.py` (extraction/dedupe/
+  provider normalization + default, exact provider literal for all four
+  providers, all merge branches, e2e resolved/offline/sentinel, key absent
+  without model steps);
+  `backend/tests/test_identity_adversarial.py::TestModelAliasAttack`
+  (equal `config_hash` while resolved identity differs revision-a vs
+  revision-b), `test_response_without_model_id_is_unavailable`,
+  `::TestCredentialBoundary` (sentinel absent from provenance JSON and DB
+  file bytes; no userinfo URLs).
+- **Failure mode:** two runs with equal `config_hash` become silently
+  indistinguishable after a provider swaps the model behind an alias; or an
+  attempted resolution is recorded as a silent leftover REQUESTED_ONLY; or
+  a key/URL reaches durable provenance.
+- **Ceilings (documented, not violations):** identity is name-level
+  (Level 1 requested / Level 2 resolved) — no content-hash Level 3 for LLM
+  models; aliasing beyond the exposed `response.model` is a provider
+  ceiling; local `model_registry` artifacts are hashed but Run-unlinked.
+- **Status:** VERIFIED (Level 1+2 OBSERVED for providers that expose
+  `response.model`).
+
+### I23 — Environment dependency identity is a deterministic,
+order-independent function of the resolved package set (plus python), and
+material version changes change it; platform is recorded but excluded.
+- **Definition:** `provenance.environment.environment_hash` = sha256 of
+  canonical JSON over the python version + sorted PEP 503-canonical
+  `(name, version)` pairs of the full installed-distribution set. Equal
+  sets hash equal regardless of enumeration order; a resolved package
+  version or python change changes the hash; enumeration failure records
+  `packages: {}` + `environment_hash: "unavailable"` (explicit, never a
+  fabricated hash); `platform.platform()` is recorded alongside but
+  deliberately excluded from the hash.
+- **Owner:** `app/core/provenance.py::_canonical_package_records`,
+  `_environment_hash`, `_environment_fingerprint` (called once per Run at
+  `build_provenance`).
+- **Enforcement:** PEP 503 canonicalization + dedupe + sort before
+  hashing; canonical JSON (`sort_keys`, compact separators); fail-open to
+  the explicit "unavailable" marker on any enumeration error (I15).
+- **Test:** `backend/tests/test_environment_identity.py` (full set not the
+  old fixed five, deterministic, order-independent, discriminates version
+  and python changes, canonical normalization, `build_provenance` carries
+  the hash, fail-open path, no secret shapes);
+  `backend/tests/test_identity_adversarial.py::TestConfigModelEnvironmentSeparation`
+  (forced package-version change discriminates `environment_hash` while
+  the fixed config's `hash_config` is untouched).
+- **Failure mode:** hash depends on dict enumeration order (flaky
+  identity), environment changes absorbed into config identity (config
+  does not discriminate env), or enumeration failure silently hashed as an
+  empty set (colliding with a genuine empty environment — hence the
+  explicit "unavailable").
+- **Ceilings (documented, not violations):** no lockfile is produced —
+  the hash *records* the resolved set, it does not pin re-resolution;
+  Level 3 full runtime (OS/CUDA/glibc/BLAS layers) UNKNOWN beyond the
+  `platform.platform()` string + python version.
+- **Status:** VERIFIED (Level 2 resolved-set identity OBSERVED).
