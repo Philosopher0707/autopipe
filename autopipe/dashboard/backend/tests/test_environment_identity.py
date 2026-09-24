@@ -64,6 +64,18 @@ def test_build_provenance_carries_environment_hash():
     assert env["python"] and env["platform"] and isinstance(env["packages"], dict)
 
 
+def test_environment_fingerprint_fails_open_when_distributions_unavailable(monkeypatch):
+    def boom():
+        raise RuntimeError("metadata enumeration broken")
+
+    monkeypatch.setattr("app.core.provenance.distributions", boom)
+    fp = _environment_fingerprint()
+    assert set(fp) == {"python", "platform", "packages", "environment_hash"}
+    assert fp["python"] and fp["platform"]
+    assert fp["packages"] == {}
+    assert fp["environment_hash"] == "unavailable"
+
+
 def test_environment_fingerprint_never_contains_secret_shapes(monkeypatch):
     monkeypatch.setenv("SOME_API_KEY", "sk-sentinel")
     assert "sk-sentinel" not in json.dumps(_environment_fingerprint())

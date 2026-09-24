@@ -57,9 +57,12 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   experiment trials, demo seed):
   - `engine_version` — `autopipe.core.execution.ENGINE_VERSION`
   - `origin` — `"dashboard"` | `"experiment"` | `"seed"`
-  - `environment` — python version, platform, versions of a fixed package
-    list (`autopipe`, `fastapi`, `sqlalchemy`, `pydantic`, `scikit-learn`);
-    uninstalled → `"unavailable"`
+  - `environment` — python version, platform (recorded, deliberately
+    excluded from the hash), and the full installed distribution set as a
+    canonical-name → version dict; `environment_hash` = sha256 of canonical
+    JSON over python + sorted package pairs. Computed once per run at
+    creation; if metadata enumeration fails: `packages: {}`,
+    `environment_hash: "unavailable"` (fail-open)
   - `code_revision` — `git rev-parse HEAD` from the backend dir, `-dirty`
     suffix if the work tree is dirty, `"unavailable"` if git cannot run
   - `seeds` — top-level `seed`/`seeds` keys from the run config, else NULL
@@ -189,8 +192,9 @@ Which execution engine version?      DONE: Run.provenance.engine_version
     the tiny window for post-read mutation is a ceiling).
   - builtin sample (`core/steps.py` DataLoaderStep): `{kind: "builtin",
     name, sha256: "unavailable"}` — content is scikit-learn-version-defined;
-    `scikit-learn` is in `build_provenance._PACKAGES` so the environment
-    fingerprint pins it.
+    the full installed-package snapshot in `build_provenance`
+    (`environment.packages` + `environment_hash`) pins scikit-learn's
+    version when installed.
   - sql: `{kind: "sql", format: "sql", sha256: "unavailable"}` — the
     connection string is **never recorded** (secret-shaped, I12).
   - other (URL, buffer, cloud): `{kind: "file", source, format, sha256:

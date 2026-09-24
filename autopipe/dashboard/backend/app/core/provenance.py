@@ -65,8 +65,9 @@ def _environment_fingerprint() -> Dict[str, Any]:
     (no env vars, no editable-install paths). Any failure falls back to an
     explicit ``"unavailable"`` hash rather than raising (I15).
     """
+    python = platform.python_version()
+    plat = platform.platform()
     try:
-        python = platform.python_version()
         raw: List[Tuple[str, str]] = []
         for dist in distributions():
             try:
@@ -79,14 +80,14 @@ def _environment_fingerprint() -> Dict[str, Any]:
         records = _canonical_package_records(raw)
         return {
             "python": python,
-            "platform": platform.platform(),
+            "platform": plat,
             "packages": dict(records),
             "environment_hash": _environment_hash(records, python),
         }
     except Exception:
         return {
-            "python": platform.python_version(),
-            "platform": platform.platform(),
+            "python": python,
+            "platform": plat,
             "packages": {},
             "environment_hash": "unavailable",
         }
