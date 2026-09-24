@@ -48,7 +48,13 @@ cd autopipe/dashboard/backend
 .venv/bin/python -m alembic upgrade head                                        # Apply DB migrations
 .venv/bin/python -m alembic revision --autogenerate -m "..."                    # New migration
 .venv/bin/python -m alembic stamp head                                          # Adopt an existing (create_all) DB
-.venv/bin/python -m pytest tests/ -v                                            # Run backend tests
+
+# Backend tests must run from the REPO ROOT, not from this directory: the
+# backend imports the core package (app/db/models.py -> autopipe.core.artifacts),
+# which this venv does not install. `pytest tests/` from here fails with
+# ModuleNotFoundError: No module named 'autopipe'. (Matches CONTEXT.md §gates.)
+cd ../../..
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 260 pass expected
 ```
 - API docs: `http://localhost:8765/api/v1/docs`
 - Default credentials: `admin` / `admin123`

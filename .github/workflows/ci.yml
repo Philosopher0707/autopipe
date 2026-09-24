@@ -112,6 +112,9 @@ jobs:
       run: |
         python -m venv .venv_ci
         .venv_ci/bin/python -m pip install --upgrade pip
+        # The dashboard imports the core package (e.g. app/db/models.py imports
+        # autopipe.core.artifacts), so install it alongside requirements.txt.
+        .venv_ci/bin/python -m pip install -e ../..
         .venv_ci/bin/python -m pip install -r requirements.txt
 
     - name: Run backend tests
