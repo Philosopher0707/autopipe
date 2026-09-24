@@ -49,6 +49,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    # numpy is bounded only here (not in [project.dependencies]) because mypy
+    # runs from a dev install with python_version = "3.10", and numpy >=2.5
+    # ships stubs using PEP 695 `type` statements that mypy refuses to parse at
+    # a 3.10 language level (numpy/__init__.pyi:737 — reproduced with
+    # numpy==2.5.3 + mypy==2.3.1; numpy==2.4.6 passes). Runtime installs are
+    # unconstrained: end users are free to take numpy >= 2.5.
+    "numpy>=1.24,<2.5",
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "pytest-asyncio>=0.21",
