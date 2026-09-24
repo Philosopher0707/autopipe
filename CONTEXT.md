@@ -6,13 +6,15 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: `dca4eca0` (Phase C dataset
-  input identity; uncommitted CONTEXT edits pending commit D).
+- Mission baseline revision: `57db8694`. HEAD: this commit (repro
+  closure report; parent `d070725e`).
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
-- **Active mission: Reproducibility Closure (Phases A–H).** Fixed commits:
-  A seed / B artifacts / C dataset / D docs; then D(reassessment)–H report.
-  Phases A+B+C DONE. Next: Phase D docs + reassessment, then E–H.
-- Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
+- **Reproducibility Closure (Phases A–H): COMPLETE.** Fixed commits:
+  A `de220244` / B `5c45482c` / C `dca4eca0` / D docs+reassessment
+  `1bd5112c` / E e2e `52c4fd56`+`1b2f21ff` / F adversarial `7af0f430`+
+  `26794bc5`+`d070725e` / G perf recheck (bench, numbers in report) /
+  H `REPRODUCIBILITY_CLOSURE_REPORT.md` (this commit). Report section K
+  records the next queue — NOT started, do not auto-implement.
 
 ### DONE (verified by tests)
 
@@ -109,7 +111,7 @@
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
 PYTHONPATH=. pytest tests -q                                            # 348 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 214 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 219 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -132,6 +134,8 @@ installed package) — use `PYTHONPATH=.` as above.
   PROVENANCE_MODEL, WS_CONTRACT. Keep these truthful when behavior changes.
 - `AUTOPIPE_CURRENT_ARCHITECTURE.md` — PHASE NEXT reassessment: measured
   baseline, 18-dimension ratings, audits, ranked next queue.
+- `REPRODUCIBILITY_CLOSURE_REPORT.md` — fixed-format mission report
+  (BASELINE–K); section K = next queue, not started.
 
 ## Priority queue (status)
 
@@ -157,7 +161,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | A | Reproducibility Closure: apply declared run seed | DONE `de220244` (`RunRng` run-local RNG, `seed_applied` provenance, I21; 331/199/43 gates) |
 | B | Reproducibility Closure: artifact registration writer | DONE `5c45482c` (`core.artifacts` ContextVar recorder + `RunStateStore.register_artifacts` in `_finalize`; sha256 via hook, idempotent, fail-soft; coverage list in PROVENANCE_MODEL; 337/207/43 gates) |
 | C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES`; ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
-| D | Reproducibility Closure: docs + reassessment + E–H report | PENDING |
+| D | Reproducibility Closure: docs + reassessment + E–H report | DONE (`1bd5112c` reassessment; `52c4fd56`+`1b2f21ff` e2e; `7af0f430`+`26794bc5`+`d070725e` adversarial; G bench; H `REPRODUCIBILITY_CLOSURE_REPORT.md`; 348/219/43 gates) |
 
 ## Decisions log
 
@@ -195,6 +199,9 @@ installed package) — use `PYTHONPATH=.` as above.
   audited, zero supporting evidence at measured scale (architecture doc §7
   ranks 7–11 DEFERRED). Next phase = reproducibility closure (seed apply,
   artifact registration writer, dataset hashing).
+- D11: Reproducibility Closure complete (A–H). Report section K is the
+  next evidence-based queue; per mission instruction it was NOT started —
+  pick from it explicitly on a future mission.
 
 ## Resume procedure
 
