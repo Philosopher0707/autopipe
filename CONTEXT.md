@@ -92,8 +92,9 @@
   JSON hash unchanged (`hash_config`). Tests:
   `backend/tests/test_artifact_integrity.py` (16).
 - **PHASE NEXT reassessment (this doc):** `AUTOPIPE_CURRENT_ARCHITECTURE.md`
-  — 18 dimensions (8 STRONG / 8 ADEQUATE / 1 WEAK: reproducibility /
-  1 UNKNOWN: beyond-scale), measured baseline (100 steps → 255 ms,
+  — 18 dimensions (8 STRONG / 9 ADEQUATE / 0 WEAK / 1 UNKNOWN:
+  beyond-scale; reproducibility re-rated from WEAK after A–C), measured
+  baseline (100 steps → 255 ms,
   commits = 2N+5, concurrency 1/2/4 sub-linear, 4/4 success), reproducibility
   + experiment-lifecycle audits, ranked next queue (seed application →
   artifact registration writer → dataset input hashing; everything
@@ -175,7 +176,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | 17 | PHASE NEXT: full reassessment + perf measurement | DONE (`AUTOPIPE_CURRENT_ARCHITECTURE.md`: 18 dimensions, measured baseline 311/193/43 gates, repro+lifecycle audits, ranked queue; no next feature implemented) |
 | A | Reproducibility Closure: apply declared run seed | DONE `de220244` (`RunRng` run-local RNG, `seed_applied` provenance, I21; 331/199/43 gates) |
 | B | Reproducibility Closure: artifact registration writer | DONE `5c45482c` (`core.artifacts` ContextVar recorder + `RunStateStore.register_artifacts` in `_finalize`; sha256 via hook, idempotent, fail-soft; coverage list in PROVENANCE_MODEL; 337/207/43 gates) |
-| C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES`; ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
+| C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES` (since superseded by the I23 full-set fingerprint); ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
 | D | Reproducibility Closure: docs + reassessment + E–H report | DONE (`1bd5112c` reassessment; `52c4fd56`+`1b2f21ff` e2e; `7af0f430`+`26794bc5`+`d070725e` adversarial; G bench; H `REPRODUCIBILITY_CLOSURE_REPORT.md`; 348/219/43 gates) |
 | E | Reproducibility Closure addendum: report K1+K2 (metric equality, changed-code probe) | DONE `8d9e7cad`+`cc2a5416` (MetricLog series exact equality e2e for deterministic local workload; controlled-HEAD `code_revision` discrimination, behavior-neutral; report D/E/H/K/J updated; 348/220/43 gates) |
 | F | Model Identity: requested+resolved provenance | DONE `4069e2df`+`0f94597e` (`provenance.models` with REQUESTED_ONLY/RESOLVED/UNAVAILABLE; provider lowercased/default openrouter at admission, case-insensitive merge at finalize, credential-safe names only; I22; `test_model_identity.py`) |

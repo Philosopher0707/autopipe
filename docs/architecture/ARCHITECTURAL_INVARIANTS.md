@@ -351,6 +351,12 @@ state, and provenance distinguishes DECLARED from APPLIED.
 
 ### I22 — Model identity provenance distinguishes requested from resolved,
 records an explicit resolution status, and never persists credential material.
+Kept separate from I23 rather than folded into one identity invariant: the
+owners (`autopipe/llm/client.py` capture + sink merge vs
+`app/core/provenance.py` hashing), the test suites, and the failure modes
+(silent alias indistinguishability vs nondeterministic environment hash)
+are distinct, and a combined invariant would blur credential-safety (I20
+territory) with hash determinism.
 - **Definition:** `provenance.models` entries carry
   `{provider, requested_model, resolved_model?, resolution_status}` where
   `resolution_status` is one of `REQUESTED_ONLY` (config at admission),

@@ -162,9 +162,10 @@ registered artifacts only.
 
 ## 7. Recommended next phase
 
-**Theme: reproducibility closure** — attack the one WEAK dimension with
-three small, evidence-driven changes. No infrastructure, no distributed
-anything.
+**Theme: reproducibility closure (completed)** — three small,
+evidence-driven changes against the then-WEAK reproducibility dimension,
+re-rated ADEQUATE after A–C. Current ratings (§4): 8 STRONG / 9 ADEQUATE /
+0 WEAK / 1 UNKNOWN. No infrastructure, no distributed anything.
 
 ### Ranked queue — leverage × risk-reduction × evidence ÷ complexity
 
@@ -174,7 +175,7 @@ anything.
 | 2 | **File-artifact registration writer** (small helper used by the 4-5 producers: hash via existing `sha256_file`, insert `Artifact` row) | Makes the `29dd8535` hook actually see rows; closes PROVENANCE gap | Unregistered outputs stop being invisible | CONTEXT KNOWN GAP names exactly this; producers located | one helper + call sites + tests | **DONE `5c45482c`** |
 | 3 | **Dataset input hashing in provenance** (hash declared input file paths at admission, fail-soft like I12) | Closes the MISSING axis | Data drift becomes detectable | §6: axis MISSING, paths already in config | medium (path walk + fail-soft) | **DONE `dca4eca0`** (executed at load, not admission — see PROVENANCE_MODEL Phase C) |
 | 4 | Coverage measurement (`pytest-cov`, record % in gates) | Quantifies test claims | Baseline for future regression checks | Gates currently count tests only | low | Later |
-| 5 | Resolved model-version recording (provider response metadata → provenance) | Model identity goes WEAK→ADEQUATE | Silent provider swaps detectable | §6 WEAK rating | medium (LLM client touch — careful with I12) | **DONE `4069e2df`+`0f94597e` (I22; adversarial alias probe `15c86abc`)** |
+| 5 | Resolved model-version recording (provider response metadata → provenance) | Model identity was WEAK at queue time; now CAPTURED L1+2 (§5) | Silent provider swaps detectable | Model axis rated WEAK at queue time (pre-re-rate; §6) | medium (LLM client touch — careful with I12) | **DONE `4069e2df`+`0f94597e` (I22; adversarial alias probe `15c86abc`)** |
 | 6 | Transitive dependency freeze in provenance | Closes documented I15 ceiling | Repro env exactness | I15 text | low-medium | **DONE `9f45a8e5`+`12927a57` (I23: full resolved set + `environment_hash`; no lockfile — deliberate non-goal)** |
 | 7 | Step retries / resumability | — | — | **No evidence** (checkpoints honestly stubbed; containment already works) | — | **DEFERRED** |
 | 8 | Distributed execution / Redis / Celery / Kafka / K8s | — | — | **No evidence**: 4-slot semaphore absorbs tested load | — | **DEFERRED** |
