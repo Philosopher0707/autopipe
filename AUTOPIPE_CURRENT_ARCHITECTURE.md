@@ -124,7 +124,7 @@ reproducibility WEAK; dimension 14 re-rated after A–C.)
 | Axis | Status | Detail |
 |------|--------|--------|
 | Pipeline config | **CAPTURED** | `Run.config` verbatim copy + `config_hash`; immutable-by-API |
-| Code identity | **CAPTURED** (creation-time) | `provenance.code_revision` = git HEAD + dirty flag, or explicit `"unavailable"`; ceiling: mid-run edits undetected (INFERRED, window = run duration) |
+| Code identity | **CAPTURED** (creation-time) | `provenance.code_revision` = git HEAD + dirty flag, or explicit `"unavailable"`; OBSERVED e2e discrimination (`cc2a5416`): two full-path runs under controlled differing HEADs record their exact respective revisions while `config_hash`/seed/dataset stay equal (config and code are separate dimensions); ceiling: mid-run edits undetected (INFERRED, window = run duration) |
 | Environment | **CAPTURED (partial)** | python/platform/pinned packages; transitive set UNVERIFIED (documented I15 ceiling) |
 | Seed | **APPLIED** (top-level) | Top-level config seed → `RunRng` run-local RNG bound per step (`de220244`, I21); `provenance.seed_applied` records the runtime fact. Ceilings: step-level `random_state` params, torch global RNG, LLM/GPU nondeterminism (PROVENANCE_MODEL) |
 | Model identity | **WEAK** | Provider + model *name* in config params only; providers may silently mutate models behind a name; local weights hashable via `model_registry` but that system is Run-unlinked (documented) |
@@ -144,7 +144,7 @@ reproducibility WEAK; dimension 14 re-rated after A–C.)
 | Which environment? | **SUPPORTED** | `provenance.environment` (partial package list — documented) |
 | Which data? | **SUPPORTED** (DataLoader path) | `provenance.datasets` — file sha256 at read time; sql/non-file = explicit "unavailable" (`dca4eca0`) |
 | Which model? | **PARTIAL** | Name string only; no provider-side version pinning |
-| Can I reproduce it? | **SUPPORTED** (local, non-LLM) | config+code+env re-loadable; top-level seed applied via RunRng; dataset bytes hashed at read; artifacts content-addressed. Ceilings: LLM providers nondeterministic by nature; model names unpinned; step-level seeds partial |
+| Can I reproduce it? | **SUPPORTED** (local, non-LLM) | config+code+env re-loadable; top-level seed applied via RunRng; dataset bytes hashed at read; artifacts content-addressed; MetricLog series equality OBSERVED for the tested deterministic local workload (`8d9e7cad`: step_index/step_name/metric_name/value exact). Ceilings: LLM providers nondeterministic by nature; model names unpinned; step-level seeds partial |
 | Can I compare two runs? | **SUPPORTED** | Three compare endpoints (runs pairwise, runs 2–10 with % deltas vs baseline, experiment-by-metric); `Experiment.best_run_id/best_metric` |
 
 Extras found (SOURCE-DERIVED): trials = random/grid search over a declared

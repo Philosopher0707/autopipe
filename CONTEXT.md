@@ -6,15 +6,17 @@
 
 ## Baseline & current state
 
-- Mission baseline revision: `57db8694`. HEAD: this commit (repro
-  closure report; parent `d070725e`).
+- Mission baseline revision: `57db8694`. Report landed `e1c8b051`
+  (parent `d070725e`); closure addendum tests `8d9e7cad`+`cc2a5416`
+  followed; HEAD = this docs-addendum commit.
 - Evidence labels follow NORTH_STAR (OBSERVED / SOURCE-DERIVED / …).
 - **Reproducibility Closure (Phases A–H): COMPLETE.** Fixed commits:
   A `de220244` / B `5c45482c` / C `dca4eca0` / D docs+reassessment
   `1bd5112c` / E e2e `52c4fd56`+`1b2f21ff` / F adversarial `7af0f430`+
   `26794bc5`+`d070725e` / G perf recheck (bench, numbers in report) /
-  H `REPRODUCIBILITY_CLOSURE_REPORT.md` (this commit). Report section K
-  records the next queue — NOT started, do not auto-implement.
+  H `REPRODUCIBILITY_CLOSURE_REPORT.md` (`e1c8b051`). Report section K
+  records the next queue — items 1–2 since DONE (addendum below); do not
+  auto-implement the rest.
 
 ### DONE (verified by tests)
 
@@ -111,7 +113,7 @@
 ```bash
 ruff check . && ruff format --check . && mypy autopipe/core             # whole-repo lint/format + strict engine
 PYTHONPATH=. pytest tests -q                                            # 348 pass expected
-autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 219 pass expected
+autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 220 pass expected
 cd autopipe/dashboard/frontend && pnpm typecheck && pnpm test           # 43 pass expected
 ```
 
@@ -162,6 +164,7 @@ installed package) — use `PYTHONPATH=.` as above.
 | B | Reproducibility Closure: artifact registration writer | DONE `5c45482c` (`core.artifacts` ContextVar recorder + `RunStateStore.register_artifacts` in `_finalize`; sha256 via hook, idempotent, fail-soft; coverage list in PROVENANCE_MODEL; 337/207/43 gates) |
 | C | Reproducibility Closure: dataset input identity | DONE `dca4eca0` (`record_dataset_input` ContextVar + loader instrumentation (file abspath+load-time sha256, builtin name, sql omits connection) + `RunStateStore.record_dataset_inputs` → `provenance.datasets` in `_finalize`; `sha256_file` moved to `core.artifacts`, models re-exports; scikit-learn in `_PACKAGES`; ceilings in PROVENANCE_MODEL; 348/214/43 gates) |
 | D | Reproducibility Closure: docs + reassessment + E–H report | DONE (`1bd5112c` reassessment; `52c4fd56`+`1b2f21ff` e2e; `7af0f430`+`26794bc5`+`d070725e` adversarial; G bench; H `REPRODUCIBILITY_CLOSURE_REPORT.md`; 348/219/43 gates) |
+| E | Reproducibility Closure addendum: report K1+K2 (metric equality, changed-code probe) | DONE `8d9e7cad`+`cc2a5416` (MetricLog series exact equality e2e for deterministic local workload; controlled-HEAD `code_revision` discrimination, behavior-neutral; report D/E/H/K/J updated; 348/220/43 gates) |
 
 ## Decisions log
 

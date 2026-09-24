@@ -158,16 +158,22 @@ HTTP → admission → runner → engine → DB path. OBSERVED (all PASS):
 - **Same artifact identity:** `artifact_count > 0` (charts were produced)
   and the sorted lists of `Artifact.sha256` are **equal** across runs —
   content-addressed outputs.
-- **Same metrics/output:** NOT ASSERTED as a separate axis — the test
-  config emits no MetricLog series (loaders + print-class steps); output
-  identity is covered by the artifact-hash equality above. Honest gap,
-  queued in section K.
+- **Same metrics/output:** OBSERVED equal (`8d9e7cad`, closure addendum)
+  — MetricLog series compared exactly across both runs on
+  (step_index, step_name, metric_name, value); the deterministic metric
+  producers are the config's own loaders (rows_loaded/columns_loaded/
+  memory_usage_mb, rows/columns); incidental fields (id, run_id, step_id,
+  recorded_at) excluded; canonical sort is the only normalization
+  (MetricLog persists no within-step emission order). Artifact-hash
+  equality (above) remains the file-output identity. Ceiling: equality
+  demonstrated for this deterministic local workload, not arbitrary
+  (LLM/GPU/nondeterministic) metric producers.
 - **Differences:** run ids, run numbers, and wall-clock timestamps
   (SOURCE-DERIVED: inherently run-unique; not compared).
 
 ## E. ADVERSARIAL RESULTS
 
-Suite: `backend/tests/test_reproduction_adversarial.py` (4 tests, PASS)
+Suite: `backend/tests/test_reproduction_adversarial.py` (5 tests, PASS)
 plus covered unit probes. OBSERVED:
 
 - **Changed seed:** `test_different_seed_different_draws` — different
@@ -184,11 +190,16 @@ plus covered unit probes. OBSERVED:
   existing Runs keep their own hash (immutable-by-API). Covered by
   `test_run_provenance.py`. PASS. (Per-run: same input config → same
   hash, section D.)
-- **Changed code:** NOT ADVERSARIALLY PROBED end-to-end. Creation-time
-  `provenance.code_revision` (git HEAD + `-dirty`, or explicit
-  `"unavailable"` when git fails — unit-tested) is the mechanism; a
-  mid-run edit window remains a documented ceiling (INFERRED: window =
-  run duration). Honest gap, queued in section K.
+- **Changed code:** OBSERVED end-to-end (`cc2a5416`, closure addendum) —
+  `app.core.provenance.subprocess` monkeypatched to feed two controlled
+  git HEADs across two full-path runs (worktree never touched, by
+  construction); both sides: `config_hash` equal, seeds declared+applied
+  equal, dataset identity equal, and `code_revision` equals each exact
+  controlled HEAD and differs — non-vacuous; config and code are separate
+  provenance dimensions. Behavior-neutral by choice: no output-divergence
+  claim (proven claim is discrimination only). Creation-time snapshot
+  remains the mechanism; a mid-run edit window remains a documented
+  ceiling (INFERRED: window = run duration).
 - **Modified artifact:** file bytes overwritten behind a registered row —
   stored `sha256` does not follow the file; recomputing diverges:
   detectable. PASS.
@@ -276,9 +287,12 @@ hidden defects:
    `model_registry.verify_artifact`.
 8. **Code identity window** — mid-run edits after Run creation are not
    detected; git-unavailable environments record `"unavailable"`.
-9. **E2e reproduction does not assert metric-series equality** (test
-   config emits no metrics) and does not adversarially vary code (D/E
-   honest gaps → K).
+9. **Changed-code output divergence unasserted (by choice)** — the probe
+   (`cc2a5416`) is behavior-neutral: it proves provenance discrimination
+   (config_hash/seed/dataset equal, `code_revision` differs per controlled
+   HEAD), not that different code yields different outputs. The other D/E
+   halves are closed: metric-series equality OBSERVED for the tested
+   deterministic local workload (`8d9e7cad`).
 10. **No retro-fitting** — pre-hook rows keep NULL/"unavailable" forever
     (I15 non-goal, by design).
 11. **Perf envelope unchanged** — no-op steps only; real workloads
@@ -322,20 +336,32 @@ races:
 | `mypy autopipe/core` | PASS (strict, 9 source files) |
 | `git diff --check` | PASS (no whitespace errors) |
 | `PYTHONPATH=. pytest tests -q` | **348 passed** |
-| backend `pytest …/backend/tests -q` | **219 passed** |
+| backend `pytest …/backend/tests -q` | **220 passed** (addendum; see note) |
 | frontend `pnpm typecheck && pnpm test` | PASS, **43 passed** |
+
+**Addendum note:** this report landed at `e1c8b051` (parent
+`d070725e`) with backend at 219. Two subsequent test-only commits —
+`8d9e7cad` (metric-series equality, section D) and `cc2a5416`
+(changed-code probe, section E) — bring the backend suite to **220**
+(repo 348 and frontend 43 unchanged); gates re-run sequential and clean
+after the addendum.
 
 ## K. NEXT EVIDENCE-BASED QUEUE
 
-Ranked by evidence × leverage ÷ complexity. **Not implemented — this
-report explicitly does not start any of these.**
+Ranked by evidence × leverage ÷ complexity. **Not implemented by this
+report — items 1–2 were later completed by the closure addendum
+(`8d9e7cad`, `cc2a5416`); the rest remains unstarted.**
 
 1. **Metric-series equality in the e2e reproduction test** (extend D's
    config with one metric-emitting step; assert identical MetricLog
    rows) — closes the one honest assertion gap in section D. Low.
+   **DONE `8d9e7cad`** (existing loader steps used as deterministic
+   metric producers; no new step needed).
 2. **Changed-code adversarial probe** (dirty the tree between two runs,
    assert `code_revision` differs and reproduction evidence flags it) —
-   closes section E gap. Low.
+   closes section E gap. Low. **DONE `cc2a5416`** (controlled HEADs fed
+   via the provenance subprocess seam instead — worktree untouched;
+   discrimination proven, behavior-neutral).
 3. **Coverage measurement** (`pytest-cov`, record % in gates) —
    quantifies test claims; baseline for regression checks (reassessment
    rank 4). Low.
@@ -356,5 +382,7 @@ report explicitly does not start any of these.**
 
 ---
 
-*End of report. Mission phases A–H complete; gates green; queue K is
-recorded for a future mission and was not started.*
+*End of report. Mission phases A–H complete; gates green; queue K was
+not started at report landing — closure addendum (`8d9e7cad`,
+`cc2a5416`) has since completed items 1–2; the remainder stays recorded
+for a future mission.*

@@ -225,8 +225,9 @@ request persists nothing.
   `sha256_file`, `validates("config")`, `validates("file_path")`,
   `Run.config_hash`, `Run.provenance`);
   `app/core/provenance.py` (`build_provenance`).
-- **Test:** `tests/test_run_provenance.py`, `tests/test_artifact_integrity.py`
-  (backend).
+- **Test:** `tests/test_run_provenance.py`, `tests/test_artifact_integrity.py`,
+  `test_reproduction_adversarial.py::TestChangedCodeProvenance` (backend —
+  code_revision recorded per run, distinguishes controlled differing HEADs).
 - **Status:** VERIFIED for config hash + engine/origin/environment/code
   snapshot on all Run creation paths (dashboard, experiment, seed), and for
   file-artifact content hashing at insert (fail-closed, metadata-independent).
