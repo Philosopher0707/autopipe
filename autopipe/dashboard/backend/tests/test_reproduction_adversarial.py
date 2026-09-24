@@ -12,7 +12,6 @@ Attacks the Phase B/C claims where nominal tests don't reach:
 """
 
 import hashlib
-import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -107,7 +106,7 @@ async def test_dataset_and_artifact_survive_a_failed_run(
     auth_client: AsyncClient, seed_pipeline, db_session, wait_terminal, tmp_path, monkeypatch
 ):
     """Attack containment: a failing step must not erase evidence already recorded."""
-    from app.db.models import RunStatus as RS
+    from app.db.models import RunStatus
 
     monkeypatch.chdir(tmp_path)
     csv_path = tmp_path / "in.csv"
@@ -134,7 +133,10 @@ async def test_dataset_and_artifact_survive_a_failed_run(
     assert resp.status_code == 201, resp.text
     run_id = resp.json()["id"]
     status = await wait_terminal(run_id)
-    assert status in (RS.SUCCESS, RS.FAILED), "either outcome is fine; evidence is the point"
+    assert status in (
+        RunStatus.SUCCESS,
+        RunStatus.FAILED,
+    ), "either outcome is fine; evidence is the point"
 
     db_session.expire_all()
     run = await db_session.get(Run, run_id)
