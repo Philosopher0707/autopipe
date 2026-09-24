@@ -6,7 +6,6 @@ compares the durable reproduction evidence: config hash, applied seed,
 dataset identities (content hashes), and produced-artifact content hashes.
 """
 
-import os
 from pathlib import Path
 
 from app.db.models import Artifact, Run, RunStatus
