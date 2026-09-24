@@ -17,10 +17,11 @@ from uuid import uuid4
 
 from app.db.models import Artifact, Base, Pipeline, Run, RunStatus
 from app.executor.sink import RunStateStore
-from autopipe.core.artifacts import drain_dataset_inputs, record_dataset_input, sha256_file
 from httpx import AsyncClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+
+from autopipe.core.artifacts import drain_dataset_inputs, record_dataset_input, sha256_file
 
 
 def _make_sync_session(db_path: Path) -> sessionmaker:
