@@ -1,8 +1,8 @@
-"""Track A: requested + resolved model identity in Run.provenance.
+"""Requested + resolved model identity in Run.provenance.
 
 Admission writes REQUESTED_ONLY entries from the config; the LLM clients
 record the response's ``model`` field on the success path only; the runner
-drains those entries at finalize and ``RunStateStore.record_model_identity``
+drains those entries at finalize and ``RunStateStore.record_model_identities``
 merges them (RESOLVED / UNAVAILABLE). Credential safety: only provider name,
 requested model and resolved model ever reach provenance.
 """
@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from app.core.provenance import build_provenance, models_from_config
 from app.db.models import Base, Pipeline, Run, RunStatus
 from app.executor.sink import RunStateStore
@@ -103,8 +104,28 @@ def test_models_from_config_dedupes_pairs_preserving_order():
 def test_models_from_config_accepts_fq_llmstep_type():
     config = {"steps": [{"name": "x", "type": "autopipe.core.steps.LLMStep", "params": {}}]}
     assert models_from_config(config) == [
-        {"provider": None, "requested_model": None, "resolution_status": "REQUESTED_ONLY"}
+        {"provider": "openrouter", "requested_model": None, "resolution_status": "REQUESTED_ONLY"}
     ]
+
+
+def test_models_from_config_defaults_provider_to_openrouter():
+    """Omitted provider matches the LLMStep runtime default ("openrouter")."""
+    config = {"steps": [{"name": "a", "type": "llm", "params": {"model": "m"}}]}
+    assert models_from_config(config) == [
+        {"provider": "openrouter", "requested_model": "m", "resolution_status": "REQUESTED_ONLY"}
+    ]
+
+
+def test_models_from_config_lowercases_provider():
+    config = {
+        "steps": [
+            {"name": "a", "type": "llm", "params": {"provider": "Ollama", "model": "m"}},
+            {"name": "b", "type": "llm", "params": {"provider": "ollama", "model": "m"}},
+        ]
+    }
+    entries = models_from_config(config)
+    assert entries is not None
+    assert [e["provider"] for e in entries] == ["ollama"], "dedup after normalization"
 
 
 def test_build_provenance_models_key_present_only_when_declared():
@@ -201,6 +222,54 @@ def test_failed_chat_records_nothing(monkeypatch):
     assert drain_model_identities() == [], "no response -> no recorded identity"
 
 
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "openrouter", "ollama"])
+def test_clients_record_exact_provider_literal(provider, monkeypatch):
+    """Each provider client records its exact hardcoded literal (typo guard)."""
+    from autopipe.llm import client as llm_client
+
+    drain_model_identities()
+    payload = {"model": "m-resolved", "choices": [{"message": {"content": "hi"}}]}
+    if provider == "ollama":
+        monkeypatch.setenv("OLLAMA_BASE_URL", OFFLINE)
+        monkeypatch.setattr(llm_client.requests, "post", _fake_post(payload))
+        client = llm_client.OllamaClient(api_key="test-key", model="m")
+    elif provider == "openrouter":
+        monkeypatch.setattr(llm_client.requests, "post", _fake_post(payload))
+        client = llm_client.OpenRouterClient(api_key="test-key", model="m")
+    elif provider == "openai":
+        fake_response = SimpleNamespace(
+            model="m-resolved",
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+        )
+        fake_module = types.ModuleType("openai")
+        fake_module.OpenAI = lambda **_kw: SimpleNamespace(  # type: ignore[attr-defined]
+            chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_k: fake_response))
+        )
+        monkeypatch.setitem(sys.modules, "openai", fake_module)
+        client = llm_client.OpenAIClient(api_key="test-key", model="m")
+    else:  # anthropic
+        fake_response = SimpleNamespace(
+            model="m-resolved",
+            content=[SimpleNamespace(text="ok")],
+        )
+        fake_module = types.ModuleType("anthropic")
+        fake_module.Anthropic = lambda **_kw: SimpleNamespace(  # type: ignore[attr-defined]
+            messages=SimpleNamespace(create=lambda **_k: fake_response)
+        )
+        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+        client = llm_client.AnthropicClient(api_key="test-key", model="m")
+
+    assert client.chat([{"role": "user", "content": "hi"}]) in ("hi", "ok")
+    entries = drain_model_identities()
+    assert entries == [
+        {
+            "provider": provider,
+            "requested_model": "m",
+            "resolved_model": "m-resolved",
+        }
+    ]
+
+
 def test_recorder_does_not_leak_between_hygiene_cycles():
     record_model_identity(
         {"provider": "ollama", "requested_model": None, "resolved_model": "stale"}
@@ -251,7 +320,7 @@ def test_merge_requested_only_plus_resolved_becomes_resolved(tmp_path: Path):
     run_id = _seed_run(SessionLocal, {"seed_applied": 7, "models": [dict(_REQUESTED)]})
     store = RunStateStore(SessionLocal)
 
-    store.record_model_identity(
+    store.record_model_identities(
         run_id,
         [
             {
@@ -280,7 +349,7 @@ def test_merge_requested_only_plus_no_id_becomes_unavailable(tmp_path: Path):
     run_id = _seed_run(SessionLocal, {"models": [dict(_REQUESTED)]})
     store = RunStateStore(SessionLocal)
 
-    store.record_model_identity(
+    store.record_model_identities(
         run_id,
         [{"provider": "ollama", "requested_model": "llama3.1", "resolved_model": None}],
     )
@@ -296,7 +365,7 @@ def test_merge_appends_when_no_admission_entry(tmp_path: Path):
     run_id = _seed_run(SessionLocal, {"origin": "dashboard"})  # no models key
     store = RunStateStore(SessionLocal)
 
-    store.record_model_identity(
+    store.record_model_identities(
         run_id,
         [{"provider": "ollama", "requested_model": None, "resolved_model": "x"}],
     )
@@ -319,12 +388,72 @@ def test_merge_skips_empty_and_unknown_run(tmp_path: Path):
     run_id = _seed_run(SessionLocal, {"models": [dict(_REQUESTED)]})
     store = RunStateStore(SessionLocal)
 
-    store.record_model_identity(run_id, [])  # no-op, no raise
-    store.record_model_identity("missing-run", [{"provider": "ollama"}])  # log + return
+    store.record_model_identities(run_id, [])  # no-op, no raise
+    store.record_model_identities("missing-run", [{"provider": "ollama"}])  # log + return
 
     with SessionLocal() as db:
         entry = db.get(Run, run_id).provenance["models"][0]
         assert entry["resolution_status"] == "REQUESTED_ONLY", "untouched"
+
+
+def test_merge_openrouter_default_from_config_resolves_same_entry(tmp_path: Path):
+    """Config-omitted provider -> "openrouter" admission entry resolves in place."""
+    SessionLocal = _make_sync_session(tmp_path / "m5.db")
+    config = {"steps": [{"name": "a", "type": "llm", "params": {"model": "gpt-x"}}]}
+    admission = models_from_config(config)
+    assert admission is not None and admission[0]["provider"] == "openrouter"
+    run_id = _seed_run(SessionLocal, {"models": [dict(e) for e in admission]})
+    store = RunStateStore(SessionLocal)
+
+    store.record_model_identities(
+        run_id,
+        [
+            {
+                "provider": "openrouter",
+                "requested_model": "gpt-x",
+                "resolved_model": "gpt-x-2024-08-06",
+            }
+        ],
+    )
+
+    with SessionLocal() as db:
+        models = db.get(Run, run_id).provenance["models"]
+        assert len(models) == 1, "no orphaned REQUESTED_ONLY duplicate"
+        assert models[0] == {
+            "provider": "openrouter",
+            "requested_model": "gpt-x",
+            "resolved_model": "gpt-x-2024-08-06",
+            "resolution_status": "RESOLVED",
+        }
+
+
+def test_merge_provider_casing_from_legacy_admission_row(tmp_path: Path):
+    """Pre-fix admission row "Ollama" merges with client entry "ollama"."""
+    SessionLocal = _make_sync_session(tmp_path / "m6.db")
+    run_id = _seed_run(
+        SessionLocal,
+        {
+            "models": [
+                {
+                    "provider": "Ollama",
+                    "requested_model": "llama3.1",
+                    "resolution_status": "REQUESTED_ONLY",
+                }
+            ]
+        },
+    )
+    store = RunStateStore(SessionLocal)
+
+    store.record_model_identities(
+        run_id,
+        [{"provider": "ollama", "requested_model": "llama3.1", "resolved_model": "llama3.1:rev"}],
+    )
+
+    with SessionLocal() as db:
+        models = db.get(Run, run_id).provenance["models"]
+        assert len(models) == 1, "case-insensitive provider match, no duplicate"
+        assert models[0]["resolution_status"] == "RESOLVED"
+        assert models[0]["provider"] == "Ollama", "existing entry's provider untouched"
 
 
 # --- integration (HTTP admit -> run -> finalize) -------------------------

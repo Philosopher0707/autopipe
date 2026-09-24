@@ -2,7 +2,8 @@
 
 **Status: MOSTLY IMPLEMENTED. Configuration-hash, engine/origin, environment,
 code-revision snapshots, top-level seed declare+apply, run-path file-artifact
-registration, and dataset input identity are implemented and tested.
+registration, dataset input identity, and model identity (requested+resolved)
+are implemented and tested.
 Step-level data/seed provenance and registry↔Run linkage are not.** Per the
 repository's no-fabricated-data rule,
 **no provenance is recorded that the system cannot actually capture**; every
@@ -25,7 +26,13 @@ Which data?                          DONE (DataLoader path): run-path loaders
                                       format only (connection never recorded);
                                       other sources: source + "unavailable"
                                       (Phase C ceilings below)
-Which model / parameters?            not captured (partially in config)
+Which model / parameters?            DONE (identity): requested identity from
+                                     the config at admission
+                                     (provenance.models REQUESTED_ONLY, provider
+                                     normalized/defaulted to match runtime);
+                                     resolved identity from provider responses
+                                     at execution (RESOLVED / UNAVAILABLE);
+                                     content-hash Level 3 still absent
 Which random seeds?                  DONE (top-level): config `seed` copied into
                                      provenance.seeds at creation (DECLARED) and
                                      provenance.seed_applied at finalization iff
@@ -103,6 +110,35 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   uses torch's global generator — not partially seeded, because a partial fix
   would mislead); step-level `random_state` params (declared, per-step);
   experiment trial generation at API time; steps that ignore `run_rng`.
+
+## Model identity (`provenance.models`)
+
+- **Entry shape** — `{provider, requested_model, resolution_status}` at
+  admission; `{..., resolved_model}` once a response arrives. Only LLM steps
+  count (`type == "llm"` or a `*LLMStep` class name); a `model_evaluation`
+  step's `model` names a sklearn class, not an LLM.
+- **Admission (REQUESTED_ONLY)** — `models_from_config`
+  (`app/core/provenance.py`) runs once per Run creation. `provider` is
+  normalized to lowercase; a missing/blank provider records `"openrouter"`,
+  matching the `LLMStep.__init__` default the executor will actually use, so
+  the merge key survives config-vs-runtime drift. Entries dedupe on
+  `(provider, requested_model)`; no model-bearing steps → the key stays
+  absent (never an empty list).
+- **Execution (RESOLVED / UNAVAILABLE)** — LLM clients call
+  `_record_identity` (`autopipe/llm/client.py`) with a hardcoded lowercase
+  provider literal only after a response parses successfully (failures
+  record nothing); `runner._run_pipeline_in_thread` drains the thread-local
+  list and `runner._finalize` calls
+  `RunStateStore.record_model_identities` before the terminal write
+  (contained like `record_drift`). The merge matches provider
+  case-insensitively and `requested_model` exactly: a truthy
+  `resolved_model` sets RESOLVED, a response with no usable identifier sets
+  UNAVAILABLE, a run with no response leaves the admission entry untouched
+  (REQUESTED_ONLY). No matching admission entry → the entry is appended.
+- **Credential safety** — entries carry provider name + model names only;
+  never base URLs, keys, or response payloads (I12).
+- **Remaining ceiling** — identity is name-level, not content-hash Level 3
+  (see Remaining gaps).
 
 ## Artifact integrity (`Artifact.sha256`)
 
@@ -216,7 +252,13 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   top-level in config) are not visible to the Run-level snapshot; steps must
   opt into `self.run_rng` (cooperation unverified system-wide beyond the
   PDP consumer).
-- **Model / parameter provenance** — only as far as the config itself states.
+- **Model / parameter provenance** — requested identity is captured from
+  the config at admission and resolved identity from provider responses at
+  execution (`provenance.models`, above); parameters beyond model identity
+  are only as far as the config itself states. Still absent: content-hash
+  Level 3 for LLM models (name string only, no weight/content hash);
+  registry↔Run linkage; endpoint/revision fields when a provider never
+  exposes them.
 
 ## Non-goals
 

@@ -134,11 +134,15 @@ def models_from_config(config: Optional[Dict[str, Any]]) -> Optional[List[Dict[s
 
     Only LLM steps count (``type == "llm"`` or a ``*LLMStep`` class name):
     a ``model_evaluation`` step's ``model`` param names a scikit-learn class,
-    not an LLM identity. Deduped on ``(provider, requested_model)`` preserving
-    order; ``None`` when the config declares no model-bearing steps (the key
-    then stays absent from provenance, like ``seeds=None`` never becomes an
-    empty dict). Resolved identity is merged in later from actual responses
-    (``RunStateStore.record_model_identity``).
+    not an LLM identity. ``provider`` is normalized to lowercase (merge-key
+    parity with the hardcoded client literals); a missing/blank provider is
+    recorded as ``"openrouter"``, matching the ``LLMStep.__init__`` default
+    (``autopipe.core.steps.LLMStep``) the executor will actually use. Deduped
+    on ``(provider, requested_model)`` preserving order; ``None`` when the
+    config declares no model-bearing steps (the key then stays absent from
+    provenance, like ``seeds=None`` never becomes an empty dict). Resolved
+    identity is merged in later from actual responses
+    (``RunStateStore.record_model_identities``).
     """
     if not config:
         return None
@@ -152,7 +156,10 @@ def models_from_config(config: Optional[Dict[str, Any]]) -> Optional[List[Dict[s
             continue
         params = step.get("params")
         params = params if isinstance(params, dict) else {}
-        provider = params.get("provider")
+        raw_provider = params.get("provider")
+        # Default mirrors LLMStep.__init__ (autopipe.core.steps.LLMStep:
+        # provider="openrouter") so admission and runtime agree on the key.
+        provider = str(raw_provider).lower() if raw_provider else "openrouter"
         model = params.get("model")
         key = (provider, model)
         if key in seen:

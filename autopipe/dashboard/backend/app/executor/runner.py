@@ -262,7 +262,7 @@ def _finalize(
     ``produced`` is the drained list of files the run wrote (Phase B artifact
     registration), ``datasets`` the drained dataset-input entries (Phase C
     input identity) and ``models`` the drained response-supplied model
-    identities (Track A resolved model identity); all are persisted only when
+    identities (model identity capture); all are persisted only when
     a valid result exists.
     """
     if result is None:
@@ -288,9 +288,9 @@ def _finalize(
             logger.exception("Failed to record dataset inputs for run %s", run_id)
     if models:
         try:
-            store.record_model_identity(run_id, models)
+            store.record_model_identities(run_id, models)
         except Exception:
-            logger.exception("Failed to record model identity for run %s", run_id)
+            logger.exception("Failed to record model identities for run %s", run_id)
     try:
         store.record_drift(run_id, result.outputs)
     except Exception:
