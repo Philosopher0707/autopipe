@@ -11,6 +11,9 @@ build/
 venv/
 .venv/
 .venv_ci/
+# any dot-venv variant: .venv-verify/, .venv_ci2/, .venv-tmp/ (leading dot required,
+# so plain venv/ is untouched; no slash inside => also matches at any depth)
+.venv*/
 ENV/
 env/
 
