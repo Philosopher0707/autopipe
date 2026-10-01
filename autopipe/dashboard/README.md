@@ -138,6 +138,7 @@ autopipe/dashboard/
 # Backend
 cd autopipe/dashboard/backend
 pip install -r requirements.txt
+pip install -e ../../..   # core library, from the REPO ROOT (not ../..)
 
 # Frontend
 cd autopipe/dashboard/frontend

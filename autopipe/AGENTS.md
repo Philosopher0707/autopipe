@@ -10,7 +10,7 @@ From the repository root:
 - `pytest tests/unit --cov=autopipe --cov-report=term-missing` runs the main Python test suite with coverage.
 - `pytest tests/integration -v --timeout=300` runs slower end-to-end checks.
 - `ruff check autopipe tests && ruff format --check autopipe tests && mypy autopipe` matches the CI quality gates.
-- `cd autopipe/dashboard/backend && pip install -r requirements.txt && uvicorn app.main:app --reload` starts the dashboard API.
+- `cd autopipe/dashboard/backend && pip install -r requirements.txt && pip install -e ../../.. && uvicorn app.main:app --reload` starts the dashboard API. The second install is core, from the repo root (`../../..`, not `../..`); the backend imports `autopipe.core` and `requirements.txt` does not list core's deps (e.g. `pandas`).
 - `cd autopipe/dashboard/frontend && pnpm install && pnpm dev` runs the dashboard UI locally.
 - `cd autopipe/dashboard/frontend && pnpm build && pnpm typecheck` verifies production build health.
 - `autopipe eval --compare` runs promptfoo LLM evaluations across your configured Ollama models (kimi, glm, minimax).

@@ -113,8 +113,13 @@ jobs:
         python -m venv .venv_ci
         .venv_ci/bin/python -m pip install --upgrade pip
         # The dashboard imports the core package (e.g. app/db/models.py imports
-        # autopipe.core.artifacts), so install it alongside requirements.txt.
-        .venv_ci/bin/python -m pip install -e ../..
+        # autopipe.core.artifacts), so install core alongside requirements.txt.
+        # Installing it also pulls in core's runtime deps -- pandas, numpy,
+        # pydantic -- which requirements.txt does NOT list, so merely putting
+        # the repo root on sys.path is not enough to import autopipe.core.
+        # NOTE: the target must be ../../.. (the repo root). ../.. is the inner
+        # autopipe/ package dir, which has no pyproject.toml and is not installable.
+        .venv_ci/bin/python -m pip install -e ../../..
         .venv_ci/bin/python -m pip install -r requirements.txt
 
     - name: Run backend tests

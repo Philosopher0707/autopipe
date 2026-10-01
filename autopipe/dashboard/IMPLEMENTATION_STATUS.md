@@ -121,6 +121,7 @@ All 30+ API endpoints are implemented and functional:
 ```bash
 cd autopipe/dashboard/backend
 pip install -r requirements.txt
+pip install -e ../../..   # core library, from the REPO ROOT (not ../..)
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 

@@ -43,16 +43,21 @@ conda run -n pipeline mypy autopipe               # Type check
 ```bash
 cd autopipe/dashboard/backend
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e ../../..   # core, from the REPO ROOT (not ../..)
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload  # Dev server
 .venv/bin/python -m app.seed                                                     # Seed database
 .venv/bin/python -m alembic upgrade head                                        # Apply DB migrations
 .venv/bin/python -m alembic revision --autogenerate -m "..."                    # New migration
 .venv/bin/python -m alembic stamp head                                          # Adopt an existing (create_all) DB
 
-# Backend tests must run from the REPO ROOT, not from this directory: the
-# backend imports the core package (app/db/models.py -> autopipe.core.artifacts),
-# which this venv does not install. `pytest tests/` from here fails with
-# ModuleNotFoundError: No module named 'autopipe'. (Matches CONTEXT.md §gates.)
+# Backend tests import the core package (app/db/models.py -> autopipe.core.artifacts).
+# Preferred: install core into the venv (the `-e ../../..` step above), then run
+# tests from THIS directory:
+#   .venv/bin/python -m pytest tests/ -q
+# Fallback for a venv WITHOUT core installed: run from the REPO ROOT instead, so
+# that the repo root (which contains the `autopipe/` package dir) is on sys.path.
+# `pytest tests/` from the backend dir in that case fails with
+# ModuleNotFoundError: No module named 'autopipe'. (Matches CONTEXT.md D14.)
 cd ../../..
 autopipe/dashboard/backend/.venv/bin/python -m pytest autopipe/dashboard/backend/tests -q  # 260 pass expected
 ```

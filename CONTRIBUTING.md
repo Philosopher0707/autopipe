@@ -23,8 +23,21 @@ Dashboard backend (its own virtualenv):
 
 ```bash
 cd autopipe/dashboard/backend
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e ../../..   # core, from the REPO ROOT — see note
 ```
+
+> **Why the `-e ../../..` step is required.** The backend imports the core
+> library in at least four modules (`app/core/provenance.py`,
+> `app/db/models.py`, `app/executor/runner.py`, `app/api/v1/endpoints/runs.py`),
+> so `requirements.txt` alone cannot run it or its tests. Use the **repo root**
+> (`../../..` relative to `autopipe/dashboard/backend`), not `../..` — `../..`
+> is the inner `autopipe/` package directory, which has no `pyproject.toml` and
+> fails the install. Installing core is also what supplies `pandas`, `numpy`
+> and `pydantic`: `autopipe/core/__init__.py` imports `steps.py`, which imports
+> `pandas` at module level, and the backend's `requirements.txt` does not list
+> core's dependencies.
 
 Dashboard frontend:
 
@@ -46,6 +59,7 @@ pytest tests/integration -v        # integration suite
 
 # Dashboard backend
 cd autopipe/dashboard/backend && .venv/bin/python -m pytest tests/ -q
+# (needs the `-e ../../..` core install above — see the note)
 
 # Dashboard frontend
 cd autopipe/dashboard/frontend

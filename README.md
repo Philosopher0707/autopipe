@@ -73,6 +73,7 @@ feature engineering and cloud models.
 # Backend (port 8765)
 cd autopipe/dashboard/backend
 .venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e ../../..   # core library, from the REPO ROOT (not ../..)
 .venv/bin/python -m app.seed          # optional demo data
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload
 

@@ -232,6 +232,17 @@ installed package) — use `PYTHONPATH=.` as above.
   the hash (cosmetic string variance must not change identity); no
   lockfile is created (mission non-goal: the hash records the resolved
   set, it does not pin re-resolution); Level 3 system layers stay UNKNOWN.
+- D14: the dashboard backend's CI venv installs core with
+  `pip install -e ../../..` (repo root), NOT `../..`. `../..` is the
+  inner `autopipe/` package dir, which has no `pyproject.toml` — the
+  install fails outright. Installing core is also what supplies pandas
+  / numpy / pydantic: `autopipe/core/__init__.py` imports `steps.py`,
+  which imports pandas at module level, and backend `requirements.txt`
+  does NOT list core's deps. So the local "works because `python -m
+  pytest` puts the repo root on sys.path" invocation is NOT reproducible in
+  a requirements-only CI venv — sys.path alone gives you `autopipe` but
+  not its third-party deps. The dev venv `backend/.venv` hides this
+  because it has pandas/numpy/matplotlib installed but no `autopipe`.
 
 ## Resume procedure
 

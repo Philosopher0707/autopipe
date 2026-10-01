@@ -28,6 +28,7 @@ This document describes the integration tests for verifying the frontend-backend
 ```bash
 cd autopipe/dashboard/backend
 pip install -r requirements.txt
+pip install -e ../../..   # core library, from the REPO ROOT (not ../..)
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
