@@ -112,8 +112,13 @@ Which execution engine version?      DONE: Run.provenance.engine_version
   `step.run_rng` draws for AutoPipe-owned consumers. **Not guaranteed**
   (ceilings): LLM/provider/GPU/torch RNG (e.g. `DataLoader(shuffle=True)`
   uses torch's global generator — not partially seeded, because a partial fix
-  would mislead); step-level `random_state` params (declared, per-step);
-  experiment trial generation at API time; steps that ignore `run_rng`.
+  would mislead); step-level `random_state` params (declared, per-step, and
+  honoured as an override over the run seed); experiment trial generation
+  at API time.
+- **Step coverage** — `SklearnTrainerStep`, `CrossValidationStep` and
+  `HyperparameterTunerStep` derive estimator, CV-split and search randomness
+  from `run_rng.seed` (invariant I25). The tensor/DL and LLM steps do not
+  consult `run_rng` and remain under the ceilings above.
 
 ## Model identity (`provenance.models`)
 

@@ -346,7 +346,9 @@ state, and provenance distinguishes DECLARED from APPLIED.
   applied that the engine never used.
 - **Ceilings (documented, not violations):** torch/global generator in
   `DataLoader(shuffle=True)`; LLM/provider nondeterminism; step-level
-  `random_state` params; steps ignoring `run_rng`.
+  `random_state` params. The last ceiling ("steps ignoring `run_rng`") was
+  **closed for the sklearn steps** by I24 — the tensor/DL and LLM steps still
+  do not consult `run_rng`.
 - **Status:** VERIFIED.
 
 ### I22 — Model identity provenance distinguishes requested from resolved,
@@ -428,3 +430,108 @@ material version changes change it; platform is recorded but excluded.
   Level 3 full runtime (OS/CUDA/glibc/BLAS layers) UNKNOWN beyond the
   `platform.platform()` string + python version.
 - **Status:** VERIFIED (Level 2 resolved-set identity OBSERVED).
+
+## Model correctness (Tier 5)
+
+These cover the ML step library rather than the engine. Added after a review
+found the engine faithful but the step library computing the wrong quantity
+without raising — the same "docs and behaviour disagree" class, inverted: the
+docs described a capability the steps did not have.
+
+### I24 — A training step consumes the dataset it was configured to train on,
+chosen by a fixed priority rather than by input ordering.
+- **Definition:** when a training step receives several candidate inputs, it
+  selects one by a **fixed priority** (splits dict → `(X, y)` tuple →
+  DataFrame → ndarray), independent of kwargs ordering. `SklearnTrainerStep`
+  never falls back to a full frame that contains the held-out split.
+- **Owner:** `autopipe/steps/training.py::SklearnTrainerStep._extract_xy`.
+- **Enforcement:** the priority is expressed as four ordered passes, each
+  returning on first match; there is no fall-through that lets a later input
+  overwrite an earlier one.
+- **Test:** `tests/unit/test_ml_step_correctness.py::TestTrainerPicksTrainingData`
+  (splits dict wins over a raw frame, order-independence, the `(X, y)`
+  contract, and the same leak driven through the real `ExecutionEngine`).
+- **Failure mode if violated:** silent train/test leakage — the model trains
+  on every row including test, reports a healthy `training_samples`, and the
+  dashboard shows a good run. Observed before this invariant: a trainer with
+  `depends_on: [split, raw]` trained on 600/600 rows while holding out 90.
+- **Status:** VERIFIED.
+
+### I25 — A declared run seed governs sklearn estimator, CV-split and
+hyperparameter-search randomness.
+- **Definition:** when the engine binds `step.run_rng`, `SklearnTrainerStep`,
+  `CrossValidationStep` and `HyperparameterTunerStep` derive their
+  `random_state` / splitter seed from `run_rng.seed`. An explicit
+  `random_state` in `model_params` is never clobbered (`setdefault`).
+  `RandomizedSearchCV` receives `random_state`; `GridSearchCV` does not
+  (it enumerates exhaustively and rejects the argument).
+- **Owner:** `steps/training.py::_resolve_seed` + `HyperparameterTunerStep.run`;
+  `steps/cross_validation.py::CrossValidationStep._resolve_seed`.
+- **Enforcement:** `setdefault` for user-supplied params; the seed is
+  resolved once per `run()`; `if "random_state" in model.get_params()` guards
+  estimators that take no seed.
+- **Test:** `TestSeedReachesTraining` (same seed → identical model, different
+  seed → different model, explicit `random_state` preserved, unseeded runs
+  stay deterministic, CV split follows the seed, random search seeded, tuned
+  estimator itself seeded, stateless estimator tolerated).
+- **Failure mode if violated:** `provenance.seed_applied` attests to a
+  reproducibility that training does not have — the recorded seed has no
+  effect on the fitted model. Observed before this invariant: the default
+  estimator was pinned at `random_state=42` regardless of the declared seed,
+  and an explicit `model_class` received *no* `random_state` at all.
+- **Status:** VERIFIED.
+
+### I26 — Cross-validation honours its own configuration.
+- **Definition:** `strategy="group"` is usable from configuration alone
+  (`run()`'s `groups=None` default no longer shadows the constructor value);
+  every metric in `metrics` is computed per fold, not just `metrics[0]`.
+- **Owner:** `steps/cross_validation.py::CrossValidationStep.run` /
+  `_score_model`.
+- **Enforcement:** per-metric `val_scores`/`train_scores` dicts on every fold
+  result, with `mean_val_<metric>` aggregates; the legacy scalar
+  `train_score`/`val_score` keys retain their meaning (`metrics[0]`) so
+  `visualize()` and `get_best_model()` are unchanged.
+- **Test:** `TestCrossValidationConfig` (constructor groups used, no group
+  split across folds, every requested metric computed, legacy keys preserved).
+- **Failure mode if violated:** configuration that reads as honoured but is
+  discarded — `groups=` silently ignored (raising at run time), or a
+  multi-metric request silently collapsed to its first entry.
+- **Status:** VERIFIED.
+
+### I27 — A drift method reports whether it detected drift.
+- **Definition:** each method in `steps/evaluation.DriftDetectionStep`
+  (`ks_test`, `wasserstein`, `psi`) returns a `drift_detected` key, so the
+  run-level `any()` aggregation can see every method's verdict.
+- **Owner:** `steps/evaluation.py::_ks_test`, `_wasserstein_distance`,
+  `_population_stability_index`.
+- **Enforcement:** all three return the uniform
+  `{"drift_detected": bool, "per_feature": {...}}` shape.
+- **Test:** `TestDriftReporting` (parametrised over all three methods, both
+  directions — a large shift is reported, no shift is not).
+- **Failure mode if violated:** a production pipeline reports "no drift" while
+  the detector has flagged every feature. Observed before this invariant:
+  `methods=["wasserstein"]` returned `drift_detected=False` for a 5-sigma
+  shift.
+- **Status:** VERIFIED.
+
+### I28 — (PROPOSED) A drift verdict is calibrated, not a fixed absolute
+threshold.
+- **Definition (not yet true):** every drift method's cutoff is expressed in
+  units that do not vary with sample size or feature scale, and the
+  multi-feature alarm accounts for multiplicity.
+- **Evidence (OBSERVED):** the `wasserstein` cutoff is an absolute distance,
+  but the null distance between two iid samples shrinks as O(1/n). Measured
+  false-positive rate on two iid N(0,1) samples of size n: **97% at n=100,
+  73% at n=200, 20% at n=500, 5% at n=1000, 0% at n=5000**. The detector's
+  false-alarm rate is therefore a function of dataset size, not of drift.
+- **Owner:** would be `steps/evaluation.py` — but see the ceiling below.
+- **Test:** `TestDriftReporting::test_no_shift_is_not_reported_wasserstein`
+  is an **xfail** carrying these measurements; it flips when this is fixed.
+- **Ceilings:** the honest fix is not a one-line rescale. Per-feature cutoffs
+  need a multiplicity decision (at ~6% per-feature FPR a 20-feature check
+  alarms ~71% of the time on clean data), and
+  `monitoring/drift_detection.StatisticalDriftDetectorStep` already does
+  decile PSI + Benjamini-Hochberg FDR correction. The likely resolution is to
+  converge the two drift engines onto the corrected one rather than
+  recalibrate this one — an architectural decision, not a patch.
+- **Status:** PROPOSED (known defect, deliberately left visible).

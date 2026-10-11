@@ -118,6 +118,16 @@
   registry↔Run linkage and DL checkpoints not registered (PROVENANCE_MODEL).
 - Dataset entries: sql connection/query and non-file sources record
   sha256 "unavailable"; only DataLoaderSteps cooperate (PROVENANCE_MODEL).
+- Drift: two drift implementations coexist. `steps/evaluation.DriftDetectionStep`
+  now reports verdicts correctly (I27) but its wasserstein/PSI cutoffs are
+  uncalibrated (I28, PROPOSED). `monitoring/drift_detection.py` is the
+  better-calibrated one (decile PSI + Benjamini-Hochberg) and is the likely
+  convergence target.
+- `SklearnTrainerStep` still defaults to "last column is the target" when no
+  `target_column` is given — I24 made the choice explicit, not mandatory; the
+  backwards-compatible default is retained deliberately.
+- DL/XAI/tuning/registry step modules were NOT reviewed in this pass
+  (`deep_learning.py`, `explainability.py`, `tuning/`, `registry/`).
 
 ## Quality gates (run before every commit)
 
@@ -142,12 +152,14 @@ installed package) — use `PYTHONPATH=.` as above.
 - `app/core/security.py` — SimpleRateLimiter (module-global `_rate_limiter`).
 - `app/api/v1/endpoints/websocket.py` — WS auth + `_envelope` broadcasts
   (contract: `docs/architecture/WS_CONTRACT.md`).
-- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I23,
+- `docs/architecture/` — ARCHITECTURE, ARCHITECTURAL_INVARIANTS (I1–I28,
   status-labelled), EXECUTION_MODEL, RUN_STATE_MACHINE, FAILURE_MODEL,
   PROVENANCE_MODEL, WS_CONTRACT. Keep these truthful when behavior changes.
   Provenance keys of note: `provenance.models` (requested+resolved model
   identity, I22), `provenance.environment.environment_hash` (resolved
   package set identity, I23).
+- `tests/unit/test_ml_step_correctness.py` — ML step correctness regressions
+  (I24–I27), plus one `xfail` pinning the uncalibrated-drift defect (I28).
 - `AUTOPIPE_CURRENT_ARCHITECTURE.md` — PHASE NEXT reassessment: measured
   baseline, 18-dimension ratings, audits, ranked next queue.
 - `REPRODUCIBILITY_CLOSURE_REPORT.md` — fixed-format mission report
@@ -182,6 +194,63 @@ installed package) — use `PYTHONPATH=.` as above.
 | F | Model Identity: requested+resolved provenance | DONE `4069e2df`+`0f94597e` (`provenance.models` with REQUESTED_ONLY/RESOLVED/UNAVAILABLE; provider lowercased/default openrouter at admission, case-insensitive merge at finalize, credential-safe names only; I22; `test_model_identity.py`) |
 | G | Environment Exactness: full resolved set + deterministic hash | DONE `9f45a8e5`+`12927a57` (full installed-distribution snapshot + `environment_hash` sha256 over python+sorted package pairs, platform recorded but excluded, fail-open "unavailable"; I23; `test_environment_identity.py`) |
 | H | Identity adversarial probes | DONE `15c86abc` (model alias attack: equal config_hash, resolved revision-a≠b; UNAVAILABLE explicit; env-vs-config separation; credential sentinels absent from provenance JSON + DB bytes + no userinfo URLs; `test_identity_adversarial.py`) |
+| I | ML step correctness: leakage, seed, CV config, drift reporting | **DONE this branch** (I24–I27 VERIFIED, I28 PROPOSED; `tests/unit/test_ml_step_correctness.py`, 25 tests; 375/260 gates) |
+
+## ML step correctness (this branch)
+
+A review of the step library (not the engine) found four defects sharing one
+shape: **a plausible result computed the wrong way, with no error.** The
+engine was faithful throughout — `baseline/run_baseline.py` 87/87 before and
+after.
+
+- **I24 leakage (critical).** `SklearnTrainerStep._extract_xy` picked its
+  training input by kwargs *iteration order*, and its bare-DataFrame branch
+  lacked the `y_train is None` guard the dict branch had. A trainer with
+  `depends_on: [split, raw]` trained on **600/600 rows while holding out 90**
+  and reported a healthy `training_samples`. Now a fixed priority, independent
+  of ordering. Why tests missed it: `tests/integration/test_end_to_end.py`
+  pre-splits in the test body and passes an `(X, y)` tuple, routing around the
+  leaky path by construction.
+- **I25 seed (critical).** `run_rng` appeared nowhere in `training.py` or
+  `cross_validation.py`. The default estimator was pinned at
+  `random_state=42` regardless of the declared seed; an explicit `model_class`
+  got **no** `random_state` at all, so identical inputs produced different
+  models (~8% of held-out predictions unstable across runs). That made
+  `provenance.seed_applied` (I21) attest to a reproducibility training did not
+  have. Now threaded through estimator, CV splitter and search, with
+  `setdefault` so an explicit `random_state` still wins.
+- **I26 CV config (medium).** `run()`'s `groups=None` shadowed the constructor
+  value, so `strategy="group"` raised; `metrics=[...]` was silently truncated
+  to `metrics[0]`.
+- **I27 drift (high).** `_wasserstein_distance` and
+  `_population_stability_index` returned no `drift_detected` key, so the
+  run-level `any()` aggregation was structurally incapable of seeing them: a
+  5-sigma shift reported `drift_detected=False`. All three methods now share
+  the `{drift_detected, per_feature}` shape — also a unification, since
+  `ks_test` already used it (matches D8).
+- **I28 calibration (PROPOSED, unfixed).** The wasserstein cutoff is an
+  absolute distance while the null distance shrinks as O(1/n), so the
+  false-positive rate is a function of sample size: **97% at n=100, 73% at
+  n=200, 20% at n=500, 0% at n=5000** on two iid samples. Deliberately left as
+  an `xfail` carrying the measurements rather than rescaled blindly: per-feature
+  cutoffs need a multiplicity decision, and `monitoring/drift_detection`
+  already does decile PSI + Benjamini-Hochberg. Likely resolution — converge
+  the two drift engines onto that one.
+
+Two process notes:
+
+- **I introduced a regression and caught it before commit.** Passing
+  `random_state` to `GridSearchCV` raises `TypeError` (only
+  `RandomizedSearchCV` accepts it), and no test exercised the grid path. Now
+  conditional, with tests pinning both paths.
+- **Toolchain note (corrected).** An earlier pass recorded "ruff fails on
+  `main`" — that was wrong: it is only true for the locally installed ruff
+  0.4.10, which cannot parse the `UP045` selector in `pyproject.toml`. CI
+  installs `ruff>=0.5`; verified with ruff 0.17.0, `ruff check autopipe tests`
+  passes on **both** a clean HEAD and this branch. `mypy autopipe/core` does
+  report one pre-existing error (`core/steps.py:63`, `no-any-return`) that
+  reproduces on a clean HEAD with the local mypy 1.11.2 — not introduced here,
+  though CI's `mypy>=1.5` parity was not verified locally.
 
 ## Decisions log
 
@@ -243,6 +312,17 @@ installed package) — use `PYTHONPATH=.` as above.
   a requirements-only CI venv — sys.path alone gives you `autopipe` but
   not its third-party deps. The dev venv `backend/.venv` hides this
   because it has pandas/numpy/matplotlib installed but no `autopipe`.
+- D15: a step that accepts several candidate inputs selects one by a fixed
+  priority, never by kwargs iteration order. Order-dependent selection is
+  indistinguishable from correct behaviour until a pipeline happens to supply
+  two matching inputs — which is exactly the leak case (I24).
+- D16: when a step receives a run seed, an explicitly configured
+  `random_state` still wins over the run seed (`setdefault`). The declared
+  seed is the default, not an override of the user's model config.
+- D17: I28 is left unfixed and recorded as an `xfail` rather than rescaled ad
+  hoc. Choosing a drift cutoff is a statistical decision with a real
+  false-alarm budget, and the codebase already contains the better-calibrated
+  implementation; patching the worse one would entrench the duplication.
 
 ## Resume procedure
 
