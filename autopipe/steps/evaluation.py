@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from autopipe.core.step import Step, resolve_seed
+from autopipe.monitoring.drift_detection import benjamini_hochberg, permutation_pvalues
 
 
 @dataclass
@@ -472,17 +473,25 @@ class DriftDetectionStep(Step):
         reference_data: Optional[np.ndarray] = None,
         drift_threshold: float = 0.05,
         methods: Optional[List[str]] = None,
-        wasserstein_threshold: float = 0.1,
-        psi_threshold: float = 0.25,
+        n_permutations: int = 199,
     ):
+        """
+        Args:
+            name: Step name.
+            depends_on: Upstream step names.
+            reference_data: ``(n_ref, n_features)`` baseline sample.
+            drift_threshold: Significance level, applied to every method after
+                Benjamini-Hochberg correction. It is a p-value alpha, so it now
+                means the same thing for all three methods.
+            methods: Any of ``ks_test``, ``wasserstein``, ``psi``.
+            n_permutations: Shuffles for the methods with no closed-form
+                p-value. 199 gives a smallest attainable p of 1/200.
+        """
         super().__init__(name, depends_on=depends_on)
         self.reference_data = reference_data
         self.drift_threshold = drift_threshold
         self.methods = methods or ["ks_test", "wasserstein"]
-        # Cutoffs in each method's own units; drift_threshold is a KS p-value
-        # alpha and cannot be reused as a distance or an index cutoff.
-        self.wasserstein_threshold = wasserstein_threshold
-        self.psi_threshold = psi_threshold
+        self.n_permutations = n_permutations
         self.drift_results = {}
 
     def run(
@@ -514,62 +523,106 @@ class DriftDetectionStep(Step):
 
         return context["drift_detection"]
 
+    def _decide(self, p_values: List[float]) -> List[bool]:
+        """Benjamini-Hochberg decision across features at ``drift_threshold``.
+
+        Without this correction, testing F features at alpha=0.05 raises the
+        chance of at least one false alarm to 0.89 by F=50 on data with no
+        drift at all — measured, not estimated.
+        """
+        adjusted = benjamini_hochberg([float(p) for p in p_values])
+        return [a < self.drift_threshold for a in adjusted]
+
     def _ks_test(self, current_data):
         from scipy.stats import ks_2samp
 
-        results = {}
-        drift_detected = False
-
-        for i in range(self.reference_data.shape[1]):
+        n_features = self.reference_data.shape[1]
+        statistics, p_values = [], []
+        for i in range(n_features):
             statistic, pvalue = ks_2samp(self.reference_data[:, i], current_data[:, i])
+            statistics.append(float(statistic))
+            p_values.append(float(pvalue))
 
-            results[f"feature_{i}"] = {
-                "statistic": float(statistic),
-                "pvalue": float(pvalue),
-                "drift": pvalue < self.drift_threshold,
+        flags = self._decide(p_values)
+        results = {
+            f"feature_{i}": {
+                "statistic": statistics[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
             }
-
-            if pvalue < self.drift_threshold:
-                drift_detected = True
-
-        return {"drift_detected": drift_detected, "per_feature": results}
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
     def _wasserstein_distance(self, current_data):
+        """Distance as a magnitude; the decision comes from a permutation test.
+
+        The old fixed cutoff of 0.1 was not a test — the null distance shrinks
+        as O(1/n), so it fired on 97% of clean comparisons at n=100 and 0% at
+        n=5000.
+        """
         from scipy.stats import wasserstein_distance
 
-        results = {}
-        drift_detected = False
+        n_features = self.reference_data.shape[1]
+        distances = [
+            float(wasserstein_distance(self.reference_data[:, i], current_data[:, i]))
+            for i in range(n_features)
+        ]
+        p_values = self._permutation_pvalues(current_data, wasserstein_distance)
+        flags = self._decide(p_values)
 
-        for i in range(self.reference_data.shape[1]):
-            dist = wasserstein_distance(self.reference_data[:, i], current_data[:, i])
-            # Method-specific cutoff: drift_threshold is the KS p-value alpha,
-            # which is not commensurable with a distance in feature units.
-            drift = dist > self.wasserstein_threshold
-            results[f"feature_{i}"] = {"distance": float(dist), "drift": drift}
-            if drift:
-                drift_detected = True
-
-        # Without this key the run-level aggregation in run() could never see
-        # wasserstein drift and reported drift_detected=False.
-        return {"drift_detected": drift_detected, "per_feature": results}
+        results = {
+            f"feature_{i}": {
+                "distance": distances[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
+            }
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
     def _population_stability_index(self, current_data):
-        """Calculate Population Stability Index."""
-        results = {}
-        drift_detected = False
+        """PSI as a magnitude; the decision comes from a permutation test."""
+        n_features = self.reference_data.shape[1]
+        values = [self._psi(i, current_data) for i in range(n_features)]
+        p_values = self._permutation_pvalues(current_data, self._psi_statistic)
+        flags = self._decide(p_values)
 
-        for i in range(self.reference_data.shape[1]):
-            ref_hist, bins = np.histogram(self.reference_data[:, i], bins=10)
-            curr_hist, _ = np.histogram(current_data[:, i], bins=bins)
+        results = {
+            f"feature_{i}": {
+                "psi": values[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
+            }
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
-            ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
-            curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+    def _psi(self, index: int, current_data: np.ndarray) -> float:
+        """PSI of one feature, with deciles taken from the reference sample."""
+        ref_hist, bins = np.histogram(self.reference_data[:, index], bins=10)
+        curr_hist, _ = np.histogram(current_data[:, index], bins=bins)
+        ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
+        curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+        return float(np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10))))
 
-            psi = np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10)))
+    def _psi_statistic(self, a, b):
+        """PSI as a plain two-sample statistic, for permutation testing."""
+        ref_hist, bins = np.histogram(a, bins=10)
+        curr_hist, _ = np.histogram(b, bins=bins)
+        ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
+        curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+        return float(np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10))))
 
-            drift = psi > self.psi_threshold
-            results[f"feature_{i}"] = {"psi": float(psi), "drift": drift}
-            if drift:
-                drift_detected = True
-
-        return {"drift_detected": drift_detected, "per_feature": results}
+    def _permutation_pvalues(self, current_data, statistic) -> List[float]:
+        rng = np.random.default_rng(resolve_seed(self, 42))
+        return [
+            float(p)
+            for p in permutation_pvalues(
+                self.reference_data,
+                current_data,
+                statistic=statistic,
+                n_permutations=self.n_permutations,
+                rng=rng,
+            )
+        ]

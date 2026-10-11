@@ -554,24 +554,43 @@ not from an assumed class order.
   still do not consult `run_rng` (see I21).
 - **Status:** VERIFIED.
 
-### I28 — (PROPOSED) A drift verdict is calibrated, not a fixed absolute
-threshold.
-- **Definition (not yet true):** every drift method's cutoff is expressed in
-  units that do not vary with sample size or feature scale, and the
-  multi-feature alarm accounts for multiplicity.
-- **Evidence (OBSERVED):** the `wasserstein` cutoff is an absolute distance,
-  but the null distance between two iid samples shrinks as O(1/n). Measured
-  false-positive rate on two iid N(0,1) samples of size n: **97% at n=100,
-  73% at n=200, 20% at n=500, 5% at n=1000, 0% at n=5000**. The detector's
-  false-alarm rate is therefore a function of dataset size, not of drift.
-- **Owner:** would be `steps/evaluation.py` — but see the ceiling below.
-- **Test:** `TestDriftReporting::test_no_shift_is_not_reported_wasserstein`
-  is an **xfail** carrying these measurements; it flips when this is fixed.
-- **Ceilings:** the honest fix is not a one-line rescale. Per-feature cutoffs
-  need a multiplicity decision (at ~6% per-feature FPR a 20-feature check
-  alarms ~71% of the time on clean data), and
-  `monitoring/drift_detection.StatisticalDriftDetectorStep` already does
-  decile PSI + Benjamini-Hochberg FDR correction. The likely resolution is to
-  converge the two drift engines onto the corrected one rather than
-  recalibrate this one — an architectural decision, not a patch.
-- **Status:** PROPOSED (known defect, deliberately left visible).
+### I28 — A drift verdict is a calibrated, multiplicity-corrected test, not a
+fixed absolute threshold.
+- **Definition:** every drift method reports a per-feature p-value, and the
+  run-level verdict comes from Benjamini-Hochberg-corrected p-values at one
+  significance level. Methods without a closed-form p-value (`wasserstein`,
+  `psi`) obtain one from a permutation test over the pooled sample; KS uses
+  its exact p-value. The method's native quantity (distance, PSI) is still
+  reported as the *magnitude*, but never decides.
+- **Owner:** `monitoring/drift_detection.py::permutation_pvalues`,
+  `benjamini_hochberg`; `steps/evaluation.py::DriftDetectionStep._decide`,
+  `_permutation_pvalues`; `StatisticalDriftDetectorStep._permutation_pvalue`.
+- **Enforcement:** one significance level (`drift_threshold` / `threshold`) for
+  all methods; permutation draws seeded from `resolve_seed`, so a declared run
+  seed governs the null; the permutation order is drawn once and applied to
+  every feature.
+- **Test:** `TestDriftReporting` (every method reports and withholds drift;
+  n=100 no longer manufactures drift; a 1-sigma shift is still caught at
+  n=500; 30 clean features are not flagged; every feature carries a p-value;
+  the permutation follows the run seed and is stable under it).
+- **Failure mode if violated:** a false-alarm rate set by dataset size or
+  feature count rather than by drift. Measured before this invariant, on two
+  iid samples: the absolute wasserstein cutoff fired on **97% of clean
+  comparisons at n=100, 73% at n=200, 20% at n=500 and 0% at n=5000**. Testing
+  F features at alpha=0.05 without correction reached a **0.89** chance of at
+  least one false alarm by F=50.
+- **Evidence after the fix (OBSERVED):** 100 clean trials at n=500, alpha=0.05
+  — ks_test 4, wasserstein 2, psi 5 false alarms. Power retained: a 1-sigma
+  shift across 5 features is caught 40/40 by every method.
+- **Correction to an earlier note in this file:** the previous revision of I28
+  claimed `monitoring.drift_detection` was the better-calibrated engine and the
+  convergence target. That was wrong in a way that mattered — it had the same
+  uncalibrated cutoff for `wasserstein`, and it set `p_value = None` for both
+  `wasserstein` and `psi`, so its Benjamini-Hochberg step was skipped for
+  exactly the two methods that needed it. Both engines now use the shared
+  permutation null.
+- **Ceilings:** permutation testing costs O(B · F · n log n) — measured at 89 ms
+  for one feature at n=2000 with B=199, so a wide, high-cardinality feature set
+  is noticeably slower than the old O(F·n) cutoffs. Decile PSI remains weak for
+  very small shifts (3/40 detected at 0.2 sigma against 38/40 for wasserstein).
+- **Status:** VERIFIED.

@@ -118,11 +118,16 @@
   registry↔Run linkage and DL checkpoints not registered (PROVENANCE_MODEL).
 - Dataset entries: sql connection/query and non-file sources record
   sha256 "unavailable"; only DataLoaderSteps cooperate (PROVENANCE_MODEL).
-- Drift: two drift implementations coexist. `steps/evaluation.DriftDetectionStep`
-  now reports verdicts correctly (I27) but its wasserstein/PSI cutoffs are
-  uncalibrated (I28, PROPOSED). `monitoring/drift_detection.py` is the
-  better-calibrated one (decile PSI + Benjamini-Hochberg) and is the likely
-  convergence target.
+- Drift: two drift implementations coexist — `steps/evaluation.DriftDetectionStep`
+  and `monitoring/drift_detection.StatisticalDriftDetectorStep`. Both now decide
+  on a permutation-derived, Benjamini-Hochberg-corrected p-value (I28), sharing
+  `monitoring.drift_detection.permutation_pvalues`. They remain separate step
+  classes with different input shapes (numpy arrays vs DataFrames) and are not
+  yet converged. **Note:** an earlier revision of this file claimed the
+  monitoring module was the better-calibrated one; that was wrong — it had the
+  same uncalibrated `wasserstein` cutoff and set `p_value = None` for
+  `wasserstein` and `psi`, so its BH step was skipped for exactly the two
+  methods that needed it.
 - `SklearnTrainerStep` still defaults to "last column is the target" when no
   `target_column` is given — I24 made the choice explicit, not mandatory; the
   backwards-compatible default is retained deliberately.
@@ -311,6 +316,36 @@ that "mean(y_true) ignores the model". That is wrong: standard ECE defines
 sharply — 0.015 for the correct definition against 0.229 for mine. Reverted,
 and the test now pins both directions.
 
+## I28 closed — drift is now a calibrated test
+
+The last known defect on the branch. Both drift engines decided on a fixed
+absolute threshold, so their false-alarm rate was set by dataset size rather
+than by drift.
+
+- **The measurement that defined the bug** (two iid N(0,1) samples, wasserstein
+  cutoff 0.1): **97%** false alarms at n=100, 73% at n=200, 20% at n=500, 0% at
+  n=5000. A separate multiplicity problem: testing F features at alpha=0.05
+  uncorrected gives a **0.89** chance of at least one false alarm by F=50.
+- **Fix:** `monitoring/drift_detection.permutation_pvalues` builds the null by
+  permuting the pooled sample (exact under exchangeability, assumption-free),
+  then the existing `benjamini_hochberg` decides across features. The native
+  quantity is still reported as magnitude. One significance level for all three
+  methods; the two ad-hoc per-method threshold params added earlier are gone.
+- **After:** 100 clean trials at n=500, alpha=0.05 — ks_test 4, wasserstein 2,
+  psi 5 false alarms. A 1-sigma shift across 5 features is caught 40/40 by
+  every method, so calibration was not bought with power.
+- **Cost:** O(B·F·n log n) — 89 ms for one feature at n=2000, B=199.
+- The `xfail` that carried this defect is gone; eight tests replace it.
+
+**A correction to my own earlier claim.** I previously wrote that
+`monitoring/drift_detection` was the better-calibrated engine and the obvious
+convergence target. That was wrong in a way that mattered: it normalised
+`wasserstein` by the reference std but kept a fixed cutoff (so the same 1/n
+problem), and set `p_value = None` for both `wasserstein` and `psi` — which
+made its own Benjamini-Hochberg step skip exactly the two methods that needed
+it. Both engines now share the permutation null. Had I converged onto it as
+originally planned, I would have converged onto a second copy of the defect.
+
 ## Decisions log
 
 - D1: Rate limit runs BEFORE auth in dependency order so 401-hammering also
@@ -389,6 +424,12 @@ and the test now pins both directions.
 - D19: the "run seed, else the step's default" rule lives in one function,
   `core/step.py::resolve_seed`. Three copies existed across two modules and had
   already begun to diverge on their fallback.
+- D20: a drift decision requires a p-value, and the magnitude (distance, PSI)
+  is reported but never decides. Permutation testing was chosen over rescaling
+  because the old cutoff's error rate was set by sample size, not drift — no
+  rescale fixes that. B defaults to 199 so the smallest attainable p-value is
+  1/200, leaving the BH step room; a larger multiple-testing family than that
+  would need B raised.
 
 ## Resume procedure
 

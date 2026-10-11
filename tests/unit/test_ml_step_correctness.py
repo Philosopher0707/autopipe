@@ -491,25 +491,122 @@ class TestDriftReporting:
         out = step.run(current_data=cur)
         assert out["drift_detected"] is False
 
-    @pytest.mark.xfail(
-        reason=(
-            "KNOWN DEFECT (unfixed): the wasserstein cutoff is an ABSOLUTE distance, "
-            "but the null distance shrinks as O(1/n), so the false-positive rate is a "
-            "function of sample size. Measured on two iid N(0,1) samples, the 0.1 "
-            "cutoff fires in 97% of trials at n=100, 73% at n=200, 20% at n=500 and "
-            "0% at n=5000. Fixing this needs a calibrated statistic plus "
-            "multiplicity correction (monitoring.drift_detection already does "
-            "Benjamini-Hochberg); it is a statistical decision, not a one-liner."
-        ),
-        strict=False,
-    )
-    def test_no_shift_is_not_reported_wasserstein(self):
+    @pytest.mark.parametrize("method", ["ks_test", "wasserstein", "psi"])
+    def test_no_shift_is_not_reported_all_methods(self, method):
+        """Was an xfail: the wasserstein cutoff fired on 97% of clean pairs at
+        n=100. Now every method decides on a corrected p-value."""
         rng = np.random.default_rng(0)
         ref = rng.normal(size=(500, 3))
         cur = rng.normal(size=(500, 3))
-        step = DriftDetectionStep("d", reference_data=ref, methods=["wasserstein"])
+        step = DriftDetectionStep("d", reference_data=ref, methods=[method])
         out = step.run(current_data=cur)
         assert out["drift_detected"] is False
+
+    @pytest.mark.parametrize("method", ["ks_test", "wasserstein", "psi"])
+    def test_small_sample_does_not_manufacture_drift(self, method):
+        """The measured defect: false alarms were a function of n, not drift.
+
+        At n=100 the old absolute cutoff fired on 97% of clean comparisons.
+        """
+        rng = np.random.default_rng(4)
+        false_alarms = sum(
+            DriftDetectionStep(
+                "d",
+                reference_data=rng.normal(size=(100, 1)),
+                methods=[method],
+                n_permutations=99,
+            ).run(current_data=rng.normal(size=(100, 1)))["drift_detected"]
+            for _ in range(15)
+        )
+        assert false_alarms <= 3, f"{method} fired on {false_alarms}/15 clean pairs at n=100"
+
+    @pytest.mark.parametrize("method", ["ks_test", "wasserstein", "psi"])
+    def test_large_sample_still_detects_a_modest_shift(self, method):
+        """Calibration must not have been bought by giving up all power."""
+        rng = np.random.default_rng(6)
+        detected = sum(
+            DriftDetectionStep(
+                "d",
+                reference_data=rng.normal(size=(500, 1)),
+                methods=[method],
+                n_permutations=99,
+            ).run(current_data=rng.normal(loc=1.0, size=(500, 1)))["drift_detected"]
+            for _ in range(5)
+        )
+        assert detected == 5, f"{method} only caught {detected}/5 one-sigma shifts"
+
+    def test_many_features_do_not_manufacture_drift(self):
+        """Multiplicity: 30 clean features must not look like drift.
+
+        Uncorrected, testing F features at alpha=0.05 gives a 0.89 chance of at
+        least one false alarm by F=50.
+        """
+        rng = np.random.default_rng(8)
+        step = DriftDetectionStep(
+            "d", reference_data=rng.normal(size=(300, 30)), methods=["ks_test"]
+        )
+        out = step.run(current_data=rng.normal(size=(300, 30)))
+        flagged = [
+            name for name, d in out["results"]["ks_test"]["per_feature"].items() if d["drift"]
+        ]
+        assert not flagged, f"flagged {len(flagged)}/30 clean features: {flagged}"
+
+    def test_small_sample_does_not_flag_every_feature(self, method="ks_test"):
+        rng = np.random.default_rng(9)
+        ref = rng.normal(size=(120, 25))
+        cur = rng.normal(size=(120, 25))
+        out = DriftDetectionStep("d", reference_data=ref, methods=[method]).run(current_data=cur)
+        flagged = [name for name, d in out["results"][method]["per_feature"].items() if d["drift"]]
+        assert not flagged
+
+    def test_permutation_uses_the_run_seed(self):
+        """Two runs with different seeds must be able to differ."""
+        from autopipe.core.execution import RunRng
+
+        rng = np.random.default_rng(12)
+        # A subtle shift: a strong one drives every p-value to the 1/(B+1)
+        # floor, where the permutation draws cannot be distinguished.
+        ref = rng.normal(size=(150, 2))
+        cur = rng.normal(loc=0.2, size=(150, 2))
+        p_values = []
+        for seed in (1, 2):
+            step = DriftDetectionStep(
+                "d", reference_data=ref, methods=["wasserstein"], n_permutations=99
+            )
+            step.run_rng = RunRng.from_seed(seed)
+            out = step.run(current_data=cur)
+            p_values.append(
+                [d["pvalue"] for d in out["results"]["wasserstein"]["per_feature"].values()]
+            )
+        assert p_values[0] != p_values[1], "permutation null ignored the run seed"
+
+    def test_same_seed_gives_identical_p_values(self):
+        rng = np.random.default_rng(12)
+        ref = rng.normal(size=(150, 2))
+        cur = rng.normal(loc=0.2, size=(150, 2))
+        runs = []
+        for _ in range(2):
+            step = DriftDetectionStep(
+                "d", reference_data=ref, methods=["wasserstein"], n_permutations=99
+            )
+            step.run_rng = RunRng.from_seed(1)
+            out = step.run(current_data=cur)
+            runs.append(
+                [d["pvalue"] for d in out["results"]["wasserstein"]["per_feature"].values()]
+            )
+        assert runs[0] == runs[1], "same seed produced different p-values"
+
+    def test_every_feature_reports_a_p_value(self):
+        """The decision must be traceable, not a bare boolean."""
+        rng = np.random.default_rng(13)
+        ref = rng.normal(size=(200, 3))
+        cur = rng.normal(loc=1.0, size=(200, 3))
+        for method in ("ks_test", "wasserstein", "psi"):
+            out = DriftDetectionStep("d", reference_data=ref, methods=[method]).run(
+                current_data=cur
+            )
+            for name, detail in out["results"][method]["per_feature"].items():
+                assert 0.0 < detail["pvalue"] <= 1.0, f"{method}/{name}: {detail}"
 
     def test_combined_methods_agree_with_parts(self, shifted):
         ref, cur = shifted
