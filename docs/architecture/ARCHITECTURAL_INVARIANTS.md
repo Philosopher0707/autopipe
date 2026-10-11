@@ -527,6 +527,33 @@ an undefined fold score as a measurement.
   shift.
 - **Status:** VERIFIED.
 
+### I29 — Evaluation resolves label↔column mapping from the fitted model,
+not from an assumed class order.
+- **Definition:** `ModelEvaluatorStep` resolves the probability column holding
+  `positive_label` from `model.classes_`, emits predictions in the model's own
+  label space, and computes calibration's `a_B` as membership of the positive
+  class. `error_by_class` is keyed by the label itself. Steps that construct a
+  stochastic estimator derive its `random_state` from `resolve_seed`.
+- **Owner:** `steps/evaluation.py::ModelEvaluatorStep._positive_column`,
+  `run`, `_calculate_calibration`, `_perform_error_analysis`;
+  `steps/data.py::FeatureSelectionStep.run` (rfe / model_based).
+- **Enforcement:** `self._classes` and `self._positive_col` are resolved once
+  per run; calibration indexes probability columns through a label→column
+  lookup rather than the raw label value.
+- **Test:** `tests/unit/test_evaluator_column_mapping.py` (binary case
+  unchanged, predictions in the model's label space, `positive_label` honoured,
+  roc_auc responds to the positive column, four label dtypes incl. strings and
+  a gap in the labels, ECE ~0 when calibrated and >0.1 when overconfident, run
+  seed reaches permutation importance and both feature-selection methods).
+- **Failure mode if violated:** the evaluator scores the wrong probability
+  column and returns a confident, plausible, wrong number — or crashes on any
+  target that is not integer 0/1. Observed before this invariant:
+  `positive_label` was dead config; classes `[0, 2]` were scored on column 1;
+  `error_by_class[int(cls)]` raised on string labels.
+- **Ceilings:** the seed reaches the sklearn estimators only; DL and LLM steps
+  still do not consult `run_rng` (see I21).
+- **Status:** VERIFIED.
+
 ### I28 — (PROPOSED) A drift verdict is calibrated, not a fixed absolute
 threshold.
 - **Definition (not yet true):** every drift method's cutoff is expressed in

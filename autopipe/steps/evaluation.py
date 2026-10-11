@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
 
 
 @dataclass
@@ -62,6 +62,18 @@ class ModelEvaluatorStep(Step):
         self.calibration_bins = calibration_bins
         self.error_analysis = error_analysis
         self.result = EvaluationResult()
+        # Column of `predict_proba` holding `positive_label`. Resolved per run
+        # from the fitted model's classes_ — the probability columns follow
+        # classes_, which is not always [0, 1].
+        self._positive_col = 1
+        self._classes: np.ndarray = np.asarray([])
+
+    def _positive_column(self, model) -> int:
+        """Index into ``predict_proba`` output that holds ``positive_label``."""
+        classes = np.asarray(getattr(model, "classes_", []))
+        if classes.ndim == 1 and self.positive_label in classes:
+            return int(np.flatnonzero(classes == self.positive_label)[0])
+        return 1  # models without classes_ keep the historical assumption
 
     def run(
         self,
@@ -80,10 +92,17 @@ class ModelEvaluatorStep(Step):
         if self.task_type == "classification":
             if hasattr(model, "predict_proba") and self.calculate_proba:
                 self.result.probabilities = model.predict_proba(X_test)
+                self._positive_col = self._positive_column(model)
+                self._classes = np.asarray(
+                    getattr(model, "classes_", np.arange(self.result.probabilities.shape[1]))
+                )
                 if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-                    self.result.predictions = (
-                        self.result.probabilities[:, 1] >= self.threshold
-                    ).astype(int)
+                    # Emit the model's own labels, not 0/1: with classes
+                    # [0, 2] a predicted "1" would mean nothing.
+                    classes = self._classes
+                    pos = self.result.probabilities[:, self._positive_col] >= self.threshold
+                    other = classes[1 - self._positive_col] if classes.size == 2 else 0
+                    self.result.predictions = np.where(pos, classes[self._positive_col], other)
                 else:
                     self.result.predictions = np.argmax(self.result.probabilities, axis=1)
             else:
@@ -147,11 +166,10 @@ class ModelEvaluatorStep(Step):
         if self.result.probabilities is not None:
             with contextlib.suppress(ValueError):
                 if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-                    self.result.roc_auc = sklearn_metrics.roc_auc_score(
-                        y_true, self.result.probabilities[:, 1]
-                    )
+                    pos_proba = self.result.probabilities[:, self._positive_col]
+                    self.result.roc_auc = sklearn_metrics.roc_auc_score(y_true, pos_proba)
                     self.result.average_precision = sklearn_metrics.average_precision_score(
-                        y_true, self.result.probabilities[:, 1]
+                        y_true, pos_proba
                     )
                 else:
                     self.result.roc_auc = sklearn_metrics.roc_auc_score(
@@ -258,9 +276,18 @@ class ModelEvaluatorStep(Step):
         empty. Binning is now done once and reused for both terms.
         """
         if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-            prob_pos = self.result.probabilities[:, 1]
+            prob_pos = self.result.probabilities[:, self._positive_col]
         else:
-            prob_pos = self.result.probabilities[np.arange(len(y_true)), y_true.astype(int)]
+            # Column per row follows model.classes_, not the raw label value —
+            # indexing with the label crashed whenever classes were not
+            # 0..n-1 (e.g. labels {0, 2}).
+            classes = np.asarray(getattr(self, "_classes", []))
+            if classes.ndim != 1 or classes.size == 0:
+                classes = np.arange(self.result.probabilities.shape[1])
+            lookup = {c: i for i, c in enumerate(classes.tolist())}
+            y_arr = np.asarray(y_true).reshape(-1)
+            cols = np.array([lookup.get(v, 0) for v in y_arr])
+            prob_pos = self.result.probabilities[np.arange(len(y_arr)), cols]
 
         n_bins = self.calibration_bins
         n = len(prob_pos)
@@ -269,6 +296,16 @@ class ModelEvaluatorStep(Step):
             return
 
         bin_idx = np.clip((prob_pos * n_bins).astype(int), 0, n_bins - 1)
+        # a_B is the observed POSITIVE RATE in the bin. Defined as membership
+        # of the positive class rather than mean(y_true): identical for the
+        # usual [0, 1] labels, but correct for string labels (mean() raises)
+        # and for non-[0, 1] labels (mean(y) is not on the 0-1 scale).
+        truth = np.asarray(y_true).reshape(-1)
+        positive_class = (
+            self._classes[self._positive_col]
+            if self._classes.size == self.result.probabilities.shape[1]
+            else 1
+        )
         ece = 0.0
         reliability = []
         for b in range(n_bins):
@@ -277,7 +314,7 @@ class ModelEvaluatorStep(Step):
             if count == 0:
                 continue
             confidence = float(prob_pos[mask].mean())
-            accuracy = float(np.asarray(y_true)[mask].mean())
+            accuracy = float((truth[mask] == positive_class).mean())
             ece += (count / n) * abs(accuracy - confidence)
             reliability.append(
                 {"bin": b, "count": count, "confidence": confidence, "accuracy": accuracy}
@@ -298,7 +335,9 @@ class ModelEvaluatorStep(Step):
         for cls in np.unique(y_true):
             cls_mask = y_true == cls
             cls_errors = errors[cls_mask]
-            self.result.error_analysis["error_by_class"][int(cls)] = {
+            # Key by the label itself: int(cls) crashed on string labels,
+            # which is a perfectly ordinary target dtype.
+            self.result.error_analysis["error_by_class"][cls.item()] = {
                 "error_rate": float(np.mean(cls_errors)),
                 "error_count": int(np.sum(cls_errors)),
             }
@@ -399,7 +438,11 @@ class ExplainabilityStep(Step):
     def _permutation_importance(self, model, X, y, feature_names):
         from sklearn.inspection import permutation_importance
 
-        result = permutation_importance(model, X, y, n_repeats=10, random_state=42)
+        # Seeded from the run, not a constant: the shuffle order changes which
+        # features look important, so a pinned seed ignored the run (I25).
+        result = permutation_importance(
+            model, X, y, n_repeats=10, random_state=resolve_seed(self, 42)
+        )
 
         if isinstance(X, pd.DataFrame) and feature_names is None:
             feature_names = list(X.columns)

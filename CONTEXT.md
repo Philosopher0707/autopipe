@@ -283,6 +283,34 @@ were the project's, not a regression:
   reproduces on a clean HEAD with the local mypy 1.11.2 — not introduced here,
   though CI's `mypy>=1.5` parity was not verified locally.
 
+## Module sweep (after the CI fixes)
+
+With the branch green, the same defect classes were hunted in the modules this
+branch had not touched (`deep_learning`, `explainability`, `tuning`, `registry`,
+`data`, `evaluation`). Four more found, all in `evaluation.py` / `data.py`:
+
+- **`positive_label` was dead config** (I29). `ModelEvaluatorStep` accepted it,
+  stored it, and never read it — the binary path assumed probability column 1
+  is the positive class, true only when `classes_ == [0, 1]`. With classes
+  `[0, 2]` it scored the wrong column and returned a confident-looking
+  `roc_auc = 0.999`. Now resolved from `model.classes_`, and predictions are
+  emitted in the model's own label space.
+- **Calibration crashed on non-`0..n-1` labels** — it indexed
+  `probabilities[arange(n), y_true]` with the raw label. `a_B` also used
+  `mean(y_true)`, which raises on string labels and compares a 0–2 average
+  against a 0–1 confidence. Now membership of the positive class.
+- **`error_by_class[int(cls)]`** raised on string labels — an ordinary target
+  dtype. Keyed by the label itself.
+- **Three more pinned seeds**: `permutation_importance`, and RFE /
+  `SelectFromModel`, all hardcoded `random_state=42`. Now `resolve_seed`.
+
+**One of my own changes was wrong and a test caught it.** I first rewrote
+calibration's `accuracy` to compare predictions against the truth, reasoning
+that "mean(y_true) ignores the model". That is wrong: standard ECE defines
+`a_B` as the observed *positive rate*. On a calibrated model the two differ
+sharply — 0.015 for the correct definition against 0.229 for mine. Reverted,
+and the test now pins both directions.
+
 ## Decisions log
 
 - D1: Rate limit runs BEFORE auth in dependency order so 401-hammering also

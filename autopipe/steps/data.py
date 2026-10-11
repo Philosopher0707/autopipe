@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from autopipe.core.artifacts import record_dataset_input, sha256_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
 
 
 @dataclass
@@ -693,8 +693,10 @@ class FeatureSelectionStep(Step):
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.feature_selection import RFE
 
+            # Seeded from the run, not a constant, so a declared seed actually
+            # governs which features get selected (invariant I25).
             estimator = self.model_based_estimator or RandomForestClassifier(
-                n_estimators=10, random_state=42
+                n_estimators=10, random_state=resolve_seed(self, 42)
             )
             self._selector = RFE(estimator=estimator, n_features_to_select=min(self.k, X.shape[1]))
 
@@ -711,7 +713,7 @@ class FeatureSelectionStep(Step):
             from sklearn.feature_selection import SelectFromModel
 
             estimator = self.model_based_estimator or RandomForestClassifier(
-                n_estimators=10, random_state=42
+                n_estimators=10, random_state=resolve_seed(self, 42)
             )
             self._selector = SelectFromModel(
                 estimator, max_features=self.k, threshold=self.threshold
