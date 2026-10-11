@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from autopipe.core.artifacts import record_produced_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
 
 # Seed used when the run declared none. Historical default, kept so that an
 # unseeded run is still reproducible rather than silently random.
@@ -79,19 +79,6 @@ class SklearnTrainerStep(Step):
         self.model = None
         self.cv_results = {}
 
-    def _resolve_seed(self) -> int:
-        """Seed for model randomness, taken from the run's declared seed.
-
-        The engine binds ``self.run_rng`` only for seeded runs (CONTEXT.md
-        records the applied seed in provenance), so the seed has to be threaded
-        into the estimator here or provenance would attest to a reproducibility
-        that training does not have. Unseeded runs keep the historical default,
-        which keeps them reproducible too.
-        """
-        if self.run_rng is not None:
-            return self.run_rng.seed
-        return _DEFAULT_RANDOM_STATE
-
     def _frame_to_xy(self, frame: pd.DataFrame):
         """Split a frame into (X, y), using ``target_column`` when declared."""
         if self.target_column is None:
@@ -118,7 +105,7 @@ class SklearnTrainerStep(Step):
         for value in kwargs.values():
             if isinstance(value, tuple) and len(value) == 2:
                 X, y = value
-                return np.asarray(X), np.asarray(y)
+                return X, y
         for value in kwargs.values():
             if isinstance(value, pd.DataFrame):
                 return self._frame_to_xy(value)
@@ -142,7 +129,7 @@ class SklearnTrainerStep(Step):
 
         logger.info(f"Training on {len(X_train)} samples")
 
-        seed = self._resolve_seed()
+        seed = resolve_seed(self, _DEFAULT_RANDOM_STATE)
 
         # Initialize model
         if self.model_class is None:
@@ -246,7 +233,7 @@ class HyperparameterTunerStep(Step):
         # Sampling must be seeded from the run's declared seed; otherwise two
         # identical seeded runs search different parameter subsets. The
         # estimator needs the same seed, or the fitted model still differs.
-        seed = self.run_rng.seed if self.run_rng is not None else _DEFAULT_RANDOM_STATE
+        seed = resolve_seed(self, _DEFAULT_RANDOM_STATE)
         model = (self.model_class or RandomForestClassifier)()
         if "random_state" in model.get_params():
             model.set_params(random_state=seed)

@@ -221,7 +221,11 @@ after.
   `setdefault` so an explicit `random_state` still wins.
 - **I26 CV config (medium).** `run()`'s `groups=None` shadowed the constructor
   value, so `strategy="group"` raised; `metrics=[...]` was silently truncated
-  to `metrics[0]`.
+  to `metrics[0]`. Fixing the truncation then surfaced a second bug the review
+  caught: with every metric actually computed, `roc_auc` returns NaN on a
+  single-class fold, one NaN poisoned the whole mean, and it was persisted to
+  `MetricLog` as a measurement. Undefined folds are now dropped and counted
+  (D18).
 - **I27 drift (high).** `_wasserstein_distance` and
   `_population_stability_index` returned no `drift_detected` key, so the
   run-level `any()` aggregation was structurally incapable of seeing them: a
@@ -243,6 +247,10 @@ Two process notes:
   `random_state` to `GridSearchCV` raises `TypeError` (only
   `RandomizedSearchCV` accepts it), and no test exercised the grid path. Now
   conditional, with tests pinning both paths.
+- **A review of this PR found a third bug of the same species** (a NaN metric
+  reported as a measurement), plus two smaller ones: an `np.asarray` on the
+  `(X, y)` path that silently dropped pandas column names, and the seed rule
+  written three times. All three fixed; 380 core tests pass.
 - **Toolchain note (corrected).** An earlier pass recorded "ruff fails on
   `main`" — that was wrong: it is only true for the locally installed ruff
   0.4.10, which cannot parse the `UP045` selector in `pyproject.toml`. CI
@@ -323,6 +331,13 @@ Two process notes:
   hoc. Choosing a drift cutoff is a statistical decision with a real
   false-alarm budget, and the codebase already contains the better-calibrated
   implementation; patching the worse one would entrench the duplication.
+- D18: an aggregate metric is omitted, never stored as NaN or None.
+  `MetricLog.value` is `NOT NULL`, and NaN compares false against everything,
+  so a persisted NaN is a wrong number that looks like a real one. Undefined
+  folds are dropped from the mean and reported as a count.
+- D19: the "run seed, else the step's default" rule lives in one function,
+  `core/step.py::resolve_seed`. Three copies existed across two modules and had
+  already begun to diverge on their fallback.
 
 ## Resume procedure
 

@@ -465,8 +465,10 @@ hyperparameter-search randomness.
   `random_state` in `model_params` is never clobbered (`setdefault`).
   `RandomizedSearchCV` receives `random_state`; `GridSearchCV` does not
   (it enumerates exhaustively and rejects the argument).
-- **Owner:** `steps/training.py::_resolve_seed` + `HyperparameterTunerStep.run`;
-  `steps/cross_validation.py::CrossValidationStep._resolve_seed`.
+- **Owner:** `core/step.py::resolve_seed` — the single implementation, called
+  by `SklearnTrainerStep` and `HyperparameterTunerStep` (fallback
+  `_DEFAULT_RANDOM_STATE`) and `CrossValidationStep` (fallback
+  `self.random_state`).
 - **Enforcement:** `setdefault` for user-supplied params; the seed is
   resolved once per `run()`; `if "random_state" in model.get_params()` guards
   estimators that take no seed.
@@ -481,21 +483,32 @@ hyperparameter-search randomness.
   and an explicit `model_class` received *no* `random_state` at all.
 - **Status:** VERIFIED.
 
-### I26 — Cross-validation honours its own configuration.
+### I26 — Cross-validation honours its own configuration, and never reports
+an undefined fold score as a measurement.
 - **Definition:** `strategy="group"` is usable from configuration alone
   (`run()`'s `groups=None` default no longer shadows the constructor value);
-  every metric in `metrics` is computed per fold, not just `metrics[0]`.
-- **Owner:** `steps/cross_validation.py::CrossValidationStep.run` /
-  `_score_model`.
+  every metric in `metrics` is computed per fold, not just `metrics[0]`; and a
+  fold whose scorer returned NaN (roc_auc on a single-class fold) is excluded
+  from the aggregate and counted in `dropped_<split>_<metric>`.
+- **Owner:** `steps/cross_validation.py::CrossValidationStep.run`,
+  `_score_model`, `_finite_scores`.
 - **Enforcement:** per-metric `val_scores`/`train_scores` dicts on every fold
-  result, with `mean_val_<metric>` aggregates; the legacy scalar
-  `train_score`/`val_score` keys retain their meaning (`metrics[0]`) so
-  `visualize()` and `get_best_model()` are unchanged.
+  result, with `mean_<split>_<metric>` aggregates computed over finite values
+  only; the legacy scalar `train_score`/`val_score` keys retain their meaning
+  (`metrics[0]`). With no usable fold the aggregate is **omitted** rather than
+  set to NaN/None — `MetricLog.value` is `NOT NULL` and a NaN would make every
+  comparison against it silently false. `best_fold_idx` is chosen among finite
+  folds only; `get_best_model()` and `visualize()` raise/return on no usable
+  fold instead of formatting `None`.
 - **Test:** `TestCrossValidationConfig` (constructor groups used, no group
-  split across folds, every requested metric computed, legacy keys preserved).
+  split across folds, every requested metric computed, legacy keys preserved,
+  an undefined fold does not poison the mean, no logged metric is NaN/None,
+  the primary metric filters too, and an all-undefined run degrades without a
+  crash).
 - **Failure mode if violated:** configuration that reads as honoured but is
   discarded — `groups=` silently ignored (raising at run time), or a
-  multi-metric request silently collapsed to its first entry.
+  multi-metric request silently collapsed to its first entry; or one degenerate
+  fold turns a reported metric into NaN that is persisted as if measured.
 - **Status:** VERIFIED.
 
 ### I27 — A drift method reports whether it detected drift.

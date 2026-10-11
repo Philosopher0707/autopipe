@@ -14,9 +14,21 @@ from sklearn.model_selection import (
 )
 
 from autopipe.core.artifacts import record_produced_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_scores(values: List[float]) -> Tuple[List[float], int]:
+    """Split scores into usable values and a count of unusable ones.
+
+    Some scorers return NaN rather than raising on a degenerate fold — roc_auc
+    does when the fold holds a single class. One NaN poisons any mean it enters
+    and makes every comparison against that mean silently false, so unusable
+    folds are dropped and counted instead.
+    """
+    usable = [v for v in values if np.isfinite(v)]
+    return usable, len(values) - len(usable)
 
 
 class CrossValidationStep(Step):
@@ -70,19 +82,9 @@ class CrossValidationStep(Step):
         self.cv_results = None
         self.best_fold_idx = None
 
-    def _resolve_seed(self) -> int:
-        """Split seed: the run's declared seed wins over the constructor default.
-
-        The engine records the applied seed in provenance (I21), so the split
-        has to follow it or a declared seed would not reproduce the folds.
-        """
-        if self.run_rng is not None:
-            return self.run_rng.seed
-        return self.random_state
-
     def get_cv_splitter(self, y: np.ndarray = None) -> Any:
         """Get the appropriate CV splitter."""
-        seed = self._resolve_seed()
+        seed = resolve_seed(self, self.random_state)
         if self.strategy == "kfold":
             return KFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=seed)
         elif self.strategy == "stratified":
@@ -160,40 +162,56 @@ class CrossValidationStep(Step):
                 **{f"fold_{fold_idx}_val_score": fold_result["val_score"]},
             )
 
-        # Aggregate results
-        train_scores = [r["train_scores"][self.metric_names[0]] for r in fold_results]
-        val_scores = [r["val_scores"][self.metric_names[0]] for r in fold_results]
+        # Aggregate results. The primary metric goes through the same
+        # NaN filter as the others, so a degenerate fold cannot poison the
+        # headline score or misdirect best/worst fold selection.
+        primary = self.metric_names[0]
+        train_scores, _ = _finite_scores([r["train_scores"][primary] for r in fold_results])
+        ranked = [
+            (i, r["val_scores"][primary])
+            for i, r in enumerate(fold_results)
+            if np.isfinite(r["val_scores"][primary])
+        ]
+        val_scores = [score for _, score in ranked]
 
         self.cv_results = {
             "fold_results": fold_results,
             "fold_models": fold_models,
-            "mean_train_score": np.mean(train_scores),
-            "std_train_score": np.std(train_scores),
-            "mean_val_score": np.mean(val_scores),
-            "std_val_score": np.std(val_scores),
-            "best_fold_idx": np.argmax(val_scores),
-            "worst_fold_idx": np.argmin(val_scores),
+            "mean_train_score": np.mean(train_scores) if train_scores else None,
+            "std_train_score": np.std(train_scores) if train_scores else None,
+            "mean_val_score": np.mean(val_scores) if val_scores else None,
+            "std_val_score": np.std(val_scores) if val_scores else None,
+            "best_fold_idx": max(ranked, key=lambda p: p[1])[0] if ranked else None,
+            "worst_fold_idx": min(ranked, key=lambda p: p[1])[0] if ranked else None,
         }
 
         # Per-metric aggregates, so a multi-metric request is not silently
         # collapsed to its first entry.
         for metric in self.metric_names:
-            self.cv_results[f"mean_val_{metric}"] = float(
-                np.mean([r["val_scores"][metric] for r in fold_results])
-            )
-            self.cv_results[f"std_val_{metric}"] = float(
-                np.std([r["val_scores"][metric] for r in fold_results])
-            )
-            self.cv_results[f"mean_train_{metric}"] = float(
-                np.mean([r["train_scores"][metric] for r in fold_results])
-            )
+            for split in ("val", "train"):
+                usable, dropped = _finite_scores(
+                    [r[f"{split}_scores"][metric] for r in fold_results]
+                )
+                # A metric with no usable fold is omitted rather than stored as
+                # None/NaN: MetricLog.value is NOT NULL, and a NaN would also
+                # make every comparison against it silently false.
+                if not usable:
+                    continue
+                self.cv_results[f"mean_{split}_{metric}"] = float(np.mean(usable))
+                self.cv_results[f"std_{split}_{metric}"] = float(np.std(usable))
+                if dropped:
+                    self.cv_results[f"dropped_{split}_{metric}"] = dropped
 
         self.log_metrics(
             mean_train_score=self.cv_results["mean_train_score"],
             std_train_score=self.cv_results["std_train_score"],
             mean_val_score=self.cv_results["mean_val_score"],
             std_val_score=self.cv_results["std_val_score"],
-            **{f"mean_val_{m}": self.cv_results[f"mean_val_{m}"] for m in self.metric_names},
+            **{
+                f"mean_val_{m}": self.cv_results[f"mean_val_{m}"]
+                for m in self.metric_names
+                if f"mean_val_{m}" in self.cv_results
+            },
         )
 
         return self.cv_results
@@ -214,11 +232,16 @@ class CrossValidationStep(Step):
             raise ValueError("Cross-validation has not been run")
 
         best_idx = self.cv_results["best_fold_idx"]
+        if best_idx is None:
+            raise ValueError(
+                "No fold produced a usable score, so there is no best model "
+                f"(primary metric {self.metric_names[0]!r} was undefined on every fold)"
+            )
         return self.cv_results["fold_models"][best_idx]
 
     def visualize(self, **kwargs):
         """Visualize CV results."""
-        if self.cv_results is None:
+        if self.cv_results is None or self.cv_results["mean_val_score"] is None:
             return
 
         import matplotlib.pyplot as plt

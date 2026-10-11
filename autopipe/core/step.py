@@ -53,3 +53,13 @@ class Step(ABC):
         """Log metrics for this step."""
         self.metrics.update(metrics)
         logger.info("Step %s metrics: %s", self.name, metrics)
+
+
+def resolve_seed(step: Step, default: int) -> int:
+    """Seed for a step's randomness: the run's declared seed, else ``default``.
+
+    One place, because a step that invents its own seed resolution can drift
+    from the one the engine's recorded provenance describes.
+    """
+    run_rng = step.run_rng
+    return run_rng.seed if run_rng is not None else default

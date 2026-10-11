@@ -100,6 +100,21 @@ class TestTrainerPicksTrainingData:
         trainer.run(data=(X, y))
         assert trainer.metrics["training_samples"] == len(y)
 
+    def test_tuple_of_dataframe_keeps_column_names(self):
+        """A (DataFrame, Series) tuple must not be flattened to a bare array.
+
+        Converting with np.asarray dropped the column names, so the fitted
+        model reported feature_names_in_ = None and explainability lost them.
+        """
+        df = pd.DataFrame(
+            np.random.default_rng(0).normal(size=(60, 3)), columns=["age", "income", "score"]
+        )
+        y = pd.Series((df["age"] > 0).astype(int), name="churn")
+        model = SklearnTrainerStep(
+            "t", model_class=RandomForestClassifier, model_params={"n_estimators": 5}
+        ).run(data=(df, y))
+        assert list(model.feature_names_in_) == ["age", "income", "score"]
+
     def test_no_leak_through_the_real_engine(self, frame):
         """End-to-end: a trainer depending on both splitter and raw frame."""
 
@@ -325,6 +340,87 @@ class TestCrossValidationConfig:
         assert "accuracy" in fold["val_scores"]
         assert "f1" in fold["val_scores"]
         assert "mean_val_accuracy" in res
+
+    def test_undefined_fold_does_not_poison_the_mean(self):
+        """A scorer returning NaN on a degenerate fold must not reach metrics.
+
+        roc_auc returns NaN (rather than raising) when the validation fold
+        holds one class. Averaging that in turned the whole metric into NaN,
+        and NaN is persisted to MetricLog and makes every comparison false.
+        """
+        X = np.random.default_rng(0).normal(size=(120, 3))
+        y = np.array([1] * 4 + [0] * 116)
+        cv = CrossValidationStep("cv", metrics=["accuracy", "roc_auc"])
+        res = cv.run(
+            model_builder=lambda: RandomForestClassifier(n_estimators=5, random_state=0),
+            X=X,
+            y=y,
+        )
+        per_fold = [r["val_scores"]["roc_auc"] for r in res["fold_results"]]
+        assert any(np.isnan(s) for s in per_fold), "fixture no longer produces NaN folds"
+
+        assert not np.isnan(res["mean_val_roc_auc"]), "NaN leaked into the aggregate"
+        assert np.isfinite(res["mean_val_roc_auc"])
+        assert res["dropped_val_roc_auc"] == sum(1 for s in per_fold if np.isnan(s))
+        assert res["mean_val_roc_auc"] == pytest.approx(
+            np.mean([s for s in per_fold if np.isfinite(s)])
+        )
+
+    def test_no_logged_metric_is_nan(self):
+        """Nothing NaN or None may reach log_metrics -> MetricLog (NOT NULL)."""
+        X = np.random.default_rng(0).normal(size=(120, 3))
+        y = np.array([1] * 4 + [0] * 116)
+        cv = CrossValidationStep("cv", metrics=["accuracy", "roc_auc"])
+        cv.run(
+            model_builder=lambda: RandomForestClassifier(n_estimators=5, random_state=0),
+            X=X,
+            y=y,
+        )
+        for key, value in cv.metrics.items():
+            assert value is not None, f"{key} is None; MetricLog.value is NOT NULL"
+            if isinstance(value, float):
+                assert np.isfinite(value), f"{key} is not finite"
+
+    def test_primary_metric_also_filters_nan(self):
+        """The headline score and best-fold pick must ignore NaN folds too."""
+        X = np.random.default_rng(0).normal(size=(120, 3))
+        y = np.array([1] * 4 + [0] * 116)
+        cv = CrossValidationStep("cv", metrics=["roc_auc"])
+        res = cv.run(
+            model_builder=lambda: RandomForestClassifier(n_estimators=5, random_state=0),
+            X=X,
+            y=y,
+        )
+        assert res["mean_val_score"] is not None
+        assert np.isfinite(res["mean_val_score"])
+        best = res["fold_results"][res["best_fold_idx"]]
+        assert np.isfinite(best["val_score"]), "best fold was chosen from a NaN score"
+
+    def test_all_folds_undefined_yields_no_aggregate_not_a_crash(self):
+        """No usable fold -> metric omitted, and get_best_model explains why."""
+
+        class Constant:
+            def fit(self, X, y):
+                return self
+
+            def predict(self, X):
+                return np.zeros(len(X), dtype=int)
+
+        X = np.random.default_rng(0).normal(size=(60, 3))
+        y = np.zeros(60, dtype=int)
+        cv = CrossValidationStep("cv", metrics=["accuracy"])
+
+        # Force every fold's score to be NaN.
+        def nan_scorer(model, X, y):
+            return {"accuracy": float("nan")}
+
+        cv._score_model = nan_scorer
+        res = cv.run(model_builder=Constant, X=X, y=y)
+        assert res["mean_val_score"] is None
+        assert res["best_fold_idx"] is None
+        with pytest.raises(ValueError, match="No fold produced a usable score"):
+            cv.get_best_model()
+        cv.visualize()  # must return quietly rather than format None
 
     def test_primary_metric_still_populates_legacy_keys(self):
         """Back-compat: train_score/val_score keep meaning metrics[0]."""
