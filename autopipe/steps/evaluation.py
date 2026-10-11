@@ -429,11 +429,17 @@ class DriftDetectionStep(Step):
         reference_data: Optional[np.ndarray] = None,
         drift_threshold: float = 0.05,
         methods: Optional[List[str]] = None,
+        wasserstein_threshold: float = 0.1,
+        psi_threshold: float = 0.25,
     ):
         super().__init__(name, depends_on=depends_on)
         self.reference_data = reference_data
         self.drift_threshold = drift_threshold
         self.methods = methods or ["ks_test", "wasserstein"]
+        # Cutoffs in each method's own units; drift_threshold is a KS p-value
+        # alpha and cannot be reused as a distance or an index cutoff.
+        self.wasserstein_threshold = wasserstein_threshold
+        self.psi_threshold = psi_threshold
         self.drift_results = {}
 
     def run(
@@ -489,17 +495,25 @@ class DriftDetectionStep(Step):
         from scipy.stats import wasserstein_distance
 
         results = {}
+        drift_detected = False
 
         for i in range(self.reference_data.shape[1]):
             dist = wasserstein_distance(self.reference_data[:, i], current_data[:, i])
+            # Method-specific cutoff: drift_threshold is the KS p-value alpha,
+            # which is not commensurable with a distance in feature units.
+            drift = dist > self.wasserstein_threshold
+            results[f"feature_{i}"] = {"distance": float(dist), "drift": drift}
+            if drift:
+                drift_detected = True
 
-            results[f"feature_{i}"] = {"distance": float(dist), "drift": dist > 0.1}
-
-        return results
+        # Without this key the run-level aggregation in run() could never see
+        # wasserstein drift and reported drift_detected=False.
+        return {"drift_detected": drift_detected, "per_feature": results}
 
     def _population_stability_index(self, current_data):
         """Calculate Population Stability Index."""
         results = {}
+        drift_detected = False
 
         for i in range(self.reference_data.shape[1]):
             ref_hist, bins = np.histogram(self.reference_data[:, i], bins=10)
@@ -510,6 +524,9 @@ class DriftDetectionStep(Step):
 
             psi = np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10)))
 
-            results[f"feature_{i}"] = {"psi": float(psi), "drift": psi > 0.25}
+            drift = psi > self.psi_threshold
+            results[f"feature_{i}"] = {"psi": float(psi), "drift": drift}
+            if drift:
+                drift_detected = True
 
-        return results
+        return {"drift_detected": drift_detected, "per_feature": results}

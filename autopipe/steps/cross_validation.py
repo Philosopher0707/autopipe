@@ -70,16 +70,23 @@ class CrossValidationStep(Step):
         self.cv_results = None
         self.best_fold_idx = None
 
+    def _resolve_seed(self) -> int:
+        """Split seed: the run's declared seed wins over the constructor default.
+
+        The engine records the applied seed in provenance (I21), so the split
+        has to follow it or a declared seed would not reproduce the folds.
+        """
+        if self.run_rng is not None:
+            return self.run_rng.seed
+        return self.random_state
+
     def get_cv_splitter(self, y: np.ndarray = None) -> Any:
         """Get the appropriate CV splitter."""
+        seed = self._resolve_seed()
         if self.strategy == "kfold":
-            return KFold(
-                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
-            )
+            return KFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=seed)
         elif self.strategy == "stratified":
-            return StratifiedKFold(
-                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
-            )
+            return StratifiedKFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=seed)
         elif self.strategy == "timeseries":
             return TimeSeriesSplit(n_splits=self.n_splits)
         elif self.strategy == "group":
@@ -108,6 +115,11 @@ class CrossValidationStep(Step):
         Returns:
             Dictionary with CV results
         """
+        # Constructor-supplied groups must win over run()'s None default —
+        # otherwise strategy="group" was unusable from configuration alone.
+        if groups is None:
+            groups = self.groups
+
         cv = self.get_cv_splitter(y)
 
         fold_results = []
@@ -127,13 +139,16 @@ class CrossValidationStep(Step):
             model.fit(X_train, y_train, **fit_kwargs)
 
             # Evaluate
-            train_score = self._score_model(model, X_train, y_train)
-            val_score = self._score_model(model, X_val, y_val)
+            train_scores = self._score_model(model, X_train, y_train)
+            val_scores = self._score_model(model, X_val, y_val)
 
             fold_result = {
                 "fold": fold_idx,
-                "train_score": train_score,
-                "val_score": val_score,
+                # Legacy scalar keys: the primary (first) requested metric.
+                "train_score": train_scores[self.metric_names[0]],
+                "val_score": val_scores[self.metric_names[0]],
+                "train_scores": train_scores,
+                "val_scores": val_scores,
                 "train_size": len(train_idx),
                 "val_size": len(val_idx),
             }
@@ -141,13 +156,13 @@ class CrossValidationStep(Step):
             fold_models.append(model)
 
             self.log_metrics(
-                **{f"fold_{fold_idx}_train_score": train_score},
-                **{f"fold_{fold_idx}_val_score": val_score},
+                **{f"fold_{fold_idx}_train_score": fold_result["train_score"]},
+                **{f"fold_{fold_idx}_val_score": fold_result["val_score"]},
             )
 
         # Aggregate results
-        train_scores = [r["train_score"] for r in fold_results]
-        val_scores = [r["val_score"] for r in fold_results]
+        train_scores = [r["train_scores"][self.metric_names[0]] for r in fold_results]
+        val_scores = [r["val_scores"][self.metric_names[0]] for r in fold_results]
 
         self.cv_results = {
             "fold_results": fold_results,
@@ -160,22 +175,38 @@ class CrossValidationStep(Step):
             "worst_fold_idx": np.argmin(val_scores),
         }
 
+        # Per-metric aggregates, so a multi-metric request is not silently
+        # collapsed to its first entry.
+        for metric in self.metric_names:
+            self.cv_results[f"mean_val_{metric}"] = float(
+                np.mean([r["val_scores"][metric] for r in fold_results])
+            )
+            self.cv_results[f"std_val_{metric}"] = float(
+                np.std([r["val_scores"][metric] for r in fold_results])
+            )
+            self.cv_results[f"mean_train_{metric}"] = float(
+                np.mean([r["train_scores"][metric] for r in fold_results])
+            )
+
         self.log_metrics(
             mean_train_score=self.cv_results["mean_train_score"],
             std_train_score=self.cv_results["std_train_score"],
             mean_val_score=self.cv_results["mean_val_score"],
             std_val_score=self.cv_results["std_val_score"],
+            **{f"mean_val_{m}": self.cv_results[f"mean_val_{m}"] for m in self.metric_names},
         )
 
         return self.cv_results
 
-    def _score_model(self, model, X: np.ndarray, y: np.ndarray) -> float:
-        """Score model on data."""
+    def _score_model(self, model, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        """Score model on data with every requested metric.
+
+        Previously only ``metric_names[0]`` was computed, so requesting
+        several metrics silently returned one.
+        """
         from sklearn.metrics import get_scorer
 
-        # Use first metric for primary scoring
-        scorer = get_scorer(self.metric_names[0])
-        return scorer(model, X, y)
+        return {name: float(get_scorer(name)(model, X, y)) for name in self.metric_names}
 
     def get_best_model(self) -> Any:
         """Get the model from the best fold."""
@@ -554,9 +585,11 @@ class StratifiedGroupKFoldStep(Step):
         for group in unique_groups:
             group_mask = groups == group
             group_y = y[group_mask]
-            # Use majority class as group label
-            counts = np.bincount(group_y.astype(int))
-            group_labels.append(np.argmax(counts))
+            # Use majority class as group label. Counts come from np.unique
+            # rather than np.bincount, so non-integer labels (strings, floats,
+            # negatives) work instead of raising on astype(int).
+            _classes, counts = np.unique(group_y, return_counts=True)
+            group_labels.append(int(np.argmax(counts)))
 
         group_labels = np.array(group_labels)
 
