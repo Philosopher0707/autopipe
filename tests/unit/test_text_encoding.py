@@ -6,9 +6,10 @@ raised ``UnicodeDecodeError``. That was the CI failure in
 ``test_shipped_examples_execute.py::test_create_template_output_is_execution_ready``,
 failing on every Windows job since the initial release.
 
-The tests force the locale to ``C`` with UTF-8 mode off, which makes Python's
-default text encoding US-ASCII on any platform — a faithful stand-in for the
-Windows case that behaves identically on Linux and macOS.
+The tests push the locale toward ``C`` with UTF-8 mode off so Python's default
+text encoding is *not* UTF-8 — ``ANSI_X3.4-1968`` on Linux, and ``cp1252`` on
+Windows, where ``LC_ALL`` does not override the ANSI codepage. That reproduces
+the bug on any platform, so it can no longer hide behind a UTF-8 dev box.
 """
 
 import ast
@@ -34,17 +35,30 @@ def _env(**extra: str) -> dict:
     return {**os.environ, **ASCII_LOCALE, **_STDIO, "PYTHONPATH": str(REPO), **extra}
 
 
-def test_forced_locale_really_is_ascii():
-    """Guard the premise: these tests would not catch the regression otherwise."""
+def test_forced_locale_really_is_non_utf8():
+    """Guard the premise: these tests would not catch the regression otherwise.
+
+    The exact encoding varies by platform and Python version — ``ANSI_X3.4-1968``
+    on Linux, ``cp1252`` on Windows (where ``LC_ALL`` does not override the ANSI
+    codepage), and ``locale.getencoding`` only exists from 3.11. What matters is
+    only that the default is *not* UTF-8, which is what exposed the bug.
+    """
+    probe = (
+        "import locale;"
+        "enc = getattr(locale, 'getencoding',"
+        " lambda: locale.getpreferredencoding(False))();"
+        "print(enc)"
+    )
     out = subprocess.run(
-        [sys.executable, "-c", "import locale; print(locale.getencoding())"],
+        [sys.executable, "-c", probe],
         env=_env(),
         capture_output=True,
         text=True,
     )
-    assert "ASCII" in out.stdout, (
-        f"locale forcing did not take effect; got {out.stdout!r}. "
-        "These tests would pass regardless of the bug."
+    assert out.returncode == 0, f"locale probe failed: {out.stderr}"
+    assert "utf" not in out.stdout.lower(), (
+        f"default encoding is still UTF-8 ({out.stdout.strip()!r}); "
+        "these tests would pass regardless of the bug."
     )
 
 
