@@ -51,7 +51,7 @@ def load_pipeline_from_yaml(filepath: str) -> Pipeline:
 
     from .loader import load_pipeline_from_config
 
-    with open(filepath, "r") as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     return load_pipeline_from_config(config)

@@ -22,7 +22,7 @@ class ReportGenerator:
             "data": run_data,
         }
 
-        with open(report_path, "w") as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, default=str)
 
         return str(report_path)
@@ -43,7 +43,7 @@ class ReportGenerator:
             f"Total runs: {len(experiment_data.get('runs', []))}\n",
         ]
 
-        with open(report_path, "w") as f:
+        with open(report_path, "w", encoding="utf-8") as f:
             f.writelines(lines)
 
         return str(report_path)

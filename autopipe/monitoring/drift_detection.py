@@ -696,7 +696,7 @@ class DriftDashboardStep(Step):
             lines.append("")
 
         # Save report
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
         record_produced_file(output_path)
 

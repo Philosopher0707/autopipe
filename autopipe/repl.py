@@ -1045,7 +1045,7 @@ class AutoPipeREPL:
                 # Fallback: just show the file content
                 import yaml
 
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                 name = name or path.stem
                 self.pipelines[name] = data
@@ -1085,7 +1085,7 @@ class AutoPipeREPL:
             else:
                 data = pipeline
 
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 yaml.dump(data, f, default_flow_style=False)
 
             ctx.print(f"[green]✓[/green] Saved [cyan]{name}[/cyan] to {filepath}")
@@ -1434,7 +1434,7 @@ class AutoPipeREPL:
                         else line
                         for line in lines
                     ]
-                    env_file.write_text("\n".join(new_lines))
+                    env_file.write_text("\n".join(new_lines), encoding="utf-8")
                     ctx.print("[dim]   Also updated .env file[/dim]")
             except Exception:
                 pass  # nosec B110 — .env mirror is best-effort; env var already updated

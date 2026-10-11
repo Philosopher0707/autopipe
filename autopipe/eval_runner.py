@@ -86,7 +86,7 @@ def run_eval(
     verbose: bool = False,
 ) -> List[EvalResult]:
     """Run evaluation suite from YAML config."""
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     prompts = {p["id"]: p for p in config.get("prompts", [])}
