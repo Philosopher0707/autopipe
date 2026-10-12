@@ -564,6 +564,31 @@ not from an assumed class order.
   still do not consult `run_rng` (see I21).
 - **Status:** VERIFIED.
 
+### I30 — Per-run state on a reused step does not leak into the next run.
+- **Definition:** the engine clears `step.metrics` before each run, and a step
+  that owns training state clears it itself. A step instance is reusable — the
+  engine deliberately rebinds `run_rng` on every run for exactly that reason
+  (baseline B7 asserts a reused step gets no stale stream).
+- **Owner:** `autopipe/core/execution.py::ExecutionEngine._reset_metrics`;
+  `autopipe/steps/deep_learning.py::PyTorchTrainerStep.run` (model, history,
+  best weights, best loss, patience counter).
+- **Enforcement:** `_reset_metrics` is called in the same bind loop as
+  `_bind_rng`/`_bind_cancellation`, so it cannot be forgotten by a new step.
+- **Test:** `tests/unit/test_step_state_isolation.py` (trainer: second run does
+  not return the first run's weights, history does not accumulate,
+  `total_epochs` is per run, a reused instance reproduces a fresh one; engine:
+  metrics from a previous run — including a failed one — are gone, and metrics
+  still accumulate *within* a run).
+- **Failure mode if violated:** a wrong model returned silently. Observed
+  before this invariant: `PyTorchTrainerStep` carried `best_val_loss` and
+  `best_weights` across runs, so a second run whose loss never beat the first
+  one's loaded the **first run's trained weights** into the returned model, and
+  reported twice the epochs actually trained.
+- **Blast radius:** library and REPL use only. `core/loader.py` builds a fresh
+  step instance per load and the executor loads per run, so the dashboard was
+  never exposed to this.
+- **Status:** VERIFIED.
+
 ### I28 — A drift verdict is a calibrated, multiplicity-corrected test, not a
 fixed absolute threshold.
 - **Definition:** every drift method reports a per-feature p-value, and the

@@ -371,6 +371,36 @@ produced `resolve_seed` after it was written three times.
 `tests/unit/test_seed_completeness.py` pins every site found by grepping
 `random_state=self.random_state`, so the next one cannot regress quietly.
 
+## I30 — a reused step was returning the previous run's model
+
+Found by opening `deep_learning.py` for the first time: **688 lines of
+installable, importable, completely untested training code.**
+
+`PyTorchTrainerStep` kept `best_val_loss`, `best_weights` and `history` across
+runs. Demonstrated: run 1 trains on a learnable problem, run 2 on the same
+instance gets unlearnable data. Run 2 cannot beat run 1's loss, so the
+carried-over `best_weights` won, and line 403 loaded **run 1's trained weights**
+into the model run 2 returned. `history` reported 10 epochs for a 5-epoch run.
+
+The engine's own `step.metrics` had the same problem — `log_metrics` updates a
+dict created only in `__init__`. The engine already rebinds `run_rng` per run
+for reuse, so `_reset_metrics` now sits in the same bind loop.
+
+**Not exposed in the dashboard:** `core/loader.py:149` builds a fresh instance
+per load and the executor loads per run. This was library/REPL only.
+
+**I was wrong once here.** I first reported that early stopping did not restore
+best weights. It does — line 402 restores them unconditionally after the loop.
+My probe compared the *history's* last val_loss against the best, which says
+nothing about the weights the model holds; scoring the returned model on the
+validation set showed 0.3391 against a best-recorded 0.3300. Two of my own tests
+were also wrong before the code was (a bootstrap fixture too easy to
+distinguish, and an assertion about run-metrics shape).
+
+**Also still open in this module:** `DataLoader(shuffle=True)` uses torch's
+global generator, so a declared run seed does not govern batch order — the
+documented I21 ceiling, still true for the DL path.
+
 ## Decisions log
 
 - D1: Rate limit runs BEFORE auth in dependency order so 401-hammering also
