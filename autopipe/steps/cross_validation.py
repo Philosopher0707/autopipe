@@ -419,6 +419,7 @@ class DataSplitterStep(Step):
         random_state: int = 42,
         shuffle: bool = True,
         time_column: Optional[str] = None,
+        target_column: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -431,6 +432,10 @@ class DataSplitterStep(Step):
             random_state: Random seed
             shuffle: Whether to shuffle data
             time_column: Column for time-based splitting
+            target_column: Column holding the label. Required for
+                ``stratify`` to do anything — it used to exist only as a
+                ``run()`` argument, so a YAML config could set ``stratify: true``
+                and never stratify, silently.
         """
         super().__init__(name, **kwargs)
         self.train_size = train_size
@@ -441,6 +446,7 @@ class DataSplitterStep(Step):
         self.random_state = random_state
         self.shuffle = shuffle
         self.time_column = time_column
+        self.target_column = target_column
 
         self.splits = None
 
@@ -456,6 +462,16 @@ class DataSplitterStep(Step):
         Returns:
             Dictionary with splits
         """
+        # The run argument wins, so an existing caller is unaffected; otherwise
+        # fall back to the configured column.
+        target_column = target_column or self.target_column
+        if self.stratify and target_column is None:
+            logger.warning(
+                "stratify=True but no target_column is configured, so the split "
+                "is NOT stratified; set params.target_column in the step config "
+                "or pass target_column to run()"
+            )
+
         if self.time_column and self.time_column in data.columns:
             # Time-based split
             data = data.sort_values(self.time_column)
