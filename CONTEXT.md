@@ -346,6 +346,31 @@ made its own Benjamini-Hochberg step skip exactly the two methods that needed
 it. Both engines now share the permutation null. Had I converged onto it as
 originally planned, I would have converged onto a second copy of the defect.
 
+## I25 was under-scoped — closing the gaps in my own invariant
+
+Reviewing the step library for the next phase, I found that **my own I25 covered
+three steps and missed seven sites**. Two mattered:
+
+- **The trainer's own cross-validation still had the NaN-metric defect** that
+  I26 fixed in `CrossValidationStep` but not here:
+  `cv_val_roc_auc_mean = nan` on imbalanced data, persisted to `MetricLog`.
+  This is exactly the "fix in one place while the sibling stays broken" failure
+  — I fixed the class, not the class *and its instances*.
+- **The data split ignored the run seed.** `DataSplitterStep` used
+  `random_state=self.random_state`, so a declared seed never governed the split
+  — and the split is the foundation everything downstream is fitted on. Also
+  missed: nested CV, bootstrap, stratified group k-fold,
+  `PermutationImportanceStep`.
+
+Verified before/after on the splitter: three run seeds now produce three
+distinct splits; before, all three produced the same one.
+
+`finite_scores` / `aggregate` moved to `autopipe/utils/` (previously empty,
+created for this) so the NaN rule has one home — the same reasoning that
+produced `resolve_seed` after it was written three times.
+`tests/unit/test_seed_completeness.py` pins every site found by grepping
+`random_state=self.random_state`, so the next one cannot regress quietly.
+
 ## Decisions log
 
 - D1: Rate limit runs BEFORE auth in dependency order so 401-hammering also

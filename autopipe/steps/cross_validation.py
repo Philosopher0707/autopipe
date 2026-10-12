@@ -15,20 +15,9 @@ from sklearn.model_selection import (
 
 from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step, resolve_seed
+from autopipe.utils import finite_scores
 
 logger = logging.getLogger(__name__)
-
-
-def _finite_scores(values: List[float]) -> Tuple[List[float], int]:
-    """Split scores into usable values and a count of unusable ones.
-
-    Some scorers return NaN rather than raising on a degenerate fold — roc_auc
-    does when the fold holds a single class. One NaN poisons any mean it enters
-    and makes every comparison against that mean silently false, so unusable
-    folds are dropped and counted instead.
-    """
-    usable = [v for v in values if np.isfinite(v)]
-    return usable, len(values) - len(usable)
 
 
 class CrossValidationStep(Step):
@@ -166,7 +155,7 @@ class CrossValidationStep(Step):
         # NaN filter as the others, so a degenerate fold cannot poison the
         # headline score or misdirect best/worst fold selection.
         primary = self.metric_names[0]
-        train_scores, _ = _finite_scores([r["train_scores"][primary] for r in fold_results])
+        train_scores, _ = finite_scores([r["train_scores"][primary] for r in fold_results])
         ranked = [
             (i, r["val_scores"][primary])
             for i, r in enumerate(fold_results)
@@ -189,7 +178,7 @@ class CrossValidationStep(Step):
         # collapsed to its first entry.
         for metric in self.metric_names:
             for split in ("val", "train"):
-                usable, dropped = _finite_scores(
+                usable, dropped = finite_scores(
                     [r[f"{split}_scores"][metric] for r in fold_results]
                 )
                 # A metric with no usable fold is omitted rather than stored as
@@ -336,7 +325,8 @@ class NestedCrossValidationStep(Step):
         """Run nested cross-validation with grid search."""
         from itertools import product
 
-        outer_cv = KFold(n_splits=self.outer_splits, shuffle=True, random_state=self.random_state)
+        seed = resolve_seed(self, self.random_state)
+        outer_cv = KFold(n_splits=self.outer_splits, shuffle=True, random_state=seed)
 
         outer_results = []
 
@@ -347,9 +337,7 @@ class NestedCrossValidationStep(Step):
             y_train, y_test = y[train_idx], y[test_idx]
 
             # Inner CV for hyperparameter selection
-            inner_cv = KFold(
-                n_splits=self.inner_splits, shuffle=True, random_state=self.random_state
-            )
+            inner_cv = KFold(n_splits=self.inner_splits, shuffle=True, random_state=seed)
 
             # Grid search on inner CV
             best_score = -float("inf")
@@ -488,7 +476,7 @@ class DataSplitterStep(Step):
                 data,
                 test_size=self.test_size,
                 stratify=y if self.stratify else None,
-                random_state=self.random_state,
+                random_state=resolve_seed(self, self.random_state),
                 shuffle=self.shuffle,
             )
 
@@ -504,7 +492,7 @@ class DataSplitterStep(Step):
                 train_val_data,
                 test_size=val_ratio,
                 stratify=y_train_val if self.stratify else None,
-                random_state=self.random_state,
+                random_state=resolve_seed(self, self.random_state),
                 shuffle=self.shuffle,
             )
 
@@ -618,7 +606,9 @@ class StratifiedGroupKFoldStep(Step):
 
         # Use stratified k-fold on groups
         skf = StratifiedKFold(
-            n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
+            n_splits=self.n_splits,
+            shuffle=self.shuffle,
+            random_state=resolve_seed(self, self.random_state),
         )
 
         folds = []
@@ -675,7 +665,7 @@ class BootstrapValidatorStep(Step):
         Returns:
             Dictionary with bootstrap statistics
         """
-        rng = np.random.RandomState(self.random_state)
+        rng = np.random.RandomState(resolve_seed(self, self.random_state))
         n_samples = len(X)
 
         scores = []

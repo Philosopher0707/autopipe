@@ -16,6 +16,7 @@ import pandas as pd
 
 from autopipe.core.artifacts import record_produced_file
 from autopipe.core.step import Step, resolve_seed
+from autopipe.utils import aggregate
 
 # Seed used when the run declared none. Historical default, kept so that an
 # unseeded run is still reproducible rather than silently random.
@@ -162,13 +163,28 @@ class SklearnTrainerStep(Step):
             )
 
             for metric in scoring:
-                train_scores = self.cv_results.get(f"train_{metric}", [])
-                val_scores = self.cv_results.get(f"test_{metric}", [])
-
-                self.log_metrics(
-                    **{f"cv_train_{metric}_mean": np.mean(train_scores)},
-                    **{f"cv_val_{metric}_mean": np.mean(val_scores)},
+                # A scorer can return NaN on a degenerate fold (roc_auc with a
+                # single-class fold), and one NaN poisons the whole mean — which
+                # would then be persisted to MetricLog as a measurement.
+                train_mean, train_std, train_dropped = aggregate(
+                    self.cv_results.get(f"train_{metric}", [])
                 )
+                val_mean, val_std, val_dropped = aggregate(
+                    self.cv_results.get(f"test_{metric}", [])
+                )
+                reported = {}
+                if val_mean is not None:
+                    reported[f"cv_val_{metric}_mean"] = val_mean
+                    reported[f"cv_val_{metric}_std"] = val_std
+                if train_mean is not None:
+                    reported[f"cv_train_{metric}_mean"] = train_mean
+                    reported[f"cv_train_{metric}_std"] = train_std
+                # Undefined folds are reported as a count rather than averaged in.
+                if val_dropped:
+                    reported[f"cv_val_{metric}_dropped_folds"] = val_dropped
+                if train_dropped:
+                    reported[f"cv_train_{metric}_dropped_folds"] = train_dropped
+                self.log_metrics(**reported)
 
         self.model.fit(X_train, y_train, **self.fit_params)
 

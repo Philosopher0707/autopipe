@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from autopipe.core.artifacts import record_produced_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +359,7 @@ class PermutationImportanceStep(Step):
             y,
             n_repeats=self.n_repeats,
             scoring=self.scoring,
-            random_state=self.random_state,
+            random_state=resolve_seed(self, self.random_state),
             n_jobs=self.n_jobs,
         )
 

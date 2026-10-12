@@ -466,16 +466,26 @@ hyperparameter-search randomness.
   `RandomizedSearchCV` receives `random_state`; `GridSearchCV` does not
   (it enumerates exhaustively and rejects the argument).
 - **Owner:** `core/step.py::resolve_seed` — the single implementation, called
-  by `SklearnTrainerStep` and `HyperparameterTunerStep` (fallback
-  `_DEFAULT_RANDOM_STATE`) and `CrossValidationStep` (fallback
-  `self.random_state`).
+  by every stochastic step with its own default (`SklearnTrainerStep`,
+  `HyperparameterTunerStep`, `DataSplitterStep`, `CrossValidationStep`,
+  `NestedCrossValidationStep`, `StratifiedGroupKFoldStep`,
+  `BootstrapValidatorStep`, `FeatureSelectionStep`, `ModelEvaluatorStep`,
+  `ExplainabilityStep`, `PermutationImportanceStep`, `DriftDetectionStep`).
+- **Scope note:** the first version of this invariant covered three steps and
+  missed seven sites, among them the data split itself and the trainer's own
+  cross-validation path. `tests/unit/test_seed_completeness.py` now pins every
+  step found by grepping `random_state=self.random_state`, so a new one cannot
+  quietly regress.
 - **Enforcement:** `setdefault` for user-supplied params; the seed is
   resolved once per `run()`; `if "random_state" in model.get_params()` guards
   estimators that take no seed.
 - **Test:** `TestSeedReachesTraining` (same seed → identical model, different
   seed → different model, explicit `random_state` preserved, unseeded runs
   stay deterministic, CV split follows the seed, random search seeded, tuned
-  estimator itself seeded, stateless estimator tolerated).
+  estimator itself seeded, stateless estimator tolerated);
+  `tests/unit/test_seed_completeness.py` (data splitter, bootstrap, nested CV,
+  stratified group k-fold, permutation importance each follow the run seed and
+  repeat exactly under the same seed).
 - **Failure mode if violated:** `provenance.seed_applied` attests to a
   reproducibility that training does not have — the recorded seed has no
   effect on the fitted model. Observed before this invariant: the default
