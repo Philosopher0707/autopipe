@@ -346,7 +346,9 @@ state, and provenance distinguishes DECLARED from APPLIED.
   applied that the engine never used.
 - **Ceilings (documented, not violations):** torch/global generator in
   `DataLoader(shuffle=True)`; LLM/provider nondeterminism; step-level
-  `random_state` params; steps ignoring `run_rng`.
+  `random_state` params. The last ceiling ("steps ignoring `run_rng`") was
+  **closed for the sklearn steps** by I24 — the tensor/DL and LLM steps still
+  do not consult `run_rng`.
 - **Status:** VERIFIED.
 
 ### I22 — Model identity provenance distinguishes requested from resolved,
@@ -428,3 +430,202 @@ material version changes change it; platform is recorded but excluded.
   Level 3 full runtime (OS/CUDA/glibc/BLAS layers) UNKNOWN beyond the
   `platform.platform()` string + python version.
 - **Status:** VERIFIED (Level 2 resolved-set identity OBSERVED).
+
+## Model correctness (Tier 5)
+
+These cover the ML step library rather than the engine. Added after a review
+found the engine faithful but the step library computing the wrong quantity
+without raising — the same "docs and behaviour disagree" class, inverted: the
+docs described a capability the steps did not have.
+
+### I24 — A training step consumes the dataset it was configured to train on,
+chosen by a fixed priority rather than by input ordering.
+- **Definition:** when a training step receives several candidate inputs, it
+  selects one by a **fixed priority** (splits dict → `(X, y)` tuple →
+  DataFrame → ndarray), independent of kwargs ordering. `SklearnTrainerStep`
+  never falls back to a full frame that contains the held-out split.
+- **Owner:** `autopipe/steps/training.py::SklearnTrainerStep._extract_xy`.
+- **Enforcement:** the priority is expressed as four ordered passes, each
+  returning on first match; there is no fall-through that lets a later input
+  overwrite an earlier one.
+- **Test:** `tests/unit/test_ml_step_correctness.py::TestTrainerPicksTrainingData`
+  (splits dict wins over a raw frame, order-independence, the `(X, y)`
+  contract, and the same leak driven through the real `ExecutionEngine`).
+- **Failure mode if violated:** silent train/test leakage — the model trains
+  on every row including test, reports a healthy `training_samples`, and the
+  dashboard shows a good run. Observed before this invariant: a trainer with
+  `depends_on: [split, raw]` trained on 600/600 rows while holding out 90.
+- **Status:** VERIFIED.
+
+### I25 — A declared run seed governs sklearn estimator, CV-split and
+hyperparameter-search randomness.
+- **Definition:** when the engine binds `step.run_rng`, `SklearnTrainerStep`,
+  `CrossValidationStep` and `HyperparameterTunerStep` derive their
+  `random_state` / splitter seed from `run_rng.seed`. An explicit
+  `random_state` in `model_params` is never clobbered (`setdefault`).
+  `RandomizedSearchCV` receives `random_state`; `GridSearchCV` does not
+  (it enumerates exhaustively and rejects the argument).
+- **Owner:** `core/step.py::resolve_seed` — the single implementation, called
+  by every stochastic step with its own default (`SklearnTrainerStep`,
+  `HyperparameterTunerStep`, `DataSplitterStep`, `CrossValidationStep`,
+  `NestedCrossValidationStep`, `StratifiedGroupKFoldStep`,
+  `BootstrapValidatorStep`, `FeatureSelectionStep`, `ModelEvaluatorStep`,
+  `ExplainabilityStep`, `PermutationImportanceStep`, `DriftDetectionStep`).
+- **Scope note:** the first version of this invariant covered three steps and
+  missed seven sites, among them the data split itself and the trainer's own
+  cross-validation path. `tests/unit/test_seed_completeness.py` now pins every
+  step found by grepping `random_state=self.random_state`, so a new one cannot
+  quietly regress.
+- **Enforcement:** `setdefault` for user-supplied params; the seed is
+  resolved once per `run()`; `if "random_state" in model.get_params()` guards
+  estimators that take no seed.
+- **Test:** `TestSeedReachesTraining` (same seed → identical model, different
+  seed → different model, explicit `random_state` preserved, unseeded runs
+  stay deterministic, CV split follows the seed, random search seeded, tuned
+  estimator itself seeded, stateless estimator tolerated);
+  `tests/unit/test_seed_completeness.py` (data splitter, bootstrap, nested CV,
+  stratified group k-fold, permutation importance each follow the run seed and
+  repeat exactly under the same seed).
+- **Failure mode if violated:** `provenance.seed_applied` attests to a
+  reproducibility that training does not have — the recorded seed has no
+  effect on the fitted model. Observed before this invariant: the default
+  estimator was pinned at `random_state=42` regardless of the declared seed,
+  and an explicit `model_class` received *no* `random_state` at all.
+- **Status:** VERIFIED.
+
+### I26 — Cross-validation honours its own configuration, and never reports
+an undefined fold score as a measurement.
+- **Definition:** `strategy="group"` is usable from configuration alone
+  (`run()`'s `groups=None` default no longer shadows the constructor value);
+  every metric in `metrics` is computed per fold, not just `metrics[0]`; and a
+  fold whose scorer returned NaN (roc_auc on a single-class fold) is excluded
+  from the aggregate and counted in `dropped_<split>_<metric>`.
+- **Owner:** `steps/cross_validation.py::CrossValidationStep.run`,
+  `_score_model`, `_finite_scores`.
+- **Enforcement:** per-metric `val_scores`/`train_scores` dicts on every fold
+  result, with `mean_<split>_<metric>` aggregates computed over finite values
+  only; the legacy scalar `train_score`/`val_score` keys retain their meaning
+  (`metrics[0]`). With no usable fold the aggregate is **omitted** rather than
+  set to NaN/None — `MetricLog.value` is `NOT NULL` and a NaN would make every
+  comparison against it silently false. `best_fold_idx` is chosen among finite
+  folds only; `get_best_model()` and `visualize()` raise/return on no usable
+  fold instead of formatting `None`.
+- **Test:** `TestCrossValidationConfig` (constructor groups used, no group
+  split across folds, every requested metric computed, legacy keys preserved,
+  an undefined fold does not poison the mean, no logged metric is NaN/None,
+  the primary metric filters too, and an all-undefined run degrades without a
+  crash).
+- **Failure mode if violated:** configuration that reads as honoured but is
+  discarded — `groups=` silently ignored (raising at run time), or a
+  multi-metric request silently collapsed to its first entry; or one degenerate
+  fold turns a reported metric into NaN that is persisted as if measured.
+- **Status:** VERIFIED.
+
+### I27 — A drift method reports whether it detected drift.
+- **Definition:** each method in `steps/evaluation.DriftDetectionStep`
+  (`ks_test`, `wasserstein`, `psi`) returns a `drift_detected` key, so the
+  run-level `any()` aggregation can see every method's verdict.
+- **Owner:** `steps/evaluation.py::_ks_test`, `_wasserstein_distance`,
+  `_population_stability_index`.
+- **Enforcement:** all three return the uniform
+  `{"drift_detected": bool, "per_feature": {...}}` shape.
+- **Test:** `TestDriftReporting` (parametrised over all three methods, both
+  directions — a large shift is reported, no shift is not).
+- **Failure mode if violated:** a production pipeline reports "no drift" while
+  the detector has flagged every feature. Observed before this invariant:
+  `methods=["wasserstein"]` returned `drift_detected=False` for a 5-sigma
+  shift.
+- **Status:** VERIFIED.
+
+### I29 — Evaluation resolves label↔column mapping from the fitted model,
+not from an assumed class order.
+- **Definition:** `ModelEvaluatorStep` resolves the probability column holding
+  `positive_label` from `model.classes_`, emits predictions in the model's own
+  label space, and computes calibration's `a_B` as membership of the positive
+  class. `error_by_class` is keyed by the label itself. Steps that construct a
+  stochastic estimator derive its `random_state` from `resolve_seed`.
+- **Owner:** `steps/evaluation.py::ModelEvaluatorStep._positive_column`,
+  `run`, `_calculate_calibration`, `_perform_error_analysis`;
+  `steps/data.py::FeatureSelectionStep.run` (rfe / model_based).
+- **Enforcement:** `self._classes` and `self._positive_col` are resolved once
+  per run; calibration indexes probability columns through a label→column
+  lookup rather than the raw label value.
+- **Test:** `tests/unit/test_evaluator_column_mapping.py` (binary case
+  unchanged, predictions in the model's label space, `positive_label` honoured,
+  roc_auc responds to the positive column, four label dtypes incl. strings and
+  a gap in the labels, ECE ~0 when calibrated and >0.1 when overconfident, run
+  seed reaches permutation importance and both feature-selection methods).
+- **Failure mode if violated:** the evaluator scores the wrong probability
+  column and returns a confident, plausible, wrong number — or crashes on any
+  target that is not integer 0/1. Observed before this invariant:
+  `positive_label` was dead config; classes `[0, 2]` were scored on column 1;
+  `error_by_class[int(cls)]` raised on string labels.
+- **Ceilings:** the seed reaches the sklearn estimators only; DL and LLM steps
+  still do not consult `run_rng` (see I21).
+- **Status:** VERIFIED.
+
+### I30 — Per-run state on a reused step does not leak into the next run.
+- **Definition:** the engine clears `step.metrics` before each run, and a step
+  that owns training state clears it itself. A step instance is reusable — the
+  engine deliberately rebinds `run_rng` on every run for exactly that reason
+  (baseline B7 asserts a reused step gets no stale stream).
+- **Owner:** `autopipe/core/execution.py::ExecutionEngine._reset_metrics`;
+  `autopipe/steps/deep_learning.py::PyTorchTrainerStep.run` (model, history,
+  best weights, best loss, patience counter).
+- **Enforcement:** `_reset_metrics` is called in the same bind loop as
+  `_bind_rng`/`_bind_cancellation`, so it cannot be forgotten by a new step.
+- **Test:** `tests/unit/test_step_state_isolation.py` (trainer: second run does
+  not return the first run's weights, history does not accumulate,
+  `total_epochs` is per run, a reused instance reproduces a fresh one; engine:
+  metrics from a previous run — including a failed one — are gone, and metrics
+  still accumulate *within* a run).
+- **Failure mode if violated:** a wrong model returned silently. Observed
+  before this invariant: `PyTorchTrainerStep` carried `best_val_loss` and
+  `best_weights` across runs, so a second run whose loss never beat the first
+  one's loaded the **first run's trained weights** into the returned model, and
+  reported twice the epochs actually trained.
+- **Blast radius:** library and REPL use only. `core/loader.py` builds a fresh
+  step instance per load and the executor loads per run, so the dashboard was
+  never exposed to this.
+- **Status:** VERIFIED.
+
+### I28 — A drift verdict is a calibrated, multiplicity-corrected test, not a
+fixed absolute threshold.
+- **Definition:** every drift method reports a per-feature p-value, and the
+  run-level verdict comes from Benjamini-Hochberg-corrected p-values at one
+  significance level. Methods without a closed-form p-value (`wasserstein`,
+  `psi`) obtain one from a permutation test over the pooled sample; KS uses
+  its exact p-value. The method's native quantity (distance, PSI) is still
+  reported as the *magnitude*, but never decides.
+- **Owner:** `monitoring/drift_detection.py::permutation_pvalues`,
+  `benjamini_hochberg`; `steps/evaluation.py::DriftDetectionStep._decide`,
+  `_permutation_pvalues`; `StatisticalDriftDetectorStep._permutation_pvalue`.
+- **Enforcement:** one significance level (`drift_threshold` / `threshold`) for
+  all methods; permutation draws seeded from `resolve_seed`, so a declared run
+  seed governs the null; the permutation order is drawn once and applied to
+  every feature.
+- **Test:** `TestDriftReporting` (every method reports and withholds drift;
+  n=100 no longer manufactures drift; a 1-sigma shift is still caught at
+  n=500; 30 clean features are not flagged; every feature carries a p-value;
+  the permutation follows the run seed and is stable under it).
+- **Failure mode if violated:** a false-alarm rate set by dataset size or
+  feature count rather than by drift. Measured before this invariant, on two
+  iid samples: the absolute wasserstein cutoff fired on **97% of clean
+  comparisons at n=100, 73% at n=200, 20% at n=500 and 0% at n=5000**. Testing
+  F features at alpha=0.05 without correction reached a **0.89** chance of at
+  least one false alarm by F=50.
+- **Evidence after the fix (OBSERVED):** 100 clean trials at n=500, alpha=0.05
+  — ks_test 4, wasserstein 2, psi 5 false alarms. Power retained: a 1-sigma
+  shift across 5 features is caught 40/40 by every method.
+- **Correction to an earlier note in this file:** the previous revision of I28
+  claimed `monitoring.drift_detection` was the better-calibrated engine and the
+  convergence target. That was wrong in a way that mattered — it had the same
+  uncalibrated cutoff for `wasserstein`, and it set `p_value = None` for both
+  `wasserstein` and `psi`, so its Benjamini-Hochberg step was skipped for
+  exactly the two methods that needed it. Both engines now use the shared
+  permutation null.
+- **Ceilings:** permutation testing costs O(B · F · n log n) — measured at 89 ms
+  for one feature at n=2000 with B=199, so a wide, high-cardinality feature set
+  is noticeably slower than the old O(F·n) cutoffs. Decile PSI remains weak for
+  very small shifts (3/40 detected at 0.2 sigma against 38/40 for wasserstein).
+- **Status:** VERIFIED.

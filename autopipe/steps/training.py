@@ -15,7 +15,12 @@ import numpy as np
 import pandas as pd
 
 from autopipe.core.artifacts import record_produced_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
+from autopipe.utils import aggregate
+
+# Seed used when the run declared none. Historical default, kept so that an
+# unseeded run is still reproducible rather than silently random.
+_DEFAULT_RANDOM_STATE = 42
 
 
 @dataclass
@@ -57,6 +62,7 @@ class SklearnTrainerStep(Step):
         fit_params: Optional[Dict] = None,
         save_path: Optional[str] = None,
         n_jobs: int = 1,
+        target_column: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -69,9 +75,45 @@ class SklearnTrainerStep(Step):
         self.fit_params = fit_params or {}
         self.save_path = save_path
         self.n_jobs = n_jobs
+        self.target_column = target_column
 
         self.model = None
         self.cv_results = {}
+
+    def _frame_to_xy(self, frame: pd.DataFrame):
+        """Split a frame into (X, y), using ``target_column`` when declared."""
+        if self.target_column is None:
+            return frame.iloc[:, :-1].values, frame.iloc[:, -1].values
+        if self.target_column not in frame.columns:
+            raise ValueError(
+                f"target_column {self.target_column!r} is not a column of the input "
+                f"(columns: {list(frame.columns)})"
+            )
+        y = frame[self.target_column].values
+        return frame.drop(columns=[self.target_column]).values, y
+
+    def _extract_xy(self, kwargs: Dict[str, Any]):
+        """Choose the training input by a FIXED priority, not by kwargs order.
+
+        A splits dict and an ``(X, y)`` tuple both state exactly what to train
+        on, so they outrank a bare DataFrame. Choosing by iteration order
+        instead let a later raw frame silently override the train split, so the
+        model trained on the held-out test rows and reported healthy metrics.
+        """
+        for value in kwargs.values():
+            if isinstance(value, dict) and isinstance(value.get("train"), pd.DataFrame):
+                return self._frame_to_xy(value["train"])
+        for value in kwargs.values():
+            if isinstance(value, tuple) and len(value) == 2:
+                X, y = value
+                return X, y
+        for value in kwargs.values():
+            if isinstance(value, pd.DataFrame):
+                return self._frame_to_xy(value)
+        for value in kwargs.values():
+            if isinstance(value, np.ndarray):
+                return value, None
+        return None, None
 
     def run(self, **kwargs) -> Any:
         """Train model with optional cross-validation."""
@@ -81,49 +123,33 @@ class SklearnTrainerStep(Step):
 
         logger = logging.getLogger(__name__)
 
-        # Extract data from inputs
-        X_train, y_train = None, None
-
-        for _key, value in kwargs.items():
-            if (
-                isinstance(value, dict)
-                and "train" in value
-                and isinstance(value["train"], pd.DataFrame)
-                and y_train is None
-            ):
-                train_data = value["train"]
-                y_train = train_data.iloc[:, -1].values
-                X_train = train_data.iloc[:, :-1].values
-            elif isinstance(value, tuple) and len(value) == 2:
-                X_train, y_train = value
-            elif isinstance(value, pd.DataFrame):
-                y_train = value.iloc[:, -1].values
-                X_train = value.iloc[:, :-1].values
-            elif isinstance(value, np.ndarray):
-                if X_train is None:
-                    X_train = value
+        X_train, y_train = self._extract_xy(kwargs)
 
         if X_train is None or y_train is None:
             raise ValueError("SklearnTrainerStep requires training data (X) and target labels (y)")
 
         logger.info(f"Training on {len(X_train)} samples")
 
+        seed = resolve_seed(self, _DEFAULT_RANDOM_STATE)
+
         # Initialize model
         if self.model_class is None:
             from sklearn.ensemble import RandomForestClassifier
 
-            self.model = RandomForestClassifier(**self.model_params, random_state=42)
+            self.model = RandomForestClassifier(**self.model_params, random_state=seed)
         else:
-            self.model = self.model_class(**self.model_params)
+            params = dict(self.model_params)
+            params.setdefault("random_state", seed)
+            self.model = self.model_class(**params)
 
         # Cross-validation
         if self.use_cross_validation:
             logger.info(f"Running {self.cv_folds}-fold cross-validation...")
 
             if self.cv_strategy == "stratified":
-                cv = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=42)
+                cv = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=seed)
             else:
-                cv = KFold(n_splits=self.cv_folds, shuffle=True, random_state=42)
+                cv = KFold(n_splits=self.cv_folds, shuffle=True, random_state=seed)
 
             scoring = self.scoring if isinstance(self.scoring, list) else [self.scoring]
             self.cv_results = cross_validate(
@@ -137,13 +163,28 @@ class SklearnTrainerStep(Step):
             )
 
             for metric in scoring:
-                train_scores = self.cv_results.get(f"train_{metric}", [])
-                val_scores = self.cv_results.get(f"test_{metric}", [])
-
-                self.log_metrics(
-                    **{f"cv_train_{metric}_mean": np.mean(train_scores)},
-                    **{f"cv_val_{metric}_mean": np.mean(val_scores)},
+                # A scorer can return NaN on a degenerate fold (roc_auc with a
+                # single-class fold), and one NaN poisons the whole mean — which
+                # would then be persisted to MetricLog as a measurement.
+                train_mean, train_std, train_dropped = aggregate(
+                    self.cv_results.get(f"train_{metric}", [])
                 )
+                val_mean, val_std, val_dropped = aggregate(
+                    self.cv_results.get(f"test_{metric}", [])
+                )
+                reported = {}
+                if val_mean is not None:
+                    reported[f"cv_val_{metric}_mean"] = val_mean
+                    reported[f"cv_val_{metric}_std"] = val_std
+                if train_mean is not None:
+                    reported[f"cv_train_{metric}_mean"] = train_mean
+                    reported[f"cv_train_{metric}_std"] = train_std
+                # Undefined folds are reported as a count rather than averaged in.
+                if val_dropped:
+                    reported[f"cv_val_{metric}_dropped_folds"] = val_dropped
+                if train_dropped:
+                    reported[f"cv_train_{metric}_dropped_folds"] = train_dropped
+                self.log_metrics(**reported)
 
         self.model.fit(X_train, y_train, **self.fit_params)
 
@@ -205,7 +246,13 @@ class HyperparameterTunerStep(Step):
         if X is None or y is None:
             raise ValueError("HyperparameterTunerStep requires (X, y) input")
 
+        # Sampling must be seeded from the run's declared seed; otherwise two
+        # identical seeded runs search different parameter subsets. The
+        # estimator needs the same seed, or the fitted model still differs.
+        seed = resolve_seed(self, _DEFAULT_RANDOM_STATE)
         model = (self.model_class or RandomForestClassifier)()
+        if "random_state" in model.get_params():
+            model.set_params(random_state=seed)
         SearchCV = GridSearchCV if self.search_strategy == "grid" else RandomizedSearchCV
 
         search_kwargs = {
@@ -216,6 +263,10 @@ class HyperparameterTunerStep(Step):
             "n_jobs": self.n_jobs,
         }
         if self.search_strategy == "random":
+            # RandomizedSearchCV draws candidates from random_state; without it
+            # two identical seeded runs search different subsets. GridSearchCV
+            # enumerates the grid exhaustively and takes no random_state.
+            search_kwargs["random_state"] = seed
             search_kwargs["n_iter"] = self.n_iter
             search_kwargs["param_distributions"] = search_kwargs.pop("param_grid")
 

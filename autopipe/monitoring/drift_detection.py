@@ -10,7 +10,7 @@ Monitors:
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -41,6 +41,69 @@ def benjamini_hochberg(p_values: List[float]) -> List[float]:
     for idx_in_order, original_idx in enumerate(order):
         result[original_idx] = adjusted_sorted[idx_in_order]
     return result
+
+
+def permutation_pvalues(
+    reference: np.ndarray,
+    current: np.ndarray,
+    statistic: Optional[Callable[[np.ndarray, np.ndarray], float]] = None,
+    n_permutations: int = 199,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """Two-sample permutation p-values, one per feature.
+
+    A fixed distance cutoff is not a test. Under the null the Wasserstein
+    distance between two iid samples shrinks as O(1/n), so a constant
+    threshold yields a false-alarm rate set by the sample size rather than by
+    drift — measured here at 97% for n=100 and 0% for n=5000. Permuting the
+    pooled sample gives the exact null distribution under exchangeability, so
+    the p-value means what the significance level says it means, at any n and
+    any feature scale.
+
+    The permutation order is drawn once and applied to every feature, so the
+    cost is one shuffle per permutation rather than one per feature.
+
+    Args:
+        reference: ``(n_ref, n_features)`` baseline sample.
+        current: ``(n_cur, n_features)`` sample under test.
+        statistic: Two-sample statistic; defaults to Wasserstein distance.
+        n_permutations: Shuffles. The smallest attainable p-value is
+            ``1 / (n_permutations + 1)``, so keep this at or above 99 to leave
+            room for multiple-testing correction.
+        rng: Seed source, normally the run-local RNG.
+
+    Returns:
+        Array of ``n_features`` p-values.
+    """
+    from scipy.stats import wasserstein_distance
+
+    reference = np.asarray(reference, dtype=float)
+    current = np.asarray(current, dtype=float)
+    if reference.ndim != 2 or current.ndim != 2:
+        raise ValueError("permutation_pvalues expects 2-D (n_samples, n_features) arrays")
+    if reference.shape[1] != current.shape[1]:
+        raise ValueError(
+            f"feature count mismatch: reference has {reference.shape[1]}, "
+            f"current has {current.shape[1]}"
+        )
+
+    statistic = statistic or wasserstein_distance
+    rng = rng or np.random.default_rng()
+    n_ref = len(reference)
+    n_features = reference.shape[1]
+    pooled = np.concatenate([reference, current], axis=0)
+
+    observed = np.array([statistic(reference[:, f], current[:, f]) for f in range(n_features)])
+    at_least = np.zeros(n_features, dtype=int)
+    for _ in range(n_permutations):
+        order = rng.permutation(len(pooled))
+        shuffled_a = pooled[order[:n_ref]]
+        shuffled_b = pooled[order[n_ref:]]
+        for f in range(n_features):
+            if statistic(shuffled_a[:, f], shuffled_b[:, f]) >= observed[f] - 1e-12:
+                at_least[f] += 1
+
+    return (at_least + 1) / (n_permutations + 1)
 
 
 @dataclass
@@ -89,6 +152,7 @@ class StatisticalDriftDetectorStep(Step):
         method: str = "ks",
         threshold: float = 0.05,
         categorical_features: Optional[List[str]] = None,
+        n_permutations: int = 199,
         **kwargs,
     ):
         """
@@ -96,12 +160,17 @@ class StatisticalDriftDetectorStep(Step):
             method: Drift detection method ('ks', 'chi2', 'psi', 'wasserstein')
             threshold: Significance threshold (p-value or PSI threshold)
             categorical_features: List of categorical feature names
+            n_permutations: Shuffles used to build the null distribution for
+                methods with no closed-form p-value. 199 gives a smallest
+                attainable p of 1/200; keep it at or above 99 so the
+                Benjamini-Hochberg step has room to work with.
         """
         super().__init__(name, **kwargs)
         self.method = method
         self.threshold = threshold
         self.multiple_testing: str = kwargs.get("multiple_testing", "bh")
         self.categorical_features = categorical_features or []
+        self.n_permutations = n_permutations
         self.drift_reports: List[DriftReport] = []
 
     def run(
@@ -159,7 +228,7 @@ class StatisticalDriftDetectorStep(Step):
             if report.drift_detected:
                 drift_detected_count += 1
                 logger.warning(
-                    f"Drift detected in feature '{feature_names[0] if False else report.feature_name}': "
+                    f"Drift detected in feature '{report.feature_name}': "
                     f"{report.metric_name}={report.metric_value:.4f}"
                     + (
                         f" (BH-adjusted p={report.adjusted_p_value:.4g})"
@@ -201,19 +270,22 @@ class StatisticalDriftDetectorStep(Step):
             from scipy.stats import wasserstein_distance
 
             distance = wasserstein_distance(ref, cur)
-            # Normalize by std of reference
+            # Normalised by the reference spread so the number is comparable
+            # across features, but NOT used as the decision: that cutoff was
+            # sample-size dependent (97% false alarms at n=100, 0% at n=5000).
+            # The decision comes from a permutation p-value, which is.
             distance_normalized = distance / ref.std() if ref.std() > 0 else distance
             drift = distance_normalized > self.threshold
             metric_name = "wasserstein_normalized"
             metric_value = distance_normalized
-            p_value = None
+            p_value = self._permutation_pvalue(ref, cur, wasserstein_distance)
 
         elif self.method == "psi":
             psi_value = self._compute_psi(ref, cur)
             drift = psi_value > self.threshold
             metric_name = "psi"
             metric_value = psi_value
-            p_value = None
+            p_value = self._permutation_pvalue(ref, cur, self._psi_statistic)
 
         else:
             raise ValueError(f"Unknown method: {self.method}")
@@ -228,6 +300,25 @@ class StatisticalDriftDetectorStep(Step):
             p_value=p_value if "p_value" in locals() else None,
             reference_stats={"mean": ref.mean(), "std": ref.std(), "n": len(ref)},
             current_stats={"mean": cur.mean(), "std": cur.std(), "n": len(cur)},
+        )
+
+    def _psi_statistic(self, a, b):
+        """PSI as a plain two-sample statistic, for permutation testing."""
+        return self._compute_psi(pd.Series(a), pd.Series(b))
+
+    def _permutation_pvalue(self, ref, cur, statistic):
+        """Exact null p-value for one feature, seeded from the run."""
+        from autopipe.core.step import resolve_seed
+
+        rng = np.random.default_rng(resolve_seed(self, 42))
+        return float(
+            permutation_pvalues(
+                ref.to_numpy().reshape(-1, 1),
+                cur.to_numpy().reshape(-1, 1),
+                statistic=statistic,
+                n_permutations=self.n_permutations,
+                rng=rng,
+            )[0]
         )
 
     def _detect_categorical_drift(
@@ -696,7 +787,7 @@ class DriftDashboardStep(Step):
             lines.append("")
 
         # Save report
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
         record_produced_file(output_path)
 

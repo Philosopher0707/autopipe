@@ -143,7 +143,7 @@ class ModelRegistry:
         index_path = self.registry_dir / "registry_index.json"
         if index_path.exists():
             try:
-                with open(index_path, "r") as f:
+                with open(index_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
                 for name, versions_data in data.items():
@@ -179,7 +179,7 @@ class ModelRegistry:
         tmp_path = index_path.with_suffix(".json.tmp")
         data = {name: [v.to_dict() for v in versions] for name, versions in self.models.items()}
         with self._lock:
-            with open(tmp_path, "w") as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str)
             os.replace(tmp_path, index_path)
 

@@ -11,7 +11,8 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
+from autopipe.monitoring.drift_detection import benjamini_hochberg, permutation_pvalues
 
 
 @dataclass
@@ -62,6 +63,18 @@ class ModelEvaluatorStep(Step):
         self.calibration_bins = calibration_bins
         self.error_analysis = error_analysis
         self.result = EvaluationResult()
+        # Column of `predict_proba` holding `positive_label`. Resolved per run
+        # from the fitted model's classes_ — the probability columns follow
+        # classes_, which is not always [0, 1].
+        self._positive_col = 1
+        self._classes: np.ndarray = np.asarray([])
+
+    def _positive_column(self, model) -> int:
+        """Index into ``predict_proba`` output that holds ``positive_label``."""
+        classes = np.asarray(getattr(model, "classes_", []))
+        if classes.ndim == 1 and self.positive_label in classes:
+            return int(np.flatnonzero(classes == self.positive_label)[0])
+        return 1  # models without classes_ keep the historical assumption
 
     def run(
         self,
@@ -80,10 +93,17 @@ class ModelEvaluatorStep(Step):
         if self.task_type == "classification":
             if hasattr(model, "predict_proba") and self.calculate_proba:
                 self.result.probabilities = model.predict_proba(X_test)
+                self._positive_col = self._positive_column(model)
+                self._classes = np.asarray(
+                    getattr(model, "classes_", np.arange(self.result.probabilities.shape[1]))
+                )
                 if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-                    self.result.predictions = (
-                        self.result.probabilities[:, 1] >= self.threshold
-                    ).astype(int)
+                    # Emit the model's own labels, not 0/1: with classes
+                    # [0, 2] a predicted "1" would mean nothing.
+                    classes = self._classes
+                    pos = self.result.probabilities[:, self._positive_col] >= self.threshold
+                    other = classes[1 - self._positive_col] if classes.size == 2 else 0
+                    self.result.predictions = np.where(pos, classes[self._positive_col], other)
                 else:
                     self.result.predictions = np.argmax(self.result.probabilities, axis=1)
             else:
@@ -147,11 +167,10 @@ class ModelEvaluatorStep(Step):
         if self.result.probabilities is not None:
             with contextlib.suppress(ValueError):
                 if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-                    self.result.roc_auc = sklearn_metrics.roc_auc_score(
-                        y_true, self.result.probabilities[:, 1]
-                    )
+                    pos_proba = self.result.probabilities[:, self._positive_col]
+                    self.result.roc_auc = sklearn_metrics.roc_auc_score(y_true, pos_proba)
                     self.result.average_precision = sklearn_metrics.average_precision_score(
-                        y_true, self.result.probabilities[:, 1]
+                        y_true, pos_proba
                     )
                 else:
                     self.result.roc_auc = sklearn_metrics.roc_auc_score(
@@ -258,9 +277,18 @@ class ModelEvaluatorStep(Step):
         empty. Binning is now done once and reused for both terms.
         """
         if self.result.probabilities.ndim == 2 and self.result.probabilities.shape[1] == 2:
-            prob_pos = self.result.probabilities[:, 1]
+            prob_pos = self.result.probabilities[:, self._positive_col]
         else:
-            prob_pos = self.result.probabilities[np.arange(len(y_true)), y_true.astype(int)]
+            # Column per row follows model.classes_, not the raw label value —
+            # indexing with the label crashed whenever classes were not
+            # 0..n-1 (e.g. labels {0, 2}).
+            classes = np.asarray(getattr(self, "_classes", []))
+            if classes.ndim != 1 or classes.size == 0:
+                classes = np.arange(self.result.probabilities.shape[1])
+            lookup = {c: i for i, c in enumerate(classes.tolist())}
+            y_arr = np.asarray(y_true).reshape(-1)
+            cols = np.array([lookup.get(v, 0) for v in y_arr])
+            prob_pos = self.result.probabilities[np.arange(len(y_arr)), cols]
 
         n_bins = self.calibration_bins
         n = len(prob_pos)
@@ -269,6 +297,16 @@ class ModelEvaluatorStep(Step):
             return
 
         bin_idx = np.clip((prob_pos * n_bins).astype(int), 0, n_bins - 1)
+        # a_B is the observed POSITIVE RATE in the bin. Defined as membership
+        # of the positive class rather than mean(y_true): identical for the
+        # usual [0, 1] labels, but correct for string labels (mean() raises)
+        # and for non-[0, 1] labels (mean(y) is not on the 0-1 scale).
+        truth = np.asarray(y_true).reshape(-1)
+        positive_class = (
+            self._classes[self._positive_col]
+            if self._classes.size == self.result.probabilities.shape[1]
+            else 1
+        )
         ece = 0.0
         reliability = []
         for b in range(n_bins):
@@ -277,7 +315,7 @@ class ModelEvaluatorStep(Step):
             if count == 0:
                 continue
             confidence = float(prob_pos[mask].mean())
-            accuracy = float(np.asarray(y_true)[mask].mean())
+            accuracy = float((truth[mask] == positive_class).mean())
             ece += (count / n) * abs(accuracy - confidence)
             reliability.append(
                 {"bin": b, "count": count, "confidence": confidence, "accuracy": accuracy}
@@ -298,7 +336,9 @@ class ModelEvaluatorStep(Step):
         for cls in np.unique(y_true):
             cls_mask = y_true == cls
             cls_errors = errors[cls_mask]
-            self.result.error_analysis["error_by_class"][int(cls)] = {
+            # Key by the label itself: int(cls) crashed on string labels,
+            # which is a perfectly ordinary target dtype.
+            self.result.error_analysis["error_by_class"][cls.item()] = {
                 "error_rate": float(np.mean(cls_errors)),
                 "error_count": int(np.sum(cls_errors)),
             }
@@ -399,7 +439,11 @@ class ExplainabilityStep(Step):
     def _permutation_importance(self, model, X, y, feature_names):
         from sklearn.inspection import permutation_importance
 
-        result = permutation_importance(model, X, y, n_repeats=10, random_state=42)
+        # Seeded from the run, not a constant: the shuffle order changes which
+        # features look important, so a pinned seed ignored the run (I25).
+        result = permutation_importance(
+            model, X, y, n_repeats=10, random_state=resolve_seed(self, 42)
+        )
 
         if isinstance(X, pd.DataFrame) and feature_names is None:
             feature_names = list(X.columns)
@@ -429,11 +473,25 @@ class DriftDetectionStep(Step):
         reference_data: Optional[np.ndarray] = None,
         drift_threshold: float = 0.05,
         methods: Optional[List[str]] = None,
+        n_permutations: int = 199,
     ):
+        """
+        Args:
+            name: Step name.
+            depends_on: Upstream step names.
+            reference_data: ``(n_ref, n_features)`` baseline sample.
+            drift_threshold: Significance level, applied to every method after
+                Benjamini-Hochberg correction. It is a p-value alpha, so it now
+                means the same thing for all three methods.
+            methods: Any of ``ks_test``, ``wasserstein``, ``psi``.
+            n_permutations: Shuffles for the methods with no closed-form
+                p-value. 199 gives a smallest attainable p of 1/200.
+        """
         super().__init__(name, depends_on=depends_on)
         self.reference_data = reference_data
         self.drift_threshold = drift_threshold
         self.methods = methods or ["ks_test", "wasserstein"]
+        self.n_permutations = n_permutations
         self.drift_results = {}
 
     def run(
@@ -465,51 +523,106 @@ class DriftDetectionStep(Step):
 
         return context["drift_detection"]
 
+    def _decide(self, p_values: List[float]) -> List[bool]:
+        """Benjamini-Hochberg decision across features at ``drift_threshold``.
+
+        Without this correction, testing F features at alpha=0.05 raises the
+        chance of at least one false alarm to 0.89 by F=50 on data with no
+        drift at all — measured, not estimated.
+        """
+        adjusted = benjamini_hochberg([float(p) for p in p_values])
+        return [a < self.drift_threshold for a in adjusted]
+
     def _ks_test(self, current_data):
         from scipy.stats import ks_2samp
 
-        results = {}
-        drift_detected = False
-
-        for i in range(self.reference_data.shape[1]):
+        n_features = self.reference_data.shape[1]
+        statistics, p_values = [], []
+        for i in range(n_features):
             statistic, pvalue = ks_2samp(self.reference_data[:, i], current_data[:, i])
+            statistics.append(float(statistic))
+            p_values.append(float(pvalue))
 
-            results[f"feature_{i}"] = {
-                "statistic": float(statistic),
-                "pvalue": float(pvalue),
-                "drift": pvalue < self.drift_threshold,
+        flags = self._decide(p_values)
+        results = {
+            f"feature_{i}": {
+                "statistic": statistics[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
             }
-
-            if pvalue < self.drift_threshold:
-                drift_detected = True
-
-        return {"drift_detected": drift_detected, "per_feature": results}
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
     def _wasserstein_distance(self, current_data):
+        """Distance as a magnitude; the decision comes from a permutation test.
+
+        The old fixed cutoff of 0.1 was not a test — the null distance shrinks
+        as O(1/n), so it fired on 97% of clean comparisons at n=100 and 0% at
+        n=5000.
+        """
         from scipy.stats import wasserstein_distance
 
-        results = {}
+        n_features = self.reference_data.shape[1]
+        distances = [
+            float(wasserstein_distance(self.reference_data[:, i], current_data[:, i]))
+            for i in range(n_features)
+        ]
+        p_values = self._permutation_pvalues(current_data, wasserstein_distance)
+        flags = self._decide(p_values)
 
-        for i in range(self.reference_data.shape[1]):
-            dist = wasserstein_distance(self.reference_data[:, i], current_data[:, i])
-
-            results[f"feature_{i}"] = {"distance": float(dist), "drift": dist > 0.1}
-
-        return results
+        results = {
+            f"feature_{i}": {
+                "distance": distances[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
+            }
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
     def _population_stability_index(self, current_data):
-        """Calculate Population Stability Index."""
-        results = {}
+        """PSI as a magnitude; the decision comes from a permutation test."""
+        n_features = self.reference_data.shape[1]
+        values = [self._psi(i, current_data) for i in range(n_features)]
+        p_values = self._permutation_pvalues(current_data, self._psi_statistic)
+        flags = self._decide(p_values)
 
-        for i in range(self.reference_data.shape[1]):
-            ref_hist, bins = np.histogram(self.reference_data[:, i], bins=10)
-            curr_hist, _ = np.histogram(current_data[:, i], bins=bins)
+        results = {
+            f"feature_{i}": {
+                "psi": values[i],
+                "pvalue": p_values[i],
+                "drift": flags[i],
+            }
+            for i in range(n_features)
+        }
+        return {"drift_detected": any(flags), "per_feature": results}
 
-            ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
-            curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+    def _psi(self, index: int, current_data: np.ndarray) -> float:
+        """PSI of one feature, with deciles taken from the reference sample."""
+        ref_hist, bins = np.histogram(self.reference_data[:, index], bins=10)
+        curr_hist, _ = np.histogram(current_data[:, index], bins=bins)
+        ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
+        curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+        return float(np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10))))
 
-            psi = np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10)))
+    def _psi_statistic(self, a, b):
+        """PSI as a plain two-sample statistic, for permutation testing."""
+        ref_hist, bins = np.histogram(a, bins=10)
+        curr_hist, _ = np.histogram(b, bins=bins)
+        ref_pct = ref_hist / (ref_hist.sum() + 1e-10)
+        curr_pct = curr_hist / (curr_hist.sum() + 1e-10)
+        return float(np.sum((curr_pct - ref_pct) * np.log((curr_pct + 1e-10) / (ref_pct + 1e-10))))
 
-            results[f"feature_{i}"] = {"psi": float(psi), "drift": psi > 0.25}
-
-        return results
+    def _permutation_pvalues(self, current_data, statistic) -> List[float]:
+        rng = np.random.default_rng(resolve_seed(self, 42))
+        return [
+            float(p)
+            for p in permutation_pvalues(
+                self.reference_data,
+                current_data,
+                statistic=statistic,
+                n_permutations=self.n_permutations,
+                rng=rng,
+            )
+        ]

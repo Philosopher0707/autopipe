@@ -220,6 +220,18 @@ class PyTorchTrainerStep(Step):
         import torch
         from torch.utils.data import DataLoader, TensorDataset
 
+        # Reset per-run state. A step instance is reusable — the engine rebinds
+        # run_rng on every run for exactly that reason — so carrying training
+        # state across runs is a silent wrong answer, not a style question: a
+        # second run whose loss never beats the first's loaded the FIRST run's
+        # weights into the returned model, and history reported twice the
+        # epochs that were actually trained.
+        self.model = None
+        self.history = {"train_loss": [], "val_loss": [], "train_metrics": {}, "val_metrics": {}}
+        self.best_weights = None
+        self.best_val_loss = float("inf")
+        self.patience_counter = 0
+
         device = self._get_device()
         logger.info(f"Training on device: {device}")
 

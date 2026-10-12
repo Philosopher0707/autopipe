@@ -75,7 +75,7 @@ def run(
         if output:
             import json
 
-            with open(output, "w") as f:
+            with open(output, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2, default=str)
             console.print(f"[dim]Results written to {output}[/dim]")
 
@@ -141,7 +141,7 @@ def validate(pipeline_file: str):
 
             from autopipe.core.loader import load_executable_pipeline
 
-            with open(pipeline_file, "r") as f:
+            with open(pipeline_file, "r", encoding="utf-8") as f:
                 config_dict = yaml.safe_load(f)
 
             pipeline = load_executable_pipeline(config_dict)
@@ -298,7 +298,7 @@ steps:
         console.print(f"[red]Error: {filename} already exists![/red]")
         sys.exit(1)
 
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(template)
 
     console.print(f"[green]✓ Created new pipeline: {filename}[/green]")
@@ -417,10 +417,10 @@ def models_set(model_name: str, provider: str, persist: bool):
                         content = "\n".join(new_lines)
                     else:
                         content += f"\nOLLAMA_DEFAULT_MODEL={model_name}\n"
-                    env_file.write_text(content)
+                    env_file.write_text(content, encoding="utf-8")
                     console.print("[green]✓ Persisted to .env file[/green]")
                 else:
-                    env_file.write_text(f"OLLAMA_DEFAULT_MODEL={model_name}\n")
+                    env_file.write_text(f"OLLAMA_DEFAULT_MODEL={model_name}\n", encoding="utf-8")
                     console.print(
                         f"[green]✓ Created .env file with OLLAMA_DEFAULT_MODEL={model_name}[/green]"
                     )
@@ -549,7 +549,7 @@ def models_use(alias: str, kimi: bool, glm: bool, minimax: bool):
             content = "\n".join(new_lines)
         else:
             content += f"\nOLLAMA_DEFAULT_MODEL={model}\n"
-        env_file.write_text(content)
+        env_file.write_text(content, encoding="utf-8")
         console.print(f"[green]✓ Set active model: {model}[/green]")
         console.print("[dim]   Updated .env file[/dim]")
     else:

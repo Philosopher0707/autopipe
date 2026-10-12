@@ -146,7 +146,7 @@ def run_eval(
     # Try to read results from temp / specified output
     results_file = output_path or Path(".autopipe_eval_results.json")
     if results_file.exists():
-        with open(results_file) as f:
+        with open(results_file, encoding="utf-8") as f:
             return json.load(f)
     return {"results": []}
 

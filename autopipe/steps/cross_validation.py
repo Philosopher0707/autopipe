@@ -14,7 +14,8 @@ from sklearn.model_selection import (
 )
 
 from autopipe.core.artifacts import record_produced_file
-from autopipe.core.step import Step
+from autopipe.core.step import Step, resolve_seed
+from autopipe.utils import finite_scores
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,11 @@ class CrossValidationStep(Step):
 
     def get_cv_splitter(self, y: np.ndarray = None) -> Any:
         """Get the appropriate CV splitter."""
+        seed = resolve_seed(self, self.random_state)
         if self.strategy == "kfold":
-            return KFold(
-                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
-            )
+            return KFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=seed)
         elif self.strategy == "stratified":
-            return StratifiedKFold(
-                n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
-            )
+            return StratifiedKFold(n_splits=self.n_splits, shuffle=self.shuffle, random_state=seed)
         elif self.strategy == "timeseries":
             return TimeSeriesSplit(n_splits=self.n_splits)
         elif self.strategy == "group":
@@ -108,6 +106,11 @@ class CrossValidationStep(Step):
         Returns:
             Dictionary with CV results
         """
+        # Constructor-supplied groups must win over run()'s None default —
+        # otherwise strategy="group" was unusable from configuration alone.
+        if groups is None:
+            groups = self.groups
+
         cv = self.get_cv_splitter(y)
 
         fold_results = []
@@ -127,13 +130,16 @@ class CrossValidationStep(Step):
             model.fit(X_train, y_train, **fit_kwargs)
 
             # Evaluate
-            train_score = self._score_model(model, X_train, y_train)
-            val_score = self._score_model(model, X_val, y_val)
+            train_scores = self._score_model(model, X_train, y_train)
+            val_scores = self._score_model(model, X_val, y_val)
 
             fold_result = {
                 "fold": fold_idx,
-                "train_score": train_score,
-                "val_score": val_score,
+                # Legacy scalar keys: the primary (first) requested metric.
+                "train_score": train_scores[self.metric_names[0]],
+                "val_score": val_scores[self.metric_names[0]],
+                "train_scores": train_scores,
+                "val_scores": val_scores,
                 "train_size": len(train_idx),
                 "val_size": len(val_idx),
             }
@@ -141,41 +147,73 @@ class CrossValidationStep(Step):
             fold_models.append(model)
 
             self.log_metrics(
-                **{f"fold_{fold_idx}_train_score": train_score},
-                **{f"fold_{fold_idx}_val_score": val_score},
+                **{f"fold_{fold_idx}_train_score": fold_result["train_score"]},
+                **{f"fold_{fold_idx}_val_score": fold_result["val_score"]},
             )
 
-        # Aggregate results
-        train_scores = [r["train_score"] for r in fold_results]
-        val_scores = [r["val_score"] for r in fold_results]
+        # Aggregate results. The primary metric goes through the same
+        # NaN filter as the others, so a degenerate fold cannot poison the
+        # headline score or misdirect best/worst fold selection.
+        primary = self.metric_names[0]
+        train_scores, _ = finite_scores([r["train_scores"][primary] for r in fold_results])
+        ranked = [
+            (i, r["val_scores"][primary])
+            for i, r in enumerate(fold_results)
+            if np.isfinite(r["val_scores"][primary])
+        ]
+        val_scores = [score for _, score in ranked]
 
         self.cv_results = {
             "fold_results": fold_results,
             "fold_models": fold_models,
-            "mean_train_score": np.mean(train_scores),
-            "std_train_score": np.std(train_scores),
-            "mean_val_score": np.mean(val_scores),
-            "std_val_score": np.std(val_scores),
-            "best_fold_idx": np.argmax(val_scores),
-            "worst_fold_idx": np.argmin(val_scores),
+            "mean_train_score": np.mean(train_scores) if train_scores else None,
+            "std_train_score": np.std(train_scores) if train_scores else None,
+            "mean_val_score": np.mean(val_scores) if val_scores else None,
+            "std_val_score": np.std(val_scores) if val_scores else None,
+            "best_fold_idx": max(ranked, key=lambda p: p[1])[0] if ranked else None,
+            "worst_fold_idx": min(ranked, key=lambda p: p[1])[0] if ranked else None,
         }
+
+        # Per-metric aggregates, so a multi-metric request is not silently
+        # collapsed to its first entry.
+        for metric in self.metric_names:
+            for split in ("val", "train"):
+                usable, dropped = finite_scores(
+                    [r[f"{split}_scores"][metric] for r in fold_results]
+                )
+                # A metric with no usable fold is omitted rather than stored as
+                # None/NaN: MetricLog.value is NOT NULL, and a NaN would also
+                # make every comparison against it silently false.
+                if not usable:
+                    continue
+                self.cv_results[f"mean_{split}_{metric}"] = float(np.mean(usable))
+                self.cv_results[f"std_{split}_{metric}"] = float(np.std(usable))
+                if dropped:
+                    self.cv_results[f"dropped_{split}_{metric}"] = dropped
 
         self.log_metrics(
             mean_train_score=self.cv_results["mean_train_score"],
             std_train_score=self.cv_results["std_train_score"],
             mean_val_score=self.cv_results["mean_val_score"],
             std_val_score=self.cv_results["std_val_score"],
+            **{
+                f"mean_val_{m}": self.cv_results[f"mean_val_{m}"]
+                for m in self.metric_names
+                if f"mean_val_{m}" in self.cv_results
+            },
         )
 
         return self.cv_results
 
-    def _score_model(self, model, X: np.ndarray, y: np.ndarray) -> float:
-        """Score model on data."""
+    def _score_model(self, model, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        """Score model on data with every requested metric.
+
+        Previously only ``metric_names[0]`` was computed, so requesting
+        several metrics silently returned one.
+        """
         from sklearn.metrics import get_scorer
 
-        # Use first metric for primary scoring
-        scorer = get_scorer(self.metric_names[0])
-        return scorer(model, X, y)
+        return {name: float(get_scorer(name)(model, X, y)) for name in self.metric_names}
 
     def get_best_model(self) -> Any:
         """Get the model from the best fold."""
@@ -183,11 +221,16 @@ class CrossValidationStep(Step):
             raise ValueError("Cross-validation has not been run")
 
         best_idx = self.cv_results["best_fold_idx"]
+        if best_idx is None:
+            raise ValueError(
+                "No fold produced a usable score, so there is no best model "
+                f"(primary metric {self.metric_names[0]!r} was undefined on every fold)"
+            )
         return self.cv_results["fold_models"][best_idx]
 
     def visualize(self, **kwargs):
         """Visualize CV results."""
-        if self.cv_results is None:
+        if self.cv_results is None or self.cv_results["mean_val_score"] is None:
             return
 
         import matplotlib.pyplot as plt
@@ -282,7 +325,8 @@ class NestedCrossValidationStep(Step):
         """Run nested cross-validation with grid search."""
         from itertools import product
 
-        outer_cv = KFold(n_splits=self.outer_splits, shuffle=True, random_state=self.random_state)
+        seed = resolve_seed(self, self.random_state)
+        outer_cv = KFold(n_splits=self.outer_splits, shuffle=True, random_state=seed)
 
         outer_results = []
 
@@ -293,9 +337,7 @@ class NestedCrossValidationStep(Step):
             y_train, y_test = y[train_idx], y[test_idx]
 
             # Inner CV for hyperparameter selection
-            inner_cv = KFold(
-                n_splits=self.inner_splits, shuffle=True, random_state=self.random_state
-            )
+            inner_cv = KFold(n_splits=self.inner_splits, shuffle=True, random_state=seed)
 
             # Grid search on inner CV
             best_score = -float("inf")
@@ -377,6 +419,7 @@ class DataSplitterStep(Step):
         random_state: int = 42,
         shuffle: bool = True,
         time_column: Optional[str] = None,
+        target_column: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -389,6 +432,10 @@ class DataSplitterStep(Step):
             random_state: Random seed
             shuffle: Whether to shuffle data
             time_column: Column for time-based splitting
+            target_column: Column holding the label. Required for
+                ``stratify`` to do anything — it used to exist only as a
+                ``run()`` argument, so a YAML config could set ``stratify: true``
+                and never stratify, silently.
         """
         super().__init__(name, **kwargs)
         self.train_size = train_size
@@ -399,6 +446,7 @@ class DataSplitterStep(Step):
         self.random_state = random_state
         self.shuffle = shuffle
         self.time_column = time_column
+        self.target_column = target_column
 
         self.splits = None
 
@@ -414,6 +462,16 @@ class DataSplitterStep(Step):
         Returns:
             Dictionary with splits
         """
+        # The run argument wins, so an existing caller is unaffected; otherwise
+        # fall back to the configured column.
+        target_column = target_column or self.target_column
+        if self.stratify and target_column is None:
+            logger.warning(
+                "stratify=True but no target_column is configured, so the split "
+                "is NOT stratified; set params.target_column in the step config "
+                "or pass target_column to run()"
+            )
+
         if self.time_column and self.time_column in data.columns:
             # Time-based split
             data = data.sort_values(self.time_column)
@@ -434,7 +492,7 @@ class DataSplitterStep(Step):
                 data,
                 test_size=self.test_size,
                 stratify=y if self.stratify else None,
-                random_state=self.random_state,
+                random_state=resolve_seed(self, self.random_state),
                 shuffle=self.shuffle,
             )
 
@@ -450,7 +508,7 @@ class DataSplitterStep(Step):
                 train_val_data,
                 test_size=val_ratio,
                 stratify=y_train_val if self.stratify else None,
-                random_state=self.random_state,
+                random_state=resolve_seed(self, self.random_state),
                 shuffle=self.shuffle,
             )
 
@@ -554,15 +612,19 @@ class StratifiedGroupKFoldStep(Step):
         for group in unique_groups:
             group_mask = groups == group
             group_y = y[group_mask]
-            # Use majority class as group label
-            counts = np.bincount(group_y.astype(int))
-            group_labels.append(np.argmax(counts))
+            # Use majority class as group label. Counts come from np.unique
+            # rather than np.bincount, so non-integer labels (strings, floats,
+            # negatives) work instead of raising on astype(int).
+            _classes, counts = np.unique(group_y, return_counts=True)
+            group_labels.append(int(np.argmax(counts)))
 
         group_labels = np.array(group_labels)
 
         # Use stratified k-fold on groups
         skf = StratifiedKFold(
-            n_splits=self.n_splits, shuffle=self.shuffle, random_state=self.random_state
+            n_splits=self.n_splits,
+            shuffle=self.shuffle,
+            random_state=resolve_seed(self, self.random_state),
         )
 
         folds = []
@@ -619,7 +681,7 @@ class BootstrapValidatorStep(Step):
         Returns:
             Dictionary with bootstrap statistics
         """
-        rng = np.random.RandomState(self.random_state)
+        rng = np.random.RandomState(resolve_seed(self, self.random_state))
         n_samples = len(X)
 
         scores = []

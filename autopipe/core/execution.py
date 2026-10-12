@@ -551,6 +551,7 @@ class ExecutionEngine:
                 for step in pipeline.steps.values():
                     self._bind_cancellation(step, context.cancellation)
                     self._bind_rng(step, run_rng)
+                    self._reset_metrics(step)
                 self._run_steps(pipeline, execution_order, progress, context, result, bus)
         except BaseException as exc:
             progress.captured = exc
@@ -631,6 +632,18 @@ class ExecutionEngine:
             step.run_rng = run_rng
         except AttributeError:  # pragma: no cover - slots-based stand-ins
             logger.debug("Step %r does not accept a run RNG", step)
+
+    def _reset_metrics(self, step: Any) -> None:
+        """Clear a step's metric bag before each run.
+
+        ``log_metrics`` updates a dict created in ``__init__``, so a reused
+        step would otherwise carry the previous run's numbers into this one —
+        including from a run that failed.
+        """
+        try:
+            step.metrics = {}
+        except AttributeError:  # pragma: no cover - slots-based stand-ins
+            logger.debug("Step %r has no metrics bag", step)
 
     def _resolve_order(
         self,
